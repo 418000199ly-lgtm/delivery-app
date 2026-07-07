@@ -375,8 +375,17 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
                   📍 您的出发地 (必填)
                 </label>
+                
+                {/* High Fidelity Current Location Display Badge styled exactly like CreateOrderView's marker bubble */}
+                <div className="py-1 flex justify-start">
+                  <div className="bg-white px-3.5 py-1.5 rounded-lg shadow-md border border-gray-150 flex items-center gap-1.5 text-xs font-black text-gray-800">
+                    <span className="w-2 h-2 rounded-full bg-[#189F95]" style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '9999px' }}></span>
+                    <span>{startLocation || '正在定位当前起点...'}</span>
+                  </div>
+                </div>
+
                 <div className="relative flex items-center bg-slate-50 border border-slate-200 focus-within:bg-white focus-within:border-teal-600 rounded-xl px-3 py-2.5 transition-all">
-                  <MapPin className="w-4 h-4 text-[#0d5c55] mr-2 shrink-0" />
+                  <MapPin className="w-4 h-4 text-[#189F95] mr-2 shrink-0" />
                   <input
                     type="text"
                     required
@@ -459,14 +468,20 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
                 <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold">已触达</span>
               </div>
               <div className="space-y-1.5 pt-0.5 text-slate-600 text-[11px]">
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <span className="text-slate-400 font-medium">上车地点：</span>
-                  <span className="text-slate-900 font-bold text-right max-w-[180px] truncate">{startLocation}</span>
+                  <div className="bg-white px-3 py-1 rounded-lg border border-gray-150 flex items-center gap-1.5 text-xs font-black text-gray-800 shadow-xs">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#189F95]" style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '9999px' }}></span>
+                    <span className="truncate max-w-[150px]">{startLocation}</span>
+                  </div>
                 </div>
                 {destination && (
-                  <div className="flex justify-between">
+                  <div className="flex justify-between items-center mt-1">
                     <span className="text-slate-400 font-medium font-sans">下车目的地：</span>
-                    <span className="text-slate-900 font-bold text-right max-w-[180px] truncate">{destination}</span>
+                    <div className="bg-white px-3 py-1 rounded-lg border border-gray-150 flex items-center gap-1.5 text-xs font-black text-gray-800 shadow-xs">
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500" style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '9999px' }}></span>
+                      <span className="truncate max-w-[150px]">{destination}</span>
+                    </div>
                   </div>
                 )}
                 <div className="flex justify-between">

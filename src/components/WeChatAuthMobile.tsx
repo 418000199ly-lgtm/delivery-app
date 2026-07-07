@@ -91,7 +91,7 @@ export default function WeChatAuthMobile() {
           </div>
         </div>
         <div className="text-[11px] text-slate-400 py-4 border-t border-slate-200">
-          尊呼叫出行司机端 · 安全登录技术支持
+          黑湾代驾计费MAX · 安全登录技术支持
         </div>
       </div>
     );
@@ -110,7 +110,7 @@ export default function WeChatAuthMobile() {
           </div>
           <div className="space-y-1">
             <h1 className="text-lg font-bold text-slate-900">微信网页授权登录</h1>
-            <p className="text-xs text-slate-500">由 尊呼叫出行 申请提供服务</p>
+            <p className="text-xs text-slate-500">由 黑湾代驾计费MAX 申请提供服务</p>
           </div>
         </div>
 
@@ -271,7 +271,7 @@ export default function WeChatAuthMobile() {
 
       {/* Official Footnote */}
       <div className="shrink-0 py-6 px-6 text-center text-[10px] text-slate-400 leading-normal bg-slate-100 border-t border-slate-200/60">
-        授权将遵循微信服务协议、个人信息保护规则和尊呼叫出行代驾司机端隐私政策。您的登录和授权链路受行业顶尖SSL双向密钥保障。
+        授权将遵循微信服务协议、个人信息保护规则和黑湾代驾计费MAX司机端隐私政策。您的登录和授权链路受行业顶尖SSL双向密钥保障。
       </div>
 
     </div>

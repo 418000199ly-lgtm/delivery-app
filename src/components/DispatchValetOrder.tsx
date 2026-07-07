@@ -436,26 +436,10 @@ export default function DispatchValetOrder({
           setIsMapLoaded(true);
         });
 
-        // 顶层红心定位销(十字星)，标定当前的绝对业务中心
-        const centerMarker = new AMap.Marker({
-          position: map.getCenter(),
-          content: `<div class="relative flex items-center justify-center pointer-events-none">
-            <div class="absolute -top-10 flex flex-col items-center animate-bounce">
-              <div class="bg-indigo-650 border border-teal-400 outline outline-4 outline-slate-950 text-white text-[10px] font-black px-2.5 py-1.5 rounded-xl shadow-2xl flex items-center gap-1 shrink-0 whitespace-nowrap">
-                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                拖拽此处设为起点
-              </div>
-              <div class="w-2h-2 bg-indigo-650 border-r border-b border-teal-400 rotate-45 -mt-1 shadow-lg"></div>
-            </div>
-            <div class="w-5 h-5 rounded-full bg-teal-500/30 border border-teal-400 flex items-center justify-center shadow-lg">
-              <div class="w-2.5 h-2.5 bg-teal-400 rounded-full"></div>
-            </div>
-          </div>`,
-          offset: new AMap.Pixel(0, 0),
-          clickable: false
-        });
-        centerMarker.setMap(map);
-        centerMarkerInstanceRef.current = centerMarker;
+        // Center marker is handled by a high-fidelity absolute-positioned React overlay
+        // for perfect styling parity and instant dynamic text updating.
+        const centerMarker = null;
+        centerMarkerInstanceRef.current = null;
 
         // 滑动拖动地图：自动校准十字星准瞬时，反向逆地理同步 “乘客起点输入框” 的内容
         map.on('dragstart', () => {
@@ -1282,6 +1266,18 @@ export default function DispatchValetOrder({
           
           {/* High-Precision Interactive AMap Canvas */}
           <div ref={mapContainerRef} className="w-full h-full" id="manager-dispatch-amap-box" />
+
+          {/* Standardized Center Pin Overlay matching CreateOrderView pin styling */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full flex flex-col items-center pointer-events-none z-20" id="dispatch-pickup-location-marker">
+            <div className="bg-white px-3.5 py-1.5 rounded-lg shadow-xl border border-gray-100 mb-1 whitespace-nowrap flex items-center gap-1.5 animate-bounce pointer-events-auto">
+              <span className="w-2 h-2 rounded-full bg-[#189F95]" style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '9999px' }}></span>
+              <span className="text-xs font-black text-gray-800">
+                {passengerAddress || '兴庆区金凤区定位中...'}
+              </span>
+            </div>
+            <div className="w-0.5 h-6 bg-black shadow-lg"></div>
+            <div className="w-2 h-2 bg-black rounded-full -mt-1 shadow-md"></div>
+          </div>
 
           {/* Floating Left Control Panel (Glassmorphic Sidebar Overlay) */}
           <div className="absolute top-4 left-4 bottom-4 w-full max-w-[360px] bg-[#0c0e16]/95 border border-slate-800/80 rounded-2xl shadow-2xl z-30 p-4 flex flex-col justify-between overflow-y-auto backdrop-blur-md animate-in slide-in-from-left-4 duration-300 scrollbar-thin select-text">

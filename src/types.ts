@@ -96,7 +96,7 @@ export const DEFAULT_SETTINGS: ChauffeurSettings = {
   accountBalance: 0.00,
   startServiceSMS: false,
   endServiceSMS: false,
-  smsContent: '【DD代驾】您好，代驾司机已为您开始服务，当前车辆位置与行驶数据由系统实时记录，保障您的安全。',
+  smsContent: '【黑湾代驾计费MAX】您好，代驾司机已为您开始服务，当前车辆位置与行驶数据由系统实时记录，保障您的安全。',
   homepageColorway: 'green',
   deviationMitigation: false,
   deviationKm: 1.0,

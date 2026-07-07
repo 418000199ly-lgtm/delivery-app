@@ -258,7 +258,7 @@ export const IncomingOrderOverlay: React.FC<IncomingOrderOverlayProps> = ({
       <header className="bg-[#e61a1a] text-white px-4 flex flex-col items-center relative py-6 pb-20 shrink-0">
         <div className="w-full flex justify-between items-center mb-3">
           <span className="text-white/80 font-semibold text-xs tracking-wider">
-            {order.isValetOrder ? '⚠️ 后台指派订单' : '⚡ 线上派单机制'}
+            {order.isValetOrder ? '⚠️ 商户代叫订单' : '⚡ 线上派单机制'}
           </span>
           <button 
             onClick={onDecline}
@@ -330,10 +330,11 @@ export const IncomingOrderOverlay: React.FC<IncomingOrderOverlayProps> = ({
                 起
               </div>
               <div className="flex flex-col pl-2">
-                <span className="text-xs text-gray-400 font-bold mb-0.5">乘客出发地</span>
-                <h2 className="font-extrabold text-[#111827] text-base leading-tight">
-                  {startLocation}
-                </h2>
+                <span className="text-xs text-gray-400 font-bold mb-1.5">乘客出发地</span>
+                <div className="bg-white px-3.5 py-1.5 rounded-lg shadow-md border border-gray-150 flex items-center gap-1.5 text-xs font-black text-gray-800 self-start">
+                  <span className="w-2 h-2 rounded-full bg-[#189F95]" style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '9999px' }}></span>
+                  <span>{startLocation}</span>
+                </div>
               </div>
             </div>
 
@@ -344,10 +345,11 @@ export const IncomingOrderOverlay: React.FC<IncomingOrderOverlayProps> = ({
                 终
               </div>
               <div className="flex flex-col pl-2">
-                <span className="text-xs text-gray-400 font-bold mb-0.5">目的地</span>
-                <h2 className="font-extrabold text-[#111827] text-base leading-tight">
-                  {destination}
-                </h2>
+                <span className="text-xs text-gray-400 font-bold mb-1.5">目的地</span>
+                <div className="bg-white px-3.5 py-1.5 rounded-lg shadow-md border border-gray-150 flex items-center gap-1.5 text-xs font-black text-gray-800 self-start">
+                  <span className="w-2 h-2 rounded-full bg-rose-500" style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '9999px' }}></span>
+                  <span>{destination}</span>
+                </div>
               </div>
             </div>
 

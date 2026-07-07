@@ -24,7 +24,7 @@ import {
   DEFAULT_SETTINGS,
   checkVipActive
 } from './types';
-import { Sparkles, CheckCircle, Database, Smartphone, Users } from 'lucide-react';
+import { Sparkles, CheckCircle, Database, Smartphone, Users, ShieldAlert } from 'lucide-react';
 import AdminPanel from './components/AdminPanel';
 import LoginView from './components/LoginView';
 import { db, doc, onSnapshot, setDoc, deleteDoc, collection } from './lib/dbProxy';
@@ -267,6 +267,21 @@ export default function App() {
     lng: 106.230912
   });
 
+  // Load Gaode Map API script once in App.tsx to ensure background geolocation works flawlessly
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const scriptId = 'amap-js-api-v2-main';
+    let script = document.getElementById(scriptId) as HTMLScriptElement || document.querySelector('script[src*="webapi.amap.com"]');
+    if (!script) {
+      script = document.createElement('script');
+      script.id = scriptId;
+      script.src = 'https://webapi.amap.com/maps?v=2.0&key=4143e567d55bbc1855231f9637efd6b0';
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+  }, []);
+
   // Periodically track physical geolocation of the driver, and update/sync it onto their driver_user document in Firestore
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -274,42 +289,94 @@ export default function App() {
     const syncDriverLocation = () => {
       const city = settings?.city || '银川市';
       const fallbackGrid = getCityCenterCoords(city);
+      const AMap = (window as any).AMap;
 
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            const latitude = pos.coords.latitude;
-            const longitude = pos.coords.longitude;
-            setDriverCoords({ lat: latitude, lng: longitude });
-
-            // Silently store coordinate updates directly onto the active DB document to let simulated matching query work stably
-            if (userPhone && isOnline) {
-              const uRef = doc(db, 'driver_users', userPhone);
-              setDoc(uRef, { lat: latitude, lng: longitude }, { merge: true }).catch((e) => {
-                console.error("Failed to sync driver GPS location coordinates to Firestore:", e);
-              });
-            }
-          },
-          (err) => {
-            console.warn("Driver browser location blocked or unavailable, applying city center fallback:", err.message);
-            setDriverCoords(fallbackGrid);
-
-            if (userPhone && isOnline) {
-              const uRef = doc(db, 'driver_users', userPhone);
-              setDoc(uRef, fallbackGrid, { merge: true }).catch((e) => {
-                console.error("Failed to sync driver fallback coordinates to Firestore:", e);
-              });
-            }
-          }
-        );
-      } else {
-        setDriverCoords(fallbackGrid);
+      const updateCoords = (latitude: number, longitude: number, methodUsed: string) => {
+        setDriverCoords({ lat: latitude, lng: longitude });
+        
+        // Silently store coordinate updates directly onto the active DB document to let simulated matching query work stably
         if (userPhone && isOnline) {
           const uRef = doc(db, 'driver_users', userPhone);
-          setDoc(uRef, fallbackGrid, { merge: true }).catch((e) => {
-            console.error("Failed to sync driver fallback coordinates to Firestore:", e);
+          setDoc(uRef, { 
+            lat: latitude, 
+            lng: longitude, 
+            lastUpdatedBy: methodUsed, 
+            lastUpdatedTime: new Date().toISOString() 
+          }, { merge: true }).catch((e) => {
+            console.error("Failed to sync driver GPS location coordinates to Firestore:", e);
           });
         }
+      };
+
+      const fallbackToBrowserGeolocation = () => {
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              const latitude = pos.coords.latitude;
+              const longitude = pos.coords.longitude;
+              updateCoords(latitude, longitude, "HTML5 Geolocation Fallback");
+            },
+            (err) => {
+              console.warn("Driver browser location blocked or unavailable, applying city center fallback:", err.message);
+              setDriverCoords(fallbackGrid);
+
+              if (userPhone && isOnline) {
+                const uRef = doc(db, 'driver_users', userPhone);
+                setDoc(uRef, { 
+                  ...fallbackGrid, 
+                  lastUpdatedBy: "City Center Fallback", 
+                  lastUpdatedTime: new Date().toISOString() 
+                }, { merge: true }).catch((e) => {
+                  console.error("Failed to sync driver fallback coordinates to Firestore:", e);
+                });
+              }
+            },
+            { enableHighAccuracy: true, timeout: 6000 }
+          );
+        } else {
+          setDriverCoords(fallbackGrid);
+          if (userPhone && isOnline) {
+            const uRef = doc(db, 'driver_users', userPhone);
+            setDoc(uRef, { 
+              ...fallbackGrid, 
+              lastUpdatedBy: "City Center Fallback No GPS Support", 
+              lastUpdatedTime: new Date().toISOString() 
+            }, { merge: true }).catch((e) => {
+              console.error("Failed to sync driver fallback coordinates to Firestore:", e);
+            });
+          }
+        }
+      };
+
+      // If Gaode Map AMap SDK is loaded, prefer AMap Geolocation (highly optimized for domestic high accuracy and fast positioning)
+      if (AMap) {
+        AMap.plugin('AMap.Geolocation', () => {
+          try {
+            const geolocation = new AMap.Geolocation({
+              enableHighAccuracy: true,  // Use GPS/high accuracy
+              timeout: 4000,             // 4s timeout
+              noIpLocate: 0,             // Support IP fallback if GPS fails
+              noGeoLocation: 0,
+            });
+
+            geolocation.getCurrentPosition((status: string, result: any) => {
+              if (status === 'complete' && result.position) {
+                const lat = result.position.lat;
+                const lng = result.position.lng;
+                updateCoords(lat, lng, "Gaode Map (AMap) Geolocation API");
+              } else {
+                console.warn("Gaode AMap Geolocation plugin failed, falling back to browser API. Details:", status, result);
+                fallbackToBrowserGeolocation();
+              }
+            });
+          } catch (e) {
+            console.error("Exception during Gaode AMap Geolocation:", e);
+            fallbackToBrowserGeolocation();
+          }
+        });
+      } else {
+        // Fallback directly to native browser API if AMap is not ready yet
+        fallbackToBrowserGeolocation();
       }
     };
 
@@ -806,56 +873,89 @@ export default function App() {
     // Check for forced upgrade lock triggered during slide online
     if (showUpgradeModal && mobileActiveTab === 'app') {
       return (
-        <div className="absolute inset-0 bg-[#06070C]/98 z-50 flex flex-col justify-between p-6 text-slate-300 font-sans animate-in fade-in duration-300">
-          {/* Header Visual */}
-          <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6 pt-10">
+        <div className="absolute inset-0 bg-gradient-to-b from-[#0B0C15] via-[#07080F] to-[#030407] z-50 flex flex-col justify-between p-6 text-slate-300 font-sans animate-in fade-in duration-500 overflow-y-auto">
+          {/* Cybernetic Grid/Background Glow Overlay */}
+          <div className="absolute inset-0 pointer-events-none opacity-20 bg-[radial-gradient(#14b8a6_1px,transparent_1px)] [background-size:16px_16px]"></div>
+          
+          {/* Header & Visual Content */}
+          <div className="relative flex-1 flex flex-col items-center justify-center text-center space-y-7 pt-8 z-10">
+            {/* Glowing Hologram-like Pulse Visual */}
             <div className="relative">
-              <div className="relative p-5 rounded-full bg-slate-950 border border-emerald-500/20 text-emerald-400 shadow-xl shadow-emerald-950/40">
-                <Smartphone className="w-9 h-9 animate-bounce duration-1000" />
+              {/* Outer pulsing neon ring */}
+              <div className="absolute inset-0 rounded-full bg-teal-500/10 blur-xl animate-pulse"></div>
+              {/* Spinning status perimeter lines */}
+              <div className="absolute -inset-2 rounded-full border border-teal-500/20 border-dashed animate-spin" style={{ animationDuration: '20s' }}></div>
+              <div className="absolute -inset-4 rounded-full border border-emerald-500/10 border-dashed animate-spin" style={{ animationDuration: '35s', animationDirection: 'reverse' }}></div>
+              
+              <div className="relative p-6 rounded-full bg-[#111322] border-2 border-teal-500/30 text-teal-400 shadow-2xl shadow-teal-950/50">
+                <ShieldAlert className="w-10 h-10 animate-pulse text-teal-400" />
               </div>
             </div>
 
-            <div className="space-y-3">
-              <h3 className="text-base font-bold tracking-tight text-slate-200 font-sans">
-                云端版本控制 // 发现全新版本 {sysVersion}
+            {/* Title Section */}
+            <div className="space-y-3.5 px-2">
+              <h3 className="text-lg font-black tracking-tight text-white font-sans flex items-center justify-center gap-2">
+                <span className="inline-block w-2 h-2 rounded-full bg-teal-500 animate-ping"></span>
+                云端安全升级提示
               </h3>
-              <div className="inline-flex items-center gap-1.5 bg-emerald-950/20 border border-emerald-500/20 px-3 py-1 rounded-full">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-[9px] uppercase font-bold tracking-wider text-emerald-400">
-                  核心版本合规性升级提示
+              
+              {/* Version pill */}
+              <div className="inline-flex items-center gap-2 bg-[#121E24]/60 border border-teal-500/30 px-3.5 py-1.5 rounded-full shadow-lg shadow-teal-950/30">
+                <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse" />
+                <span className="text-[10px] font-mono font-black uppercase tracking-widest text-teal-300">
+                  发现全新合规版本：{sysVersion}
                 </span>
               </div>
             </div>
 
-            <div className="bg-[#0D0F1A] border border-slate-800/80 rounded-2xl p-5 max-w-sm space-y-3 shadow-2xl">
-              <p className="text-xs text-slate-400 leading-relaxed text-left">
-                您当前使用的客户端版本为 <span className="font-mono text-slate-600 line-through">V1.0</span>。黑湾代驾MAX系统已在云端部署至全新的 <span className="font-mono text-emerald-400 font-semibold">{sysVersion}</span> 规范。
-              </p>
-              <p className="text-[11px] text-slate-500 leading-relaxed text-left">
-                本次更新大幅优化了里程统计精确度、定位漂移自适应以及VIP阻断安全策略，旧版本已不被云端授信，请复制网址后前往手机默认浏览器进行安装升级。
-              </p>
+            {/* Futuristic Details Card */}
+            <div className="bg-[#121422]/90 border border-slate-800/80 rounded-2xl p-5 max-w-sm space-y-4 shadow-2xl relative overflow-hidden backdrop-blur-md">
+              {/* Cyber top glow line */}
+              <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-teal-500/50 to-emerald-500/50"></div>
+              
+              <div className="space-y-3">
+                <p className="text-xs text-slate-300 leading-relaxed text-left font-sans">
+                  您当前正处于安全离线状态。黑湾代驾安全防伪系统已全面更新。旧版本已停止向云端数据库通信授权，请即刻完成安全合规包的同步下载。
+                </p>
+                
+                {/* Visual upgrade points */}
+                <div className="space-y-2 pt-2 border-t border-slate-800/60 text-left text-[11px] text-slate-400 font-sans">
+                  <div className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-teal-500"></span>
+                    <span>高精里程计算模块自适应锁止</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-teal-500"></span>
+                    <span>定位多点漂移冗余补偿修正</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-teal-500"></span>
+                    <span>最新全系统VIP阻断安全协议下发</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Action Zone */}
-          <div className="space-y-3 pb-6 shrink-0 max-w-sm mx-auto w-full">
-            {/* Copy Link */}
+          {/* Action Zone - Clean buttons with cyber themes (No white background at all) */}
+          <div className="relative space-y-3.5 pb-4 shrink-0 max-w-sm mx-auto w-full z-10">
+            {/* Action 1: High-glowing copy link */}
             <button
               onClick={() => {
                 navigator.clipboard.writeText(sysUpgradeUrl);
                 triggerToast('📋 升级网址复制成功！请在手机浏览器中粘贴下载');
               }}
-              className="w-full py-3 bg-gradient-to-r from-emerald-950/40 to-teal-950/40 border border-emerald-500/30 hover:from-emerald-950/60 hover:to-teal-950/60 text-emerald-400 font-bold text-xs rounded-xl active:scale-98 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-emerald-950/25"
+              className="w-full py-3.5 bg-gradient-to-r from-teal-600/90 to-emerald-600/90 hover:from-teal-500 hover:to-emerald-500 text-slate-900 font-black text-xs rounded-xl active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-teal-500/20"
             >
-              <span>📋 一键复制云端升级网址</span>
+              <span>📋 复制全新版本升级网址</span>
             </button>
 
-            {/* Dismiss/Remain offline button */}
+            {/* Action 2: Silent remain offline button */}
             <button
               onClick={() => setShowUpgradeModal(false)}
-              className="w-full py-2.5 bg-slate-950/40 border border-slate-900 hover:bg-slate-900/60 text-slate-500 hover:text-slate-400 font-bold text-xs rounded-xl active:scale-98 transition-all flex items-center justify-center gap-1 cursor-pointer"
+              className="w-full py-3 bg-[#111322]/80 border border-slate-800 hover:bg-[#151829] text-slate-500 hover:text-slate-400 font-bold text-xs rounded-xl active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
             >
-              <span>✕ 暂不升级 (保持离线)</span>
+              <span>✕ 暂不升级 (保持离线状态)</span>
             </button>
           </div>
         </div>

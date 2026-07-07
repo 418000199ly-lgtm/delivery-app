@@ -176,6 +176,59 @@ export default function HomeView({
   const [dispatchCityQuery, setDispatchCityQuery] = useState('');
   const [showDispatchCityDropdown, setShowDispatchCityDropdown] = useState(false);
 
+  // Ensure Gaode Map is fully initialized with security credentials
+  const [aMapReady, setAMapReady] = useState<boolean>(() => {
+    return typeof window !== 'undefined' && !!(window as any).AMap;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    // Set security config before any AMap load/usage
+    (window as any)._AMapSecurityConfig = {
+      securityJsCode: '0aa3912e6a88fe59f9e5f0275524feba'
+    };
+
+    if ((window as any).AMap) {
+      setAMapReady(true);
+      return;
+    }
+
+    const scriptId = 'amap-js-api-v2';
+    let script = document.getElementById(scriptId) as HTMLScriptElement || document.querySelector('script[src*="webapi.amap.com"]');
+    
+    const handleScriptLoad = () => {
+      setAMapReady(true);
+    };
+
+    if (!script) {
+      script = document.createElement('script');
+      script.id = scriptId;
+      script.src = 'https://webapi.amap.com/maps?v=2.0&key=4143e567d55bbc1855231f9637efd6b0';
+      script.async = true;
+      script.defer = true;
+      script.onload = handleScriptLoad;
+      document.head.appendChild(script);
+    } else {
+      script.addEventListener('load', handleScriptLoad);
+    }
+
+    // fallback interval just in case load event was already fired but AMap is on window now
+    const interval = setInterval(() => {
+      if ((window as any).AMap) {
+        setAMapReady(true);
+        clearInterval(interval);
+      }
+    }, 500);
+
+    return () => {
+      if (script) {
+        script.removeEventListener('load', handleScriptLoad);
+      }
+      clearInterval(interval);
+    };
+  }, []);
+
   useEffect(() => {
     if (showDispatchModal) {
       setDispatchCity(effectiveCity);
@@ -600,7 +653,7 @@ export default function HomeView({
           });
           auto.search(dispatchStartPlace, (status: string, result: any) => {
             if (status === 'complete' && result.tips) {
-              setDispatchSuggestions(result.tips.filter((t: any) => t.id && t.name));
+              setDispatchSuggestions(result.tips.filter((t: any) => t.name));
             } else {
               setDispatchSuggestions([]);
             }
@@ -612,7 +665,7 @@ export default function HomeView({
     }, 250);
 
     return () => clearTimeout(delayDebounce);
-  }, [dispatchStartPlace, dispatchCity]);
+  }, [dispatchStartPlace, dispatchCity, aMapReady]);
 
   const handleSelectSuggestion = (tip: any) => {
     setDispatchStartPlace(tip.name);
@@ -3394,7 +3447,7 @@ export default function HomeView({
                     {/* Tags */}
                     <div className="flex items-center justify-between pointer-events-none">
                       <span className="inline-block px-2.5 py-0.5 border border-slate-200 dark:border-zinc-700/80 rounded-md text-[10px] font-extrabold text-slate-500 dark:text-slate-400 bg-slate-50/50 dark:bg-zinc-900/50">
-                        {order.type === '企业单' ? '报单' : (order.type === '特惠代驾' ? '乘客下单' : (order.type || '报单'))}
+                        {order.type === '企业单' ? '报单' : (order.type === '特惠代驾' ? '乘客下单' : (order.type === '后台指派订单' ? '商户代叫订单' : (order.type || '报单')))}
                       </span>
                     </div>
                   </div>

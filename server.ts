@@ -189,7 +189,7 @@ async function startServer() {
     res.json({ success: true, message: '微信授权登录成功！您的电脑端将自动登录。' });
   });
 
-  // 1. Send SMS Code (Always runs in simulator/sandbox mode for debugging)
+  // 1. Send SMS Code (Uses real Alibaba Cloud SMS if configured; falls back to sandbox simulation with a clear instruction message)
   app.post('/api/sms/send', async (req, res) => {
     const { phone } = req.body;
     if (!phone) {
@@ -204,12 +204,72 @@ async function startServer() {
     const expiresAt = Date.now() + 5 * 60 * 1000; // valid for 5 mins
     verificationCodes.set(phone, { code, expiresAt });
 
-    console.log(`[SMS Server] [DEBUG MODE] Bypassed Alibaba Cloud. Simulated Code for ${phone} is: ${code}`);
+    const accessKeyId = process.env.ALIBABA_CLOUD_ACCESS_KEY_ID;
+    const accessKeySecret = process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET;
+
+    // If real credentials are provided, use Alibaba Cloud SMS to send real SMS code
+    if (accessKeyId && accessKeySecret) {
+      try {
+        const client = new Core({
+          accessKeyId,
+          accessKeySecret,
+          endpoint: 'https://dysmsapi.aliyuncs.com',
+          apiVersion: '2017-05-25'
+        });
+
+        const signName = process.env.ALIBABA_CLOUD_SMS_SIGN_NAME || "尊呼叫出行";
+        const templateCode = process.env.ALIBABA_CLOUD_SMS_TEMPLATE_CODE || "SMS_335015371";
+
+        console.log(`[SMS Server] Sending real SMS to ${phone} using Aliyun SMS...`);
+        const result: any = await client.request('SendSms', {
+          "PhoneNumbers": phone,
+          "SignName": signName,
+          "TemplateCode": templateCode,
+          "TemplateParam": JSON.stringify({ code: code })
+        }, {
+          method: 'POST',
+          formatParams: false
+        });
+
+        console.log('[SMS Server] Aliyun API Response:', JSON.stringify(result));
+
+        if (result && (result.Code === 'OK' || result.Message === 'OK')) {
+          return res.json({
+            success: true,
+            mode: 'aliyun',
+            message: '验证码短信已通过阿里云短信通道真实发送，请注意查收！'
+          });
+        } else {
+          // If Aliyun API returned an error code, log and fallback to simulation
+          const errMsg = result?.Message || result?.Code || '未知错误';
+          console.error('[SMS Server] Aliyun SMS returned non-OK status:', result);
+          return res.json({
+            success: true,
+            mode: 'simulated',
+            code: code,
+            isErrorFallback: true,
+            message: `⚠️ 阿里云短信接口返回异常 [${errMsg}]。已为您自动切换为沙箱模拟模式：验证码已在上方浮窗中推送，请直接输入。`
+          });
+        }
+      } catch (err: any) {
+        console.error('[SMS Server] Failed to send real SMS via Aliyun:', err);
+        return res.json({
+          success: true,
+          mode: 'simulated',
+          code: code,
+          isErrorFallback: true,
+          message: `⚠️ 阿里云短信发送失败 (${err.message || String(err)})。已为您自动切换为沙箱模拟模式：验证码已在上方浮窗中推送，请直接输入。`
+        });
+      }
+    }
+
+    // Default Fallback: simulated mode
+    console.log(`[SMS Server] [SIMULATION] Credentials not set. Simulated Code for ${phone} is: ${code}`);
     return res.json({
       success: true,
       mode: 'simulated',
       code: code,
-      message: '测试沙盒模拟：验证码已生成。'
+      message: '💡 提示：您尚未在「Settings -> Secrets」中配置阿里云短信密钥（ALIBABA_CLOUD_ACCESS_KEY_ID等）。已为您切换至测试模拟：验证码已在右下方直接生成展示，支持一键快捷填入。'
     });
   });
 

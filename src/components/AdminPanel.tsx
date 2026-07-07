@@ -39,7 +39,11 @@ import {
   MessageSquare,
   Menu,
   Edit3,
-  Users
+  Users,
+  History,
+  ArrowUpCircle,
+  ArrowDownCircle,
+  RefreshCw
 } from 'lucide-react';
 import DispatchValetOrder from './DispatchValetOrder';
 import AdminBillingRules from './AdminBillingRules';
@@ -191,6 +195,7 @@ export default function AdminPanel({
   const [inputVersion, setInputVersion] = useState<string>('V1.0');
   const [inputUpgradeUrl, setInputUpgradeUrl] = useState<string>('https://download.heiwan.com/max');
   const [versionSyncStatus, setVersionSyncStatus] = useState<string>('');
+  const [versionHistory, setVersionHistory] = useState<any[]>([]);
 
   // Subscribe to real-time system version settings
   useEffect(() => {
@@ -207,6 +212,36 @@ export default function AdminPanel({
         // Initial / sync fields
         setInputVersion(v);
         setInputUpgradeUrl(url);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Subscribe to version history and seed defaults if empty
+  useEffect(() => {
+    const q = collection(db, 'version_history');
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      const list: any[] = [];
+      snapshot.forEach((d) => {
+        list.push({ id: d.id, ...d.data() });
+      });
+
+      if (list.length === 0) {
+        const defaults = [
+          { version: 'V1.0', forceUpgrade: false, upgradeUrl: 'https://download.heiwan.com/max', updatedAt: '2026-06-15T10:00:00.000Z' },
+          { version: 'V1.1', forceUpgrade: false, upgradeUrl: 'https://download.heiwan.com/max', updatedAt: '2026-06-25T14:30:00.000Z' },
+          { version: 'V1.2', forceUpgrade: true, upgradeUrl: 'https://download.heiwan.com/max/v12', updatedAt: '2026-07-01T09:00:00.000Z' }
+        ];
+        for (const item of defaults) {
+          try {
+            await setDoc(doc(db, 'version_history', item.version), item);
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      } else {
+        list.sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
+        setVersionHistory(list);
       }
     });
     return () => unsubscribe();
@@ -2709,12 +2744,18 @@ export default function AdminPanel({
                     try {
                       setVersionSyncStatus('syncing');
                       const versionDocRef = doc(db, 'config', 'system_version');
-                      await setDoc(versionDocRef, {
+                      const vData = {
                         version: inputVersion.trim(),
                         forceUpgrade: true,
                         upgradeUrl: inputUpgradeUrl.trim(),
                         updatedAt: new Date().toISOString()
-                      });
+                      };
+                      await setDoc(versionDocRef, vData);
+                      
+                      // Also save/update in history list
+                      const historyDocRef = doc(db, 'version_history', inputVersion.trim());
+                      await setDoc(historyDocRef, vData);
+
                       triggerToast(`🚀 升级指令发布成功！当前版本已强制锁定为 ${inputVersion}`);
                       setVersionSyncStatus('success');
                     } catch (err: any) {
@@ -2731,14 +2772,22 @@ export default function AdminPanel({
                   onClick={async () => {
                     try {
                       setVersionSyncStatus('syncing');
+                      const v = inputVersion.trim() || sysVersion;
+                      const url = inputUpgradeUrl.trim() || sysUpgradeUrl;
                       const versionDocRef = doc(db, 'config', 'system_version');
-                      await setDoc(versionDocRef, {
-                        version: inputVersion.trim() || sysVersion,
+                      const vData = {
+                        version: v,
                         forceUpgrade: false,
-                        upgradeUrl: inputUpgradeUrl.trim() || sysUpgradeUrl,
+                        upgradeUrl: url,
                         updatedAt: new Date().toISOString()
-                      });
-                      triggerToast(`✅ 降级降噪成功！当前版本 ${inputVersion || sysVersion} 已解除强制升级弹框`);
+                      };
+                      await setDoc(versionDocRef, vData);
+
+                      // Also save/update in history list
+                      const historyDocRef = doc(db, 'version_history', v);
+                      await setDoc(historyDocRef, vData);
+
+                      triggerToast(`✅ 降级降噪成功！当前版本 ${v} 已解除强制升级弹框`);
                       setVersionSyncStatus('success');
                     } catch (err: any) {
                       triggerToast(`同步失败：${err.message || err}`);
@@ -2754,6 +2803,166 @@ export default function AdminPanel({
               {versionSyncStatus === 'syncing' && (
                 <p className="text-[10px] text-indigo-400 font-mono animate-pulse">📡 正在将版本指令及下载资源部署至分布式云数据中心...</p>
               )}
+            </div>
+
+            {/* Historical Version List Card */}
+            <div className="bg-[#181B2B] border border-slate-800/80 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-indigo-950/20 pb-2">
+                <div className="flex items-center space-x-2">
+                  <History className="w-4 h-4 text-teal-400" />
+                  <h4 className="text-xs font-black text-slate-200 tracking-wider">
+                    📋 历史版本控制记录 (升级/降级分路器)
+                  </h4>
+                </div>
+                <span className="text-[10px] text-slate-500 font-mono">
+                  共计 {versionHistory.length} 个记录
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-[10px] uppercase font-black text-slate-400">
+                      <th className="py-2.5 px-3">版本号</th>
+                      <th className="py-2.5 px-3">当前模式</th>
+                      <th className="py-2.5 px-3">资源跳转网址</th>
+                      <th className="py-2.5 px-3">发布/控制时间</th>
+                      <th className="py-2.5 px-3 text-right">单独升级/降级动作</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {versionHistory.map((item) => {
+                      const isActive = sysVersion === item.version;
+                      return (
+                        <tr key={item.version} className={`hover:bg-slate-900/40 transition-colors ${isActive ? 'bg-teal-500/5' : ''}`}>
+                          <td className="py-3 px-3 font-mono font-black text-slate-100">
+                            <div className="flex items-center space-x-1.5">
+                              <span>{item.version}</span>
+                              {isActive && (
+                                <span className="text-[9px] bg-teal-500/10 text-teal-400 border border-teal-500/20 px-1.5 py-0.5 rounded-md font-sans font-bold">
+                                  当前激活
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3 px-3">
+                            {item.forceUpgrade ? (
+                              <span className="inline-flex items-center space-x-1 text-[9px] bg-red-500/10 text-red-400 border border-red-500/20 px-1.5 py-0.5 rounded-md font-bold">
+                                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+                                <span>🔴 强制升级</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center space-x-1 text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded-md font-bold">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                <span>🟢 普通降级</span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 font-mono text-[11px] text-slate-400 max-w-[160px] truncate" title={item.upgradeUrl}>
+                            {item.upgradeUrl}
+                          </td>
+                          <td className="py-3 px-3 text-slate-500 text-[10px] font-mono">
+                            {item.updatedAt ? new Date(item.updatedAt).toLocaleString() : '-'}
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            <div className="flex items-center justify-end space-x-2">
+                              {/* Separate Upgrade button */}
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    setVersionSyncStatus('syncing');
+                                    const now = new Date().toISOString();
+                                    const versionDocRef = doc(db, 'config', 'system_version');
+                                    const vData = {
+                                      version: item.version,
+                                      forceUpgrade: true,
+                                      upgradeUrl: item.upgradeUrl,
+                                      updatedAt: now
+                                    };
+                                    await setDoc(versionDocRef, vData);
+                                    await setDoc(doc(db, 'version_history', item.version), vData);
+                                    
+                                    triggerToast(`🚀 已将版本 ${item.version} 升级为当前强更版本！`);
+                                    setVersionSyncStatus('success');
+                                  } catch (err: any) {
+                                    triggerToast(`操作失败：${err.message || err}`);
+                                    setVersionSyncStatus('error');
+                                  }
+                                }}
+                                className={`inline-flex items-center space-x-1 text-[10px] font-bold px-2.5 py-1.5 rounded-lg transition-all border cursor-pointer ${
+                                  isActive && sysForceUpgrade 
+                                    ? 'bg-red-500/20 text-red-300 border-red-500/30 cursor-default'
+                                    : 'bg-red-950/10 text-red-400 border-red-900/30 hover:bg-red-950/30'
+                                }`}
+                                disabled={isActive && sysForceUpgrade}
+                              >
+                                <ArrowUpCircle className="w-3.5 h-3.5" />
+                                <span>单独升级</span>
+                              </button>
+
+                              {/* Separate Downgrade button */}
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    setVersionSyncStatus('syncing');
+                                    const now = new Date().toISOString();
+                                    const versionDocRef = doc(db, 'config', 'system_version');
+                                    const vData = {
+                                      version: item.version,
+                                      forceUpgrade: false,
+                                      upgradeUrl: item.upgradeUrl,
+                                      updatedAt: now
+                                    };
+                                    await setDoc(versionDocRef, vData);
+                                    await setDoc(doc(db, 'version_history', item.version), vData);
+                                    
+                                    triggerToast(`✅ 已将版本 ${item.version} 降级并解除强制弹窗！`);
+                                    setVersionSyncStatus('success');
+                                  } catch (err: any) {
+                                    triggerToast(`操作失败：${err.message || err}`);
+                                    setVersionSyncStatus('error');
+                                  }
+                                }}
+                                className={`inline-flex items-center space-x-1 text-[10px] font-bold px-2.5 py-1.5 rounded-lg transition-all border cursor-pointer ${
+                                  isActive && !sysForceUpgrade
+                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30 cursor-default'
+                                    : 'bg-slate-800 text-emerald-400 border-slate-700 hover:bg-slate-700/80'
+                                }`}
+                                disabled={isActive && !sysForceUpgrade}
+                              >
+                                <ArrowDownCircle className="w-3.5 h-3.5" />
+                                <span>单独降级</span>
+                              </button>
+
+                              {/* Delete historical entry */}
+                              <button
+                                onClick={async () => {
+                                  if (isActive) {
+                                    triggerToast('⚠️ 无法删除当前激活中的版本记录！');
+                                    return;
+                                  }
+                                  showConfirm('确认删除记录', `您确定要删除 ${item.version} 的版本记录吗？`, async () => {
+                                    try {
+                                      await deleteDoc(doc(db, 'version_history', item.version));
+                                      triggerToast(`🗑️ 成功删除 ${item.version} 的历史记录`);
+                                    } catch (err: any) {
+                                      triggerToast(`删除失败：${err.message || err}`);
+                                    }
+                                  });
+                                }}
+                                className="p-1.5 text-slate-500 hover:text-red-400 transition-colors hover:bg-slate-800/50 rounded-lg cursor-pointer"
+                                title="删除记录"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             {/* Explanatory notes */}

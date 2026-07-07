@@ -57,6 +57,20 @@ export default function AdminBillingRules({ onShowToast }: AdminBillingRulesProp
   // Selected template menu drawer (mobile style option sheet)
   const [activeMenuTemplate, setActiveMenuTemplate] = useState<BillingRules | null>(null);
 
+  // Custom pricing image style screen state
+  const [showCustomPricingImageScreen, setShowCustomPricingImageScreen] = useState(false);
+
+  // Helper to activate night high template
+  const handleActivateCustomNightTemplate = async () => {
+    const nightTemplate = templates.find(t => t.templateName === '夜间高额线上加价模版');
+    if (nightTemplate) {
+      await handleSetActiveTemplate(nightTemplate);
+      setShowCustomPricingImageScreen(false);
+    } else {
+      onShowToast('⚠️ 未找到夜间高额线上加价模版');
+    }
+  };
+
   // Fetch online billing configurations on mount
   useEffect(() => {
     const configDocRef = doc(db, 'config', 'online_billing_rules');
@@ -345,7 +359,13 @@ export default function AdminBillingRules({ onShowToast }: AdminBillingRulesProp
               return (
                 <div 
                   key={rule.templateName}
-                  onClick={() => setActiveMenuTemplate(rule)}
+                  onClick={() => {
+                    if (rule.templateName === '夜间高额线上加价模版') {
+                      setShowCustomPricingImageScreen(true);
+                    } else {
+                      setActiveMenuTemplate(rule);
+                    }
+                  }}
                   className={`flex flex-col p-3.5 rounded-2xl border transition-all cursor-pointer select-none ${
                     isActive 
                       ? 'bg-[#eefaf8] border-[#4dbfb3]/40 shadow-xs' 
@@ -385,6 +405,172 @@ export default function AdminBillingRules({ onShowToast }: AdminBillingRulesProp
               );
             })}
           </main>
+
+          {/* Custom high-fidelity pricing rules screen (matching the WeChat screenshot) */}
+          {showCustomPricingImageScreen && (
+            <div className="absolute inset-0 bg-[#f7f8fa] z-40 flex flex-col pt-5 animate-in slide-in-from-right duration-200">
+              {/* Custom Status Bar / Header (WeChat style) */}
+              <div className="bg-[#f7f7f7] border-b border-gray-200/60 px-3 py-2 flex items-center justify-between shrink-0">
+                <button 
+                  onClick={() => setShowCustomPricingImageScreen(false)}
+                  className="p-1 text-slate-800 hover:text-slate-600 transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                  </svg>
+                </button>
+                
+                <span className="text-[16px] font-black text-[#111111] tracking-wide">计价规则</span>
+                
+                {/* WeChat-style Menu Capsule Pill */}
+                <div className="border border-slate-300 rounded-full py-1 px-2 flex items-center space-x-2 bg-white shadow-2xs">
+                  <div className="flex space-x-0.5 items-center">
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-900"></span>
+                    <span className="w-1 h-1 rounded-full bg-slate-900 opacity-60"></span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-900"></span>
+                  </div>
+                  <div className="h-3 w-[0.5px] bg-slate-200"></div>
+                  <div className="w-3.5 h-3.5 rounded-full border border-slate-900 flex items-center justify-center p-[1px]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-900"></span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Scrollable Rules Content */}
+              <div className="flex-1 overflow-y-auto flex flex-col bg-[#f7f8fa] pb-10">
+                
+                {/* Yinchuan Schematic Map */}
+                <div className="relative w-full h-[220px] bg-[#f5f4f0] shrink-0 overflow-hidden border-b border-gray-100">
+                  <svg className="w-full h-full" viewBox="0 0 340 220" preserveAspectRatio="none">
+                    <path d="M 0,40 Q 150,50 340,30" stroke="#E6E3DB" strokeWidth="2.5" fill="none" />
+                    <path d="M 0,110 L 340,110" stroke="#FFFDF8" strokeWidth="6" fill="none" />
+                    <path d="M 0,110 L 340,110" stroke="#FFE9B5" strokeWidth="3.5" fill="none" />
+                    
+                    <path d="M 0,60 L 340,60" stroke="#FFFDF8" strokeWidth="5" fill="none" />
+                    <path d="M 0,60 L 340,60" stroke="#FFE9B5" strokeWidth="3" fill="none" />
+
+                    <path d="M 60,220 Q 90,130 120,0" stroke="#FFFDF8" strokeWidth="5" fill="none" />
+                    <path d="M 60,220 Q 90,130 120,0" stroke="#FFD899" strokeWidth="2.5" fill="none" />
+
+                    {/* Water channels */}
+                    <path d="M 280,220 Q 250,150 290,100 T 310,0" stroke="#A9CDE2" strokeWidth="3" fill="none" />
+                    <path d="M 180,220 Q 160,140 170,80 T 200,0" stroke="#A9CDE2" strokeWidth="1.5" fill="none" />
+
+                    {/* Parks */}
+                    <circle cx="25" cy="100" r="15" fill="#E2EDC5" />
+
+                    {/* Polygon Fence */}
+                    <polygon 
+                      points="38,28 120,28 260,26 312,32 316,98 314,145 295,175 235,180 108,180 38,172 40,70" 
+                      fill="rgba(59, 89, 152, 0.28)" 
+                      stroke="#2B5998" 
+                      strokeWidth="2.5" 
+                      strokeLinejoin="round"
+                    />
+
+                    {/* Map text labels */}
+                    <text x="80" y="85" fill="#5c5a54" fontSize="10" fontWeight="bold">西夏区</text>
+                    <text x="145" y="52" fill="#7a766d" fontSize="9">贺兰山中路</text>
+                    <text x="145" y="103" fill="#7a766d" fontSize="9">北京中路</text>
+                    <text x="180" y="115" fill="#5c5a54" fontSize="10" fontWeight="bold">金凤区</text>
+                    <text x="245" y="105" fill="#5c5a54" fontSize="10" fontWeight="bold">兴庆区</text>
+                    <text x="225" y="145" fill="#4d7c94" fontSize="8">红花渠</text>
+                    <text x="85" y="130" fill="#6d6a62" fontSize="8" transform="rotate(73,85,130)">银西高速公路</text>
+                    <text x="215" y="170" fill="#6d6a62" fontSize="8">胜利街</text>
+                    <text x="260" y="80" fill="#4d7c94" fontSize="8" transform="rotate(-65,260,80)">唐徕渠</text>
+                    <text x="5" y="112" fill="#324d0d" fontSize="8">西夏公园</text>
+                  </svg>
+
+                  {/* Floating label: 围栏范围 */}
+                  <div className="absolute bottom-3 left-3 bg-white px-2.5 py-1.5 rounded-lg shadow-md border border-gray-100 flex items-center space-x-1.5">
+                    <svg className="w-3.5 h-3.5 text-orange-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                      <polygon points="12,2 22,8 17,20 7,20 2,8" />
+                    </svg>
+                    <span className="text-[11px] font-bold text-slate-800">围栏范围</span>
+                  </div>
+
+                  {/* Floating watermark: 腾讯地图 */}
+                  <div className="absolute bottom-3 right-3 flex items-center space-x-1 opacity-90">
+                    <div className="w-3.5 h-3.5 rounded-full bg-white flex items-center justify-center shadow-xs">
+                      <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 2L22 22L12 17L2 22L12 2Z" fill="url(#compassGrad)" />
+                        <defs>
+                          <linearGradient id="compassGrad" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0%" stopColor="#ff5a5f" />
+                            <stop offset="100%" stopColor="#3b5998" />
+                          </linearGradient>
+                        </defs>
+                      </svg>
+                    </div>
+                    <span className="text-[10px] font-black tracking-tighter text-slate-600 font-sans" style={{ textShadow: '1px 1px 1px #fff' }}>腾讯地图</span>
+                  </div>
+                </div>
+
+                {/* Heading: 代驾计价规则 */}
+                <div className="flex items-center justify-center space-x-2 py-5 select-none shrink-0">
+                  <span className="text-sm text-slate-800 font-black flex items-center gap-1.5">
+                    <span>⚫</span>
+                    <span>代驾计价规则</span>
+                    <span>⚫</span>
+                  </span>
+                </div>
+
+                {/* White rules details card */}
+                <div className="mx-4 mb-4 bg-white rounded-2xl p-5 shadow-xs flex flex-col space-y-5">
+                  <div className="text-left">
+                    <p className="text-[#111111] font-black text-[14px] leading-tight">飞鸟代驾银川城区范围内</p>
+                  </div>
+                  
+                  <div className="text-left border-t border-gray-50 pt-1">
+                    <p className="text-[#111111] font-black text-[14px] leading-tight mt-1">晚12点前 一小时28元 随便跑</p>
+                  </div>
+
+                  <div className="text-left border-t border-gray-50 pt-1">
+                    <p className="text-[#111111] font-black text-[14px] leading-tight mt-1">晚12点后 一小时35元 随便跑</p>
+                  </div>
+
+                  <div className="text-left border-t border-gray-50 pt-3 space-y-1">
+                    <p className="text-slate-800 font-medium text-[12px] leading-relaxed">
+                      超一小时一分钟1元，超范围1公里5元
+                    </p>
+                    <p className="text-slate-800 font-medium text-[12px] leading-relaxed">
+                      司机就位免费等时10分钟，超1分钟1元
+                    </p>
+                  </div>
+                </div>
+
+                {/* Interactive Actions for Admin */}
+                <div className="px-4 mt-auto pt-2 flex gap-2 shrink-0">
+                  <button
+                    onClick={() => {
+                      const template = templates.find(t => t.templateName === '夜间高额线上加价模版');
+                      if (template) {
+                        handleOpenEdit(template);
+                      }
+                      setShowCustomPricingImageScreen(false);
+                    }}
+                    className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition-all border border-slate-200 cursor-pointer"
+                  >
+                    配置规则属性
+                  </button>
+                  <button
+                    onClick={handleActivateCustomNightTemplate}
+                    className="flex-1 py-2 bg-[#4dbfb3] hover:bg-[#43a69b] text-white text-xs font-black rounded-xl transition-all shadow-md shadow-teal-500/10 flex items-center justify-center space-x-1 cursor-pointer"
+                  >
+                    {activeTemplateName === '夜间高额线上加价模版' ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 stroke-[3px]" />
+                        <span>当前已启用</span>
+                      </>
+                    ) : (
+                      <span>启用此模板</span>
+                    )}
+                  </button>
+                </div>
+
+              </div>
+            </div>
+          )}
 
           {/* Phone home indicator */}
           <div className="absolute bottom-1 inset-x-0 h-4 bg-transparent flex justify-center items-center z-50">
