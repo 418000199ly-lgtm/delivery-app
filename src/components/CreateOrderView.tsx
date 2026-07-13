@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { QrCode, Clock, RotateCw, CheckCircle2 } from 'lucide-react';
+import { QrCode, Clock, RotateCw, CheckCircle2, Plus, Minus } from 'lucide-react';
 import { BillingRules, TripState, ChauffeurSettings, checkVipActive } from '../types';
 import { db, doc, onSnapshot, deleteDoc, setDoc } from '../lib/dbProxy';
 import PassengerOrderView from './PassengerOrderView';
@@ -81,6 +81,136 @@ const SvgQrCode = ({ seed, url }: { seed: number; url?: string }) => {
   );
 };
 
+const getPoiLngLat = (poi: any) => {
+  if (!poi || !poi.location) return null;
+  const loc = poi.location;
+  if (typeof loc.getLng === 'function' && typeof loc.getLat === 'function') {
+    return { lng: loc.getLng(), lat: loc.getLat() };
+  }
+  if (typeof loc.lng === 'number' && typeof loc.lat === 'number') {
+    return { lng: loc.lng, lat: loc.lat };
+  }
+  if (typeof loc.lng === 'function' && typeof loc.lat === 'function') {
+    return { lng: loc.lng(), lat: loc.lat() };
+  }
+  if (typeof loc === 'string') {
+    const parts = loc.split(',');
+    if (parts.length === 2) {
+      return { lng: parseFloat(parts[0]), lat: parseFloat(parts[1]) };
+    }
+  }
+  return null;
+};
+
+const getDistance = (lng1: number, lat1: number, lng2: number, lat2: number): number => {
+  const radLat1 = lat1 * Math.PI / 180.0;
+  const radLat2 = lat2 * Math.PI / 180.0;
+  const a = radLat1 - radLat2;
+  const b = lng1 * Math.PI / 180.0 - lng2 * Math.PI / 180.0;
+  const s = 2 * Math.asin(Math.sqrt(Math.pow(Math.sin(a/2), 2) +
+    Math.cos(radLat1) * Math.cos(radLat2) * Math.pow(Math.sin(b/2), 2)));
+  return s * 6378137; // Earth radius in meters
+};
+
+const getPoiDistance = (poi: any, centerLng?: number, centerLat?: number): number => {
+  if (poi.distance !== undefined && poi.distance !== null && poi.distance !== '') {
+    const dist = Number(poi.distance);
+    if (!isNaN(dist)) return dist;
+  }
+  if (centerLng !== undefined && centerLat !== undefined) {
+    const loc = getPoiLngLat(poi);
+    if (loc) {
+      return getDistance(centerLng, centerLat, loc.lng, loc.lat);
+    }
+  }
+  return 999999;
+};
+
+const getHighPrecisionLocationName = (
+  regeocode: any, 
+  fallbackAddress: string, 
+  centerLng?: number, 
+  centerLat?: number
+): string => {
+  if (!regeocode) return fallbackAddress;
+
+  const addressComp = regeocode.addressComponent || {};
+  const unacceptableKeywords = ['公厕', '公共厕所', '垃圾站', '垃圾转运', '配电房', '变电站', '充电站', '高压线', '环卫'];
+
+  // Identify the closest road name
+  let roadName = '';
+  if (regeocode.roads && regeocode.roads.length > 0) {
+    if (regeocode.roads[0] && regeocode.roads[0].name) {
+      roadName = regeocode.roads[0].name;
+    }
+  }
+
+  if (!roadName && addressComp.street && typeof addressComp.street === 'string' && addressComp.street.trim()) {
+    roadName = addressComp.street.trim();
+  }
+  if (!roadName && addressComp.streetNumber && addressComp.streetNumber.street && typeof addressComp.streetNumber.street === 'string') {
+    roadName = addressComp.streetNumber.street.trim();
+  }
+
+  let poiName = '';
+  // Sort POIs strictly by physical distance to prioritize the closest specific store/building
+  if (regeocode.pois && regeocode.pois.length > 0) {
+    const validPois = regeocode.pois.filter((poi: any) => {
+      const name = poi.name || '';
+      return !unacceptableKeywords.some(kw => name.includes(kw));
+    });
+    if (validPois.length > 0) {
+      const sortedPois = [...validPois].sort((a, b) => {
+        return getPoiDistance(a, centerLng, centerLat) - getPoiDistance(b, centerLng, centerLat);
+      });
+      poiName = sortedPois[0].name;
+    } else {
+      const sortedAllPois = [...regeocode.pois].sort((a, b) => {
+        return getPoiDistance(a, centerLng, centerLat) - getPoiDistance(b, centerLng, centerLat);
+      });
+      poiName = sortedAllPois[0].name;
+    }
+  } else if (regeocode.aois && regeocode.aois.length > 0) {
+    // Fall back to first AOI
+    poiName = regeocode.aois[0].name;
+  } else {
+    let neighborhoodName = '';
+    if (addressComp.neighborhood) {
+      neighborhoodName = typeof addressComp.neighborhood === 'string'
+        ? addressComp.neighborhood
+        : (addressComp.neighborhood.name || '');
+    }
+    if (neighborhoodName && neighborhoodName.trim()) {
+      poiName = neighborhoodName;
+    } else {
+      let buildingName = '';
+      if (addressComp.building) {
+        buildingName = typeof addressComp.building === 'string'
+          ? addressComp.building
+          : (addressComp.building.name || '');
+      }
+      if (buildingName && buildingName.trim()) {
+        poiName = buildingName;
+      } else {
+        const formattedAddress = regeocode.formattedAddress || fallbackAddress;
+        let cleanLabel = formattedAddress;
+        if (addressComp.province) cleanLabel = cleanLabel.replace(addressComp.province, '');
+        if (addressComp.city) cleanLabel = cleanLabel.replace(addressComp.city, '');
+        if (addressComp.district) cleanLabel = cleanLabel.replace(addressComp.district, '');
+        poiName = cleanLabel.trim() ? cleanLabel : formattedAddress;
+      }
+    }
+  }
+
+  if (roadName && poiName) {
+    if (poiName.includes(roadName)) {
+      return poiName;
+    }
+    return `（${roadName}）${poiName}`;
+  }
+  return poiName || fallbackAddress;
+};
+
 interface CreateOrderViewProps {
   billingRules: BillingRules;
   settings: ChauffeurSettings;
@@ -106,6 +236,10 @@ export default function CreateOrderView({
   const [startLocation, setStartLocation] = useState(() => {
     if (activeOnlineOrder) {
       return '我的当前位置';
+    }
+    const cachedName = localStorage.getItem('dd_bg_driver_coords_name');
+    if (cachedName) {
+      return cachedName;
     }
     return '正在获取当前位置...';
   });
@@ -209,18 +343,13 @@ export default function CreateOrderView({
               
               AMap.plugin('AMap.Geocoder', () => {
                 const geocoder = new AMap.Geocoder({
-                  city: registeredCity || '银川市'
+                  city: registeredCity || '银川市',
+                  extensions: 'all'
                 });
                 geocoder.getAddress([finalLng, finalLat], (geoStatus: string, geoResult: any) => {
                   isMapMovingProgrammaticallyRef.current = false;
                   if (geoStatus === 'complete' && geoResult.regeocode) {
-                    const formattedAddress = geoResult.regeocode.formattedAddress;
-                    const addressComp = geoResult.regeocode.addressComponent || {};
-                    let cleanLabel = formattedAddress;
-                    if (addressComp.province) cleanLabel = cleanLabel.replace(addressComp.province, '');
-                    if (addressComp.city) cleanLabel = cleanLabel.replace(addressComp.city, '');
-                    if (addressComp.district) cleanLabel = cleanLabel.replace(addressComp.district, '');
-                    if (!cleanLabel.trim()) cleanLabel = formattedAddress;
+                    const cleanLabel = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress, finalLng, finalLat);
                     setStartLocation(cleanLabel);
                   }
                 });
@@ -251,13 +380,20 @@ export default function CreateOrderView({
       if (!AMap || !mapContainerRef.current) return;
 
       try {
+        const cachedLat = localStorage.getItem('dd_bg_driver_coords_lat');
+        const cachedLng = localStorage.getItem('dd_bg_driver_coords_lng');
+        const hasCached = cachedLat && cachedLng;
+
+        const cachedZoom = localStorage.getItem('dd_map_zoom');
+        const initialZoom = cachedZoom ? Number(cachedZoom) : 17; // Default to 17 for highly detailed shop/street level view as in user screenshot
+
         const initialCenter = driverCoords 
           ? [driverCoords.lng, driverCoords.lat]
-          : (prefetchedCoordsRef.current ? [prefetchedCoordsRef.current.lng, prefetchedCoordsRef.current.lat] : [106.230912, 38.487193]);
+          : (hasCached ? [Number(cachedLng), Number(cachedLat)] : (prefetchedCoordsRef.current ? [prefetchedCoordsRef.current.lng, prefetchedCoordsRef.current.lat] : [106.230912, 38.487193]));
 
         // Initialize AMap strictly in 2D mode, with disabled manual rotatability/pitching
         const map = new AMap.Map(mapContainerRef.current, {
-          zoom: 15,
+          zoom: initialZoom,
           center: initialCenter, // Centered directly on driver's actual position
           viewMode: '2D',
           pitch: 0,
@@ -269,10 +405,29 @@ export default function CreateOrderView({
         mapInstanceRef.current = map;
         setMapLoaded(true);
 
+        // Keep track of zoom changes so we can restore the user's preferred zoom on next open
+        map.on('zoomend', () => {
+          const currentZoom = map.getZoom();
+          localStorage.setItem('dd_map_zoom', currentZoom.toString());
+        });
+
         AMap.plugin(['AMap.Geocoder', 'AMap.Geolocation', 'AMap.Driving'], () => {
           const geocoder = new AMap.Geocoder({
-            city: registeredCity || '银川市'
+            city: registeredCity || '银川市',
+            extensions: 'all'
           });
+
+          const reverseGeocodeCenter = (lng: number, lat: number) => {
+            isMapMovingProgrammaticallyRef.current = true;
+            map.setCenter([lng, lat]);
+            geocoder.getAddress([lng, lat], (geoStatus: string, geoResult: any) => {
+              isMapMovingProgrammaticallyRef.current = false;
+              if (geoStatus === 'complete' && geoResult.regeocode) {
+                const cleanLabel = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress, lng, lat);
+                setStartLocation(cleanLabel);
+              }
+            });
+          };
 
           const fallbackGeolocation = () => {
             isMapMovingProgrammaticallyRef.current = true;
@@ -312,116 +467,83 @@ export default function CreateOrderView({
               AMap.convertFrom([lng, lat], 'gps', (convertStatus: string, convertResult: any) => {
                 const finalLng = (convertStatus === 'complete' && convertResult.locations) ? convertResult.locations[0].lng : lng;
                 const finalLat = (convertStatus === 'complete' && convertResult.locations) ? convertResult.locations[0].lat : lat;
-                
-                isMapMovingProgrammaticallyRef.current = true;
-                const coords = [finalLng, finalLat];
-                map.setCenter(coords);
-                
-                geocoder.getAddress(coords, (geoStatus: string, geoResult: any) => {
-                  isMapMovingProgrammaticallyRef.current = false;
-                  if (geoStatus === 'complete' && geoResult.regeocode) {
-                    const formattedAddress = geoResult.regeocode.formattedAddress;
-                    const addressComp = geoResult.regeocode.addressComponent || {};
-                    let cleanLabel = formattedAddress;
-                    if (addressComp.province) cleanLabel = cleanLabel.replace(addressComp.province, '');
-                    if (addressComp.city) cleanLabel = cleanLabel.replace(addressComp.city, '');
-                    if (addressComp.district) cleanLabel = cleanLabel.replace(addressComp.district, '');
-                    if (!cleanLabel.trim()) cleanLabel = formattedAddress;
-                    
-                    setStartLocation(cleanLabel);
-                  }
-                });
+                reverseGeocodeCenter(finalLng, finalLat);
               });
               return true;
             }
             return false;
           };
 
-          if (tryUsePrefetched()) {
-            return;
-          }
+          // If we have driverCoords or cached background coordinates, use them immediately!
+          if (driverCoords) {
+            reverseGeocodeCenter(driverCoords.lng, driverCoords.lat);
+          } else if (hasCached) {
+            reverseGeocodeCenter(Number(cachedLng), Number(cachedLat));
+          } else {
+            if (tryUsePrefetched()) {
+              return;
+            }
 
-          try {
-            // Create Geolocation instance with high accuracy enabled for real mobile GPS tracking but with short timeout fallback
-            const geolocation = new AMap.Geolocation({
-              enableHighAccuracy: true,  // enable real GPS for actual phone users
-              timeout: 3000,             // 3s timeout for fast response
-              zoomToAccuracy: true,
-              buttonPosition: 'RB',
-              needAddress: true
-            });
+            try {
+              // Create Geolocation instance with high accuracy enabled for real mobile GPS tracking but with short timeout fallback
+              const geolocation = new AMap.Geolocation({
+                enableHighAccuracy: true,  // enable real GPS for actual phone users
+                timeout: 3000,             // 3s timeout for fast response
+                zoomToAccuracy: false,     // Disable auto-zoom to keep user's preferred zoom
+                buttonPosition: 'RB',
+                needAddress: true
+              });
 
-            map.addControl(geolocation);
+              map.addControl(geolocation);
 
-            // Auto-locate user on open and sync name
-            isMapMovingProgrammaticallyRef.current = true;
-            geolocation.getCurrentPosition((status: string, result: any) => {
-              isMapMovingProgrammaticallyRef.current = false;
-              if (status === 'complete' && result.position) {
-                const coords = [result.position.lng, result.position.lat];
-                map.setCenter(coords);
-                
-                if (result.formattedAddress) {
-                  const formattedAddress = result.formattedAddress;
-                  const addressComp = result.addressComponent || {};
-                  let cleanLabel = formattedAddress;
-                  if (addressComp.province) cleanLabel = cleanLabel.replace(addressComp.province, '');
-                  if (addressComp.city) cleanLabel = cleanLabel.replace(addressComp.city, '');
-                  if (addressComp.district) cleanLabel = cleanLabel.replace(addressComp.district, '');
+              // Auto-locate user on open and sync name
+              isMapMovingProgrammaticallyRef.current = true;
+              geolocation.getCurrentPosition((status: string, result: any) => {
+                isMapMovingProgrammaticallyRef.current = false;
+                if (status === 'complete' && result.position) {
+                  const coords = [result.position.lng, result.position.lat];
+                  map.setCenter(coords);
                   
-                  if (!cleanLabel.trim()) {
-                    cleanLabel = formattedAddress;
-                  }
-                  setStartLocation(cleanLabel);
-                } else {
+                  // Always reverse geocode to get high-precision POIs/AOIs
                   geocoder.getAddress(coords, (geoStatus: string, geoResult: any) => {
                     if (geoStatus === 'complete' && geoResult.regeocode) {
-                      const formattedAddress = geoResult.regeocode.formattedAddress;
-                      const addressComp = geoResult.regeocode.addressComponent || {};
+                      const cleanLabel = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress, coords[0], coords[1]);
+                      setStartLocation(cleanLabel);
+                    } else if (result.formattedAddress) {
+                      const formattedAddress = result.formattedAddress;
+                      const addressComp = result.addressComponent || {};
                       let cleanLabel = formattedAddress;
                       if (addressComp.province) cleanLabel = cleanLabel.replace(addressComp.province, '');
                       if (addressComp.city) cleanLabel = cleanLabel.replace(addressComp.city, '');
                       if (addressComp.district) cleanLabel = cleanLabel.replace(addressComp.district, '');
-                      
-                      if (!cleanLabel.trim()) {
-                        cleanLabel = formattedAddress;
-                      }
+                      if (!cleanLabel.trim()) cleanLabel = formattedAddress;
                       setStartLocation(cleanLabel);
+                    } else {
+                      setStartLocation('未定位起点');
                     }
                   });
+                } else {
+                  // If the map has loaded but geolocation failed, let's try prefetch coords one last check, or fallback to IP city
+                  if (!tryUsePrefetched()) {
+                    fallbackGeolocation();
+                  }
                 }
-              } else {
-                // If the map has loaded but geolocation failed, let's try prefetch coords one last check, or fallback to IP city
-                if (!tryUsePrefetched()) {
-                  fallbackGeolocation();
-                }
+              });
+            } catch (err) {
+              console.warn('Geolocation was blocked or failed, using city fallback:', err);
+              isMapMovingProgrammaticallyRef.current = false;
+              if (!tryUsePrefetched()) {
+                fallbackGeolocation();
               }
-            });
-          } catch (err) {
-            console.warn('Geolocation was blocked or failed, using city fallback:', err);
-            isMapMovingProgrammaticallyRef.current = false;
-            if (!tryUsePrefetched()) {
-              fallbackGeolocation();
             }
           }
 
           const updateAddressFromMapCenter = () => {
-            if (isMapMovingProgrammaticallyRef.current || destinationRef.current.trim().length > 0) return;
+            if (isMapMovingProgrammaticallyRef.current) return;
             const center = map.getCenter();
             geocoder.getAddress([center.lng, center.lat], (geocodestatus: string, geocoderesult: any) => {
               if (geocodestatus === 'complete' && geocoderesult.regeocode) {
-                const formattedAddress = geocoderesult.regeocode.formattedAddress;
-                const addressComp = geocoderesult.regeocode.addressComponent;
-                
-                // Keep only building description or neighborhood sub-info to look elegant & compact
-                let cleanLabel = formattedAddress;
-                if (addressComp.province) cleanLabel = cleanLabel.replace(addressComp.province, '');
-                if (addressComp.city) cleanLabel = cleanLabel.replace(addressComp.city, '');
-                if (addressComp.district) cleanLabel = cleanLabel.replace(addressComp.district, '');
-                
-                if (!cleanLabel.trim()) {
-                  cleanLabel = formattedAddress;
-                }
+                const cleanLabel = getHighPrecisionLocationName(geocoderesult.regeocode, geocoderesult.regeocode.formattedAddress, center.lng, center.lat);
                 setStartLocation(cleanLabel);
               }
             });
@@ -496,7 +618,8 @@ export default function CreateOrderView({
     if (AMap && map && startLocation && !isEditingStart) {
       AMap.plugin('AMap.Geocoder', () => {
         const geocoder = new AMap.Geocoder({
-          city: registeredCity || '银川市'
+          city: registeredCity || '银川市',
+          extensions: 'all'
         });
         geocoder.getLocation(startLocation, (status: string, result: any) => {
           if (status === 'complete' && result && result.geocodes && result.geocodes.length) {
@@ -511,6 +634,104 @@ export default function CreateOrderView({
       });
     }
   }, [isEditingStart, startLocation]);
+
+  const handleRecenterAndLocate = () => {
+    const AMap = (window as any).AMap;
+    const map = mapInstanceRef.current;
+    if (!AMap || !map) return;
+
+    setStartLocation('正在获取当前位置...');
+
+    const runGeocoding = (lng: number, lat: number) => {
+      AMap.convertFrom([lng, lat], 'gps', (convertStatus: string, convertResult: any) => {
+        const finalLng = (convertStatus === 'complete' && convertResult.locations) ? convertResult.locations[0].lng : lng;
+        const finalLat = (convertStatus === 'complete' && convertResult.locations) ? convertResult.locations[0].lat : lat;
+        
+        isMapMovingProgrammaticallyRef.current = true;
+        map.setCenter([finalLng, finalLat]);
+        
+        AMap.plugin('AMap.Geocoder', () => {
+          const geocoder = new AMap.Geocoder({
+            city: registeredCity || '银川市',
+            extensions: 'all'
+          });
+          geocoder.getAddress([finalLng, finalLat], (geoStatus: string, geoResult: any) => {
+            isMapMovingProgrammaticallyRef.current = false;
+            if (geoStatus === 'complete' && geoResult.regeocode) {
+              const highPrecisionName = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress);
+              setStartLocation(highPrecisionName);
+            } else {
+              setStartLocation('未定位起点');
+            }
+          });
+        });
+      });
+    };
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const rawLat = position.coords.latitude;
+          const rawLng = position.coords.longitude;
+          runGeocoding(rawLng, rawLat);
+        },
+        (err) => {
+          console.warn('Native geolocation failed, trying AMap Geolocation directly:', err);
+          AMap.plugin('AMap.Geolocation', () => {
+            try {
+              const geolocation = new AMap.Geolocation({
+                enableHighAccuracy: true,
+                timeout: 3000,
+                zoomToAccuracy: false // Disable auto-zoom to keep user's preferred zoom
+              });
+              geolocation.getCurrentPosition((status: string, result: any) => {
+                if (status === 'complete' && result.position) {
+                  const finalLng = result.position.lng;
+                  const finalLat = result.position.lat;
+                  isMapMovingProgrammaticallyRef.current = true;
+                  map.setCenter([finalLng, finalLat]);
+                  
+                  AMap.plugin('AMap.Geocoder', () => {
+                    const geocoder = new AMap.Geocoder({
+                      city: registeredCity || '银川市',
+                      extensions: 'all'
+                    });
+                    geocoder.getAddress([finalLng, finalLat], (geoStatus: string, geoResult: any) => {
+                      isMapMovingProgrammaticallyRef.current = false;
+                      if (geoStatus === 'complete' && geoResult.regeocode) {
+                        setStartLocation(getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress));
+                      } else {
+                        setStartLocation(result.formattedAddress || '未定位起点');
+                      }
+                    });
+                  });
+                } else {
+                  if (driverCoords) {
+                    runGeocoding(driverCoords.lng, driverCoords.lat);
+                  } else {
+                    setStartLocation('未定位起点');
+                  }
+                }
+              });
+            } catch (e) {
+              if (driverCoords) {
+                runGeocoding(driverCoords.lng, driverCoords.lat);
+              } else {
+                setStartLocation('未定位起点');
+              }
+            }
+          });
+        },
+        { enableHighAccuracy: true, timeout: 3000 }
+      );
+    } else {
+      if (driverCoords) {
+        runGeocoding(driverCoords.lng, driverCoords.lat);
+      } else {
+        setStartLocation('未定位起点');
+      }
+    }
+  };
 
   // AMap Driving/Riding Route planning for distance calculation and map display
   const [routeDistance, setRouteDistance] = useState<number | null>(null);
@@ -942,11 +1163,12 @@ export default function CreateOrderView({
       {/* BEGIN: MapMarkerSection */}
       <main className="flex-grow relative z-10 flex flex-col justify-between pointer-events-none">
         
-        {/* Center Map Marker (Static pin indicator in center - aligned to true map center) */}
+        {/* Center Map Marker (Pulsing blue circle representing user's current/pushed location) */}
         {!activeOnlineOrder && !routeDistance && (
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full flex flex-col items-center pointer-events-none" data-purpose="pickup-location-marker">
-            <div className="bg-white px-3.5 py-1.5 rounded-lg shadow-xl border border-gray-100 mb-1 whitespace-nowrap flex items-center gap-1.5 animate-bounce pointer-events-auto">
-              <span className="w-2 h-2 rounded-full bg-[#189F95]"></span>
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none z-10 pb-5" data-purpose="pickup-location-marker">
+            {/* Speech bubble showing current high-precision location address name */}
+            <div className="bg-white/95 backdrop-blur-xs px-3.5 py-1.5 rounded-lg shadow-xl border border-blue-100 mb-2.5 whitespace-nowrap flex items-center gap-1.5 animate-bounce pointer-events-auto transition-all duration-200">
+              <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
               {isEditingStart ? (
                 <input
                   type="text"
@@ -965,8 +1187,18 @@ export default function CreateOrderView({
                 </span>
               )}
             </div>
-            <div className="w-0.5 h-6 bg-black shadow-lg"></div>
-            <div className="w-2 h-2 bg-black rounded-full -mt-1 shadow-md"></div>
+            
+            {/* Pulsing blue circle component */}
+            <div className="relative flex items-center justify-center">
+              {/* Outer soft pulsing ring */}
+              <div className="absolute w-12 h-12 bg-blue-500/25 rounded-full animate-ping pointer-events-none"></div>
+              {/* Middle glowing shadow ring */}
+              <div className="absolute w-8 h-8 bg-blue-500/40 rounded-full blur-xs pointer-events-none"></div>
+              {/* Inner crisp solid blue circle with white border */}
+              <div className="relative w-5 h-5 bg-blue-600 rounded-full border-2 border-white shadow-lg flex items-center justify-center">
+                <div className="w-2.5 h-2.5 bg-white rounded-full"></div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -1000,16 +1232,49 @@ export default function CreateOrderView({
               </svg>
             </button>
           </div>
-          <button 
-            onClick={() => setStartLocation('兴庆区政府住宅区')}
-            className="bg-white p-2.5 rounded-xl shadow-md active:scale-95 transition-transform" 
-            data-purpose="re-center"
-          >
-            <svg className="h-5 w-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"></path>
-              <path d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"></path>
-            </svg>
-          </button>
+          <div className="flex flex-col items-center gap-2">
+            {/* Zoom Controls Panel stacked vertically above the re-center button */}
+            <div className="flex flex-col bg-white rounded-xl shadow-md overflow-hidden border border-gray-100 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  const map = mapInstanceRef.current;
+                  if (map) {
+                    map.zoomIn();
+                  }
+                }}
+                className="p-2.5 hover:bg-gray-50 active:bg-gray-100 transition-colors border-b border-gray-150 flex items-center justify-center"
+                title="放大"
+              >
+                <Plus className="w-5 h-5 text-gray-700" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const map = mapInstanceRef.current;
+                  if (map) {
+                    map.zoomOut();
+                  }
+                }}
+                className="p-2.5 hover:bg-gray-50 active:bg-gray-100 transition-colors flex items-center justify-center"
+                title="缩小"
+              >
+                <Minus className="w-5 h-5 text-gray-700" />
+              </button>
+            </div>
+
+            {/* Re-center / Geolocation Button */}
+            <button 
+              onClick={handleRecenterAndLocate}
+              className="bg-white p-2.5 rounded-xl shadow-md active:scale-95 transition-transform shrink-0" 
+              data-purpose="re-center"
+            >
+              <svg className="h-5 w-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"></path>
+                <path d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"></path>
+              </svg>
+            </button>
+          </div>
         </div>
       </main>
       {/* END: MapMarkerSection */}

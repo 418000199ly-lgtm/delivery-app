@@ -14,6 +14,7 @@ import PaymentQRView from './components/PaymentQRView';
 import CreateOrderView from './components/CreateOrderView';
 import PassengerOrderView from './components/PassengerOrderView';
 import WeChatAuthMobile from './components/WeChatAuthMobile';
+import WeChatMiniSimulator from './components/WeChatMiniSimulator';
 
 import { 
   ChauffeurSettings, 
@@ -24,7 +25,7 @@ import {
   DEFAULT_SETTINGS,
   checkVipActive
 } from './types';
-import { Sparkles, CheckCircle, Database, Smartphone, Users, ShieldAlert } from 'lucide-react';
+import { Sparkles, CheckCircle, Database, Smartphone, Users, ShieldAlert, FileCode } from 'lucide-react';
 import AdminPanel from './components/AdminPanel';
 import LoginView from './components/LoginView';
 import { db, doc, onSnapshot, setDoc, deleteDoc, collection } from './lib/dbProxy';
@@ -104,6 +105,136 @@ const getCityCenterCoords = (cityName: string): { lat: number; lng: number } => 
   return { lat: 38.487193, lng: 106.230912 };
 };
 
+const getPoiLngLat = (poi: any) => {
+  if (!poi || !poi.location) return null;
+  const loc = poi.location;
+  if (typeof loc.getLng === 'function' && typeof loc.getLat === 'function') {
+    return { lng: loc.getLng(), lat: loc.getLat() };
+  }
+  if (typeof loc.lng === 'number' && typeof loc.lat === 'number') {
+    return { lng: loc.lng, lat: loc.lat };
+  }
+  if (typeof loc.lng === 'function' && typeof loc.lat === 'function') {
+    return { lng: loc.lng(), lat: loc.lat() };
+  }
+  if (typeof loc === 'string') {
+    const parts = loc.split(',');
+    if (parts.length === 2) {
+      return { lng: parseFloat(parts[0]), lat: parseFloat(parts[1]) };
+    }
+  }
+  return null;
+};
+
+const getDistance = (lng1: number, lat1: number, lng2: number, lat2: number): number => {
+  const radLat1 = lat1 * Math.PI / 180.0;
+  const radLat2 = lat2 * Math.PI / 180.0;
+  const a = radLat1 - radLat2;
+  const b = lng1 * Math.PI / 180.0 - lng2 * Math.PI / 180.0;
+  const s = 2 * Math.asin(Math.sqrt(Math.pow(Math.sin(a/2), 2) +
+    Math.cos(radLat1) * Math.cos(radLat2) * Math.pow(Math.sin(b/2), 2)));
+  return s * 6378137; // Earth radius in meters
+};
+
+const getPoiDistance = (poi: any, centerLng?: number, centerLat?: number): number => {
+  if (poi.distance !== undefined && poi.distance !== null && poi.distance !== '') {
+    const dist = Number(poi.distance);
+    if (!isNaN(dist)) return dist;
+  }
+  if (centerLng !== undefined && centerLat !== undefined) {
+    const loc = getPoiLngLat(poi);
+    if (loc) {
+      return getDistance(centerLng, centerLat, loc.lng, loc.lat);
+    }
+  }
+  return 999999;
+};
+
+const getHighPrecisionLocationName = (
+  regeocode: any, 
+  fallbackAddress: string, 
+  centerLng?: number, 
+  centerLat?: number
+): string => {
+  if (!regeocode) return fallbackAddress;
+
+  const addressComp = regeocode.addressComponent || {};
+  const unacceptableKeywords = ['公厕', '公共厕所', '垃圾站', '垃圾转运', '配电房', '变电站', '充电站', '高压线', '环卫'];
+
+  // Identify the closest road name
+  let roadName = '';
+  if (regeocode.roads && regeocode.roads.length > 0) {
+    if (regeocode.roads[0] && regeocode.roads[0].name) {
+      roadName = regeocode.roads[0].name;
+    }
+  }
+
+  if (!roadName && addressComp.street && typeof addressComp.street === 'string' && addressComp.street.trim()) {
+    roadName = addressComp.street.trim();
+  }
+  if (!roadName && addressComp.streetNumber && addressComp.streetNumber.street && typeof addressComp.streetNumber.street === 'string') {
+    roadName = addressComp.streetNumber.street.trim();
+  }
+
+  let poiName = '';
+  // Sort POIs strictly by physical distance to prioritize the closest specific store/building
+  if (regeocode.pois && regeocode.pois.length > 0) {
+    const validPois = regeocode.pois.filter((poi: any) => {
+      const name = poi.name || '';
+      return !unacceptableKeywords.some(kw => name.includes(kw));
+    });
+    if (validPois.length > 0) {
+      const sortedPois = [...validPois].sort((a, b) => {
+        return getPoiDistance(a, centerLng, centerLat) - getPoiDistance(b, centerLng, centerLat);
+      });
+      poiName = sortedPois[0].name;
+    } else {
+      const sortedAllPois = [...regeocode.pois].sort((a, b) => {
+        return getPoiDistance(a, centerLng, centerLat) - getPoiDistance(b, centerLng, centerLat);
+      });
+      poiName = sortedAllPois[0].name;
+    }
+  } else if (regeocode.aois && regeocode.aois.length > 0) {
+    // Fall back to first AOI
+    poiName = regeocode.aois[0].name;
+  } else {
+    let neighborhoodName = '';
+    if (addressComp.neighborhood) {
+      neighborhoodName = typeof addressComp.neighborhood === 'string'
+        ? addressComp.neighborhood
+        : (addressComp.neighborhood.name || '');
+    }
+    if (neighborhoodName && neighborhoodName.trim()) {
+      poiName = neighborhoodName;
+    } else {
+      let buildingName = '';
+      if (addressComp.building) {
+        buildingName = typeof addressComp.building === 'string'
+          ? addressComp.building
+          : (addressComp.building.name || '');
+      }
+      if (buildingName && buildingName.trim()) {
+        poiName = buildingName;
+      } else {
+        const formattedAddress = regeocode.formattedAddress || fallbackAddress;
+        let cleanLabel = formattedAddress;
+        if (addressComp.province) cleanLabel = cleanLabel.replace(addressComp.province, '');
+        if (addressComp.city) cleanLabel = cleanLabel.replace(addressComp.city, '');
+        if (addressComp.district) cleanLabel = cleanLabel.replace(addressComp.district, '');
+        poiName = cleanLabel.trim() ? cleanLabel : formattedAddress;
+      }
+    }
+  }
+
+  if (roadName && poiName) {
+    if (poiName.includes(roadName)) {
+      return poiName;
+    }
+    return `（${roadName}）${poiName}`;
+  }
+  return poiName || fallbackAddress;
+};
+
 const getCurrent6AmDay = (): string => {
   const now = new Date();
   const adjusted = new Date(now.getTime() - 6 * 60 * 60 * 1000);
@@ -118,6 +249,13 @@ export default function App() {
   if (window.location.pathname === '/wechat-login-mobile') {
     return <WeChatAuthMobile />;
   }
+
+  const isStandaloneAdmin = () => {
+    if (typeof window === 'undefined') return false;
+    const hostname = window.location.hostname;
+    const params = new URLSearchParams(window.location.search);
+    return hostname === 'heiwandaijiamax.ccwu.cc' || params.get('admin') === 'true';
+  };
 
   // --- 1. Persistent State Management ---
   const [billingRules, setBillingRules] = useState<BillingRules>(() => {
@@ -186,7 +324,16 @@ export default function App() {
   });
 
   const [currentView, setCurrentView] = useState<string>('home');
-  const [mobileActiveTab, setMobileActiveTab] = useState<'app' | 'admin' | 'passenger'>('app');
+  const [mobileActiveTab, setMobileActiveTab] = useState<'app' | 'admin' | 'passenger' | 'wechat_mini'>(() => {
+    if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname;
+      const params = new URLSearchParams(window.location.search);
+      if (hostname === 'heiwandaijiamax.ccwu.cc' || params.get('admin') === 'true') {
+        return 'admin';
+      }
+    }
+    return 'app';
+  });
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [passengerDriverPhone, setPassengerDriverPhone] = useState<string | null>(() => {
@@ -210,6 +357,7 @@ export default function App() {
   const [sysVersion, setSysVersion] = useState<string>('V1.0');
   const [sysForceUpgrade, setSysForceUpgrade] = useState<boolean>(false);
   const [sysUpgradeUrl, setSysUpgradeUrl] = useState<string>('https://download.heiwan.com/max');
+  const [sysXianyuUrl, setSysXianyuUrl] = useState<string>('https://www.goofish.com');
   const [showUpgradeModal, setShowUpgradeModal] = useState<boolean>(false);
 
   // Real-time listen for system version information
@@ -221,6 +369,7 @@ export default function App() {
         setSysVersion(data.version || 'V1.0');
         setSysForceUpgrade(!!data.forceUpgrade);
         setSysUpgradeUrl(data.upgradeUrl || 'https://download.heiwan.com/max');
+        setSysXianyuUrl(data.xianyuUrl || 'https://www.goofish.com');
       }
     }, (error) => {
       console.error("Error subscribing to system version:", error);
@@ -254,6 +403,22 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  const [isInSquad, setIsInSquad] = useState(false);
+
+  useEffect(() => {
+    if (!userPhone) {
+      setIsInSquad(false);
+      return;
+    }
+    const docRef = doc(db, 'squad_members', userPhone);
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      setIsInSquad(docSnap.exists());
+    }, (error) => {
+      console.error("Error subscribing to squad member state:", error);
+    });
+    return () => unsubscribe();
+  }, [userPhone]);
 
   const loggedInMember = teamMembers.find(m => m.phone === userPhone);
   const userRole = (isAdminAuthenticated || userPhone === '15509601222')
@@ -293,6 +458,8 @@ export default function App() {
 
       const updateCoords = (latitude: number, longitude: number, methodUsed: string) => {
         setDriverCoords({ lat: latitude, lng: longitude });
+        localStorage.setItem('dd_bg_driver_coords_lat', latitude.toString());
+        localStorage.setItem('dd_bg_driver_coords_lng', longitude.toString());
         
         // Silently store coordinate updates directly onto the active DB document to let simulated matching query work stably
         if (userPhone && isOnline) {
@@ -304,6 +471,26 @@ export default function App() {
             lastUpdatedTime: new Date().toISOString() 
           }, { merge: true }).catch((e) => {
             console.error("Failed to sync driver GPS location coordinates to Firestore:", e);
+          });
+        }
+
+        // Trigger real-time reverse geocoding on coordinate update to keep high-precision location name in sync in background
+        if (AMap) {
+          AMap.plugin('AMap.Geocoder', () => {
+            try {
+              const geocoder = new AMap.Geocoder({
+                city: city,
+                extensions: 'all'
+              });
+              geocoder.getAddress([longitude, latitude], (geoStatus: string, geoResult: any) => {
+                if (geoStatus === 'complete' && geoResult.regeocode) {
+                  const name = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress, longitude, latitude);
+                  localStorage.setItem('dd_bg_driver_coords_name', name);
+                }
+              });
+            } catch (e) {
+              console.warn("Geocoder background execution failed:", e);
+            }
           });
         }
       };
@@ -649,6 +836,16 @@ export default function App() {
           const submitTime = data.timestamp || 0;
           // Verify submission timestamp to avoid processing historical stales (last 1 hour to prevent clock skews)
           if (submitTime > Date.now() - 3600000) {
+            // Verify dispatching/receiving permissions: management team is unaffected by dispatch squad restrictions
+            const isManagementTeam = userRole === '开发者司机' || userRole === '城市老板司机' || userRole === '城市管理司机' || userRole === '城市派单员司机';
+            const isApproved = !!settings.onlineOrdersEnabled;
+            const canReceive = isManagementTeam || (isApproved && isInSquad);
+
+            if (!canReceive) {
+              console.log("Blocking incoming order: Driver is not approved or not in squad, and not in management team.");
+              return;
+            }
+
             // Only trigger if we are NOT on the 'create_order' (手动报单) view
             if (currentView !== 'create_order') {
               setIncomingOrder(data);
@@ -659,7 +856,7 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [userPhone, currentView]);
+  }, [userPhone, currentView, userRole, settings.onlineOrdersEnabled, isInSquad]);
 
   const handleAcceptIncomingOrder = (trip: TripState) => {
     if (!userPhone) return;
@@ -836,6 +1033,15 @@ export default function App() {
       }
     }
     setIsOnline(online);
+    if (userPhone) {
+      const userDocRef = doc(db, 'driver_users', userPhone);
+      setDoc(userDocRef, {
+        isOnline: online,
+        lastOnlineTime: online ? new Date().toISOString() : null
+      }, { merge: true }).catch((e) => {
+        console.error("Failed to sync isOnline toggle to Firestore:", e);
+      });
+    }
   };
 
   const handleUpdateSettings = (newSettings: ChauffeurSettings) => {
@@ -1120,10 +1326,27 @@ export default function App() {
             userTeamCity={userTeamCity}
             onLogout={handleLogout}
             driverCoords={driverCoords}
+            xianyuUrl={sysXianyuUrl}
           />
         );
     }
   };
+
+  if (isStandaloneAdmin()) {
+    return (
+      <div className="h-screen w-screen bg-[#07080b] flex flex-col overflow-hidden text-slate-200 antialiased font-sans">
+        <div className="flex-1 overflow-y-auto">
+          <AdminPanel 
+            userPhone={userPhone}
+            userRole={userRole}
+            userTeamCity={userTeamCity}
+            isAdminAuthenticated={isAdminAuthenticated}
+            setIsAdminAuthenticated={setIsAdminAuthenticated}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen w-screen bg-[#07080b] flex flex-col items-center justify-start overflow-hidden text-slate-200 antialiased font-sans">
@@ -1165,6 +1388,18 @@ export default function App() {
             <Users className="w-3.5 h-3.5" />
             <span>乘客自助端(代开单)</span>
           </button>
+
+          <button
+            onClick={() => setMobileActiveTab('wechat_mini')}
+            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer ${
+              mobileActiveTab === 'wechat_mini'
+                ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-md'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            <FileCode className="w-3.5 h-3.5 text-emerald-400" />
+            <span>微信小程序下单</span>
+          </button>
           
           <button
             onClick={() => setMobileActiveTab('admin')}
@@ -1183,43 +1418,54 @@ export default function App() {
       {/* Main split-screen or single workspace zone */}
       <div className="flex-1 w-full max-w-[1550px] mx-auto p-3 sm:p-5 flex flex-row items-stretch justify-center gap-6 overflow-hidden">
         
-        {/* Left pane: Smartphone simulator containing driver client app or passenger self booking view */}
-        <div className={`flex flex-col items-center justify-center transition-all duration-300 shrink-0 ${
-          mobileActiveTab === 'app' || mobileActiveTab === 'passenger' ? 'flex-1 max-w-[420px] w-full' : 'hidden lg:flex lg:w-[400px]'
-        }`}>
-          <div className="relative w-full h-full sm:h-[82vh] sm:max-h-[820px] sm:rounded-[40px] sm:shadow-[0_25px_60px_-15px_rgba(0,0,0,0.95)] sm:border-8 sm:border-[#1e293b] bg-[#f8fafc] flex flex-col overflow-hidden">
-            <div className="flex-1 flex flex-col relative overflow-hidden text-[#333333]">
-              {renderView()}
-
-              {/* Top floating toasts */}
-              {showToast && (
-                <div className="absolute top-16 left-4 right-4 bg-teal-600/95 border border-teal-400/20 text-white p-3 rounded-2xl shadow-2xl z-50 animate-in fade-in slide-in-from-top-4 duration-300 flex items-start space-x-2.5">
-                  <div className="w-5 h-5 rounded-full bg-emerald-400/20 text-emerald-300 flex items-center justify-center shrink-0 mt-0.5">
-                    <CheckCircle className="w-3.5 h-3.5 fill-current" />
-                  </div>
-                  <span className="text-xs font-semibold leading-relaxed tracking-wide font-sans">
-                    {toastMessage}
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Right pane / Center AdminPanel (Hidden if mobileActiveTab is app on mobile, but visible/scrollable as a secondary panel on lg: screens!) */}
-        <div className={`transition-all duration-300 bg-[#111625]/90 border border-[#212b44] rounded-3xl overflow-hidden flex flex-col ${
-          mobileActiveTab === 'admin' ? 'flex-1 w-full' : 'hidden lg:flex lg:flex-1'
-        }`}>
-          <div className="flex-1 overflow-y-auto">
-            <AdminPanel 
-              userPhone={userPhone}
-              userRole={userRole}
-              userTeamCity={userTeamCity}
-              isAdminAuthenticated={isAdminAuthenticated}
-              setIsAdminAuthenticated={setIsAdminAuthenticated}
+        {mobileActiveTab === 'wechat_mini' ? (
+          <div className="flex-1 bg-[#111625]/90 border border-[#212b44] rounded-3xl overflow-hidden flex flex-col shadow-2xl">
+            <WeChatMiniSimulator 
+              currentDriverPhone={userPhone}
+              onTriggerToast={triggerToast}
             />
           </div>
-        </div>
+        ) : (
+          <>
+            {/* Left pane: Smartphone simulator containing driver client app or passenger self booking view */}
+            <div className={`flex flex-col items-center justify-center transition-all duration-300 shrink-0 ${
+              mobileActiveTab === 'app' || mobileActiveTab === 'passenger' ? 'flex-1 max-w-[420px] w-full' : 'hidden lg:flex lg:w-[400px]'
+            }`}>
+              <div className="relative w-full h-full sm:h-[82vh] sm:max-h-[820px] sm:rounded-[40px] sm:shadow-[0_25px_60px_-15px_rgba(0,0,0,0.95)] sm:border-8 sm:border-[#1e293b] bg-[#f8fafc] flex flex-col overflow-hidden">
+                <div className="flex-1 flex flex-col relative overflow-hidden text-[#333333]">
+                  {renderView()}
+
+                  {/* Top floating toasts */}
+                  {showToast && (
+                    <div className="absolute top-16 left-4 right-4 bg-teal-600/95 border border-teal-400/20 text-white p-3 rounded-2xl shadow-2xl z-50 animate-in fade-in slide-in-from-top-4 duration-300 flex items-start space-x-2.5">
+                      <div className="w-5 h-5 rounded-full bg-emerald-400/20 text-emerald-300 flex items-center justify-center shrink-0 mt-0.5">
+                        <CheckCircle className="w-3.5 h-3.5 fill-current" />
+                      </div>
+                      <span className="text-xs font-semibold leading-relaxed tracking-wide font-sans">
+                        {toastMessage}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Right pane / Center AdminPanel (Hidden if mobileActiveTab is app on mobile, but visible/scrollable as a secondary panel on lg: screens!) */}
+            <div className={`transition-all duration-300 bg-[#111625]/90 border border-[#212b44] rounded-3xl overflow-hidden flex flex-col ${
+              mobileActiveTab === 'admin' ? 'flex-1 w-full' : 'hidden lg:flex lg:flex-1'
+            }`}>
+              <div className="flex-1 overflow-y-auto">
+                <AdminPanel 
+                  userPhone={userPhone}
+                  userRole={userRole}
+                  userTeamCity={userTeamCity}
+                  isAdminAuthenticated={isAdminAuthenticated}
+                  setIsAdminAuthenticated={setIsAdminAuthenticated}
+                />
+              </div>
+            </div>
+          </>
+        )}
 
       </div>
 
@@ -1228,11 +1474,19 @@ export default function App() {
         <span>XX代驾 © 2026 调试环境已对接云端（系统自动检测到 Firebase 联动机制健全）</span>
         <button 
           onClick={() => {
-            setMobileActiveTab(mobileActiveTab === 'app' ? 'passenger' : mobileActiveTab === 'passenger' ? 'admin' : 'app');
+            setMobileActiveTab(
+              mobileActiveTab === 'app' 
+                ? 'passenger' 
+                : mobileActiveTab === 'passenger' 
+                ? 'wechat_mini' 
+                : mobileActiveTab === 'wechat_mini' 
+                ? 'admin' 
+                : 'app'
+            );
           }}
           className="text-teal-400 hover:text-teal-300 cursor-pointer lg:hidden font-medium"
         >
-          {mobileActiveTab === 'app' ? '切换至乘客端 ➔' : mobileActiveTab === 'passenger' ? '切换至后台 ➔' : '返回手机端 ➔'}
+          {mobileActiveTab === 'app' ? '切换至乘客端 ➔' : mobileActiveTab === 'passenger' ? '切换至小程序 ➔' : mobileActiveTab === 'wechat_mini' ? '切换至后台 ➔' : '返回手机端 ➔'}
         </button>
         <span className="hidden lg:inline text-gray-400 font-mono text-[9px]">
           建议宽屏设备下并排操作：左侧模拟接单，右侧调试审核 ⚡

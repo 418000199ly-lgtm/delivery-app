@@ -43,13 +43,26 @@ export class ProxyQuerySnapshot {
 export function getBaseApiUrl(): string {
   try {
     const cfUrl = localStorage.getItem('cloudflare_worker_api_url');
-    if (cfUrl && cfUrl.trim().startsWith('http')) {
-      return cfUrl.trim().replace(/\/$/, '');
+    if (cfUrl && cfUrl.trim()) {
+      let trimmed = cfUrl.trim().replace(/\/$/, '');
+      if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+        return trimmed;
+      }
+      return 'https://' + trimmed;
     }
   } catch (_) {}
   
-  // Default to relative express proxy
-  return '';
+  // If we are visiting via heiwandaijiamax.ccwu.cc or any other custom admin domain,
+  // we default to the active database worker node to keep all data 100% interconnected in real-time.
+  if (typeof window !== 'undefined' && (
+    window.location.hostname === 'heiwandaijiamax.ccwu.cc' || 
+    window.location.hostname === 'daijiajifei.ccwu.cc'
+  )) {
+    return 'https://daijiajifei.ccwu.cc';
+  }
+
+  // Default to the active Cloudflare Worker database endpoint to ensure 100% real-time data interconnection across all environments by default.
+  return 'https://daijiajifei.ccwu.cc';
 }
 
 // Mirroring firestore imports

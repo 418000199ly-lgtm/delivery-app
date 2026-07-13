@@ -36,10 +36,12 @@ import {
   UserCheck,
   UserX,
   Check,
-  Loader2
+  Loader2,
+  Briefcase
 } from 'lucide-react';
 import { ChauffeurSettings, DriverStats, TripState, BillingRules, checkVipActive } from '../types';
 import DriverIllustration from './DriverIllustration';
+import DispatchValetOrder from './DispatchValetOrder';
 import { db, doc, getDoc, updateDoc, collection, onSnapshot, setDoc, getDocs, deleteDoc } from '../lib/dbProxy';
 import { CITY_GROUPS, ALL_CITIES_FLAT } from '../constants/cities';
 import { resolveAndSyncDuplicateNames } from '../utils/nameResolver';
@@ -62,6 +64,7 @@ interface HomeViewProps {
   driverCoords?: { lat: number; lng: number } | null;
   userRole?: string;
   userTeamCity?: string;
+  xianyuUrl?: string;
 }
 
 const filterOrdersWithinSixMonths = (orders: any[]): any[] => {
@@ -127,7 +130,8 @@ export default function HomeView({
   onLogout,
   driverCoords,
   userRole = '普通司机',
-  userTeamCity = ''
+  userTeamCity = '',
+  xianyuUrl = 'https://www.goofish.com'
 }: HomeViewProps) {
   const effectiveCity = (userRole && userRole !== '开发者司机' && userTeamCity) ? userTeamCity : (settings?.city || '银川市');
 
@@ -167,6 +171,7 @@ export default function HomeView({
   
   // --- Quick App Dispatch Modal States ---
   const [showDispatchModal, setShowDispatchModal] = useState(false);
+  const [showMerchantDispatchModal, setShowMerchantDispatchModal] = useState(false);
   const [dispatchStartPlace, setDispatchStartPlace] = useState('');
   const [dispatchPhone, setDispatchPhone] = useState('');
   const [dispatchSuggestions, setDispatchSuggestions] = useState<any[]>([]);
@@ -175,6 +180,87 @@ export default function HomeView({
   const [dispatchCity, setDispatchCity] = useState(effectiveCity);
   const [dispatchCityQuery, setDispatchCityQuery] = useState('');
   const [showDispatchCityDropdown, setShowDispatchCityDropdown] = useState(false);
+
+  // --- Squad Management States ---
+  const [squadMembers, setSquadMembers] = useState<any[]>([]);
+  const [teamConfig, setTeamConfig] = useState<{ teamName: string } | null>(null);
+  const [searchSquadPhone, setSearchSquadPhone] = useState('');
+  const [searchSquadResult, setSearchSquadResult] = useState<{
+    exists: boolean;
+    squadMember: any | null;
+    driverUser: any | null;
+    checked: boolean;
+  } | null>(null);
+  const [squadDriverName, setSquadDriverName] = useState('');
+  const [isSearchingSquad, setIsSearchingSquad] = useState(false);
+  const [isEditingSquadName, setIsEditingSquadName] = useState(false);
+  const [tempSquadName, setTempSquadName] = useState('');
+  const [searchSquadError, setSearchSquadError] = useState('');
+  const [squadKickConfirm, setSquadKickConfirm] = useState<{ phone: string; name?: string } | null>(null);
+  const [squadNotification, setSquadNotification] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Master switches configuration (one-click close)
+  const [masterSwitches, setMasterSwitches] = useState<{
+    online_app_enabled?: boolean;
+    merchant_dispatch_enabled?: boolean;
+    squad_management_enabled?: boolean;
+  }>({
+    online_app_enabled: true,
+    merchant_dispatch_enabled: true,
+    squad_management_enabled: true,
+  });
+
+  useEffect(() => {
+    const docRef = doc(db, 'config', 'master_switches');
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setMasterSwitches({
+          online_app_enabled: data.online_app_enabled !== false,
+          merchant_dispatch_enabled: data.merchant_dispatch_enabled !== false,
+          squad_management_enabled: data.squad_management_enabled !== false,
+        });
+      } else {
+        setMasterSwitches({
+          online_app_enabled: true,
+          merchant_dispatch_enabled: true,
+          squad_management_enabled: true,
+        });
+      }
+    }, (error) => {
+      console.error("Error subscribing to master switches:", error);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Real-time synchronization for squad members
+  useEffect(() => {
+    const q = collection(db, 'squad_members');
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list: any[] = [];
+      snapshot.forEach((docSnap) => {
+        list.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      setSquadMembers(list);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Real-time synchronization for team config (squad name)
+  useEffect(() => {
+    const docRef = doc(db, 'config', 'team_config');
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setTeamConfig(data as any);
+        setTempSquadName(data.teamName || '默认小队');
+      } else {
+        setTeamConfig({ teamName: '默认小队' });
+        setTempSquadName('默认小队');
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Ensure Gaode Map is fully initialized with security credentials
   const [aMapReady, setAMapReady] = useState<boolean>(() => {
@@ -776,18 +862,32 @@ export default function HomeView({
       }
 
       const driverSnapshot = await getDocs(collection(db, 'driver_users'));
+      const squadSnapshot = await getDocs(collection(db, 'squad_members'));
+      const teamSnapshot = await getDocs(collection(db, 'team_members'));
+
+      const squadPhones = squadSnapshot.docs.map(d => d.id);
+      const managementPhones = teamSnapshot.docs
+        .filter(d => ['开发者司机', '城市老板司机', '城市管理司机', '城市派单员司机'].includes(d.data().role))
+        .map(d => d.data().phone);
+
       const activeDrivers: any[] = [];
       
       driverSnapshot.forEach((doc) => {
         const data = doc.data();
         if (data && !data.isBanned) {
-          activeDrivers.push({
-            phone: doc.id,
-            name: data.driverName || data.customAppName || '特约代驾司机',
-            lat: Number(data.lat) || finalCoords!.lat,
-            lng: Number(data.lng) || finalCoords!.lng,
-            onlineOrdersEnabled: !!data.onlineOrdersEnabled
-          });
+          const phone = doc.id;
+          const isManagement = managementPhones.includes(phone) || phone === '15509601222' || phone === userPhone;
+          const isApprovedAndInSquad = data.onlineOrdersEnabled && squadPhones.includes(phone);
+
+          if (isManagement || isApprovedAndInSquad) {
+            activeDrivers.push({
+              phone: doc.id,
+              name: data.driverName || data.customAppName || '特约代驾司机',
+              lat: Number(data.lat) || finalCoords!.lat,
+              lng: Number(data.lng) || finalCoords!.lng,
+              onlineOrdersEnabled: !!data.onlineOrdersEnabled
+            });
+          }
         }
       });
 
@@ -850,6 +950,136 @@ export default function HomeView({
       alert("❌ 派单通道执行失败: " + err.message);
     } finally {
       setDispatchingOrder(false);
+    }
+  };
+
+  const handleSearchSquadMember = async () => {
+    const phone = searchSquadPhone.trim();
+    if (!phone) {
+      alert('请输入要搜索的11位手机号码！');
+      return;
+    }
+    if (!/^1\d{10}$/.test(phone)) {
+      alert('请输入正确的11位手机号码格式！');
+      return;
+    }
+    setIsSearchingSquad(true);
+    setSearchSquadError('');
+    try {
+      // 1. Check in squad_members
+      const squadMemberSnap = await getDoc(doc(db, 'squad_members', phone));
+      
+      // 2. Check in driver_users
+      const driverUserSnap = await getDoc(doc(db, 'driver_users', phone));
+      
+      const existsInSquad = squadMemberSnap.exists();
+      const squadData = existsInSquad ? squadMemberSnap.data() : null;
+      const driverData = driverUserSnap.exists() ? driverUserSnap.data() : null;
+      
+      setSearchSquadResult({
+        exists: existsInSquad || driverUserSnap.exists(),
+        squadMember: squadData ? { id: phone, ...squadData } : null,
+        driverUser: driverData ? { id: phone, ...driverData } : null,
+        checked: true
+      });
+      
+      if (squadData) {
+        setSquadDriverName(squadData.name || '');
+      } else if (driverData) {
+        setSquadDriverName(driverData.driverName || driverData.customAppName || '');
+      } else {
+        setSquadDriverName('');
+      }
+    } catch (err: any) {
+      setSearchSquadError(err.message || '搜索失败');
+    } finally {
+      setIsSearchingSquad(false);
+    }
+  };
+
+  const handleAddToSquad = async () => {
+    const phone = searchSquadPhone.trim();
+    const name = squadDriverName.trim();
+    if (!phone) {
+      alert('请输入要添加的手机号码！');
+      return;
+    }
+    if (!name) {
+      alert('请输入要添加的司机姓名！');
+      return;
+    }
+    try {
+      await setDoc(doc(db, 'squad_members', phone), {
+        phone,
+        name,
+        addedByPhone: userPhone || '未知管理员',
+        addedByName: settings.customAppName || '管理员',
+        addedAt: new Date().toISOString().replace('T', ' ').substring(0, 19)
+      });
+      
+      // Refresh search result state
+      setSearchSquadResult(prev => prev ? {
+        ...prev,
+        squadMember: {
+          phone,
+          name,
+          addedByPhone: userPhone || '未知管理员',
+          addedByName: settings.customAppName || '管理员',
+          addedAt: new Date().toISOString().replace('T', ' ').substring(0, 19)
+        }
+      } : null);
+      
+      alert(`✓ 已成功将 ${name} (${phone}) 添加进入小队！`);
+    } catch (err: any) {
+      alert(`添加失败：${err.message}`);
+    }
+  };
+
+  const handleKickFromSquad = async (phoneToKick?: string) => {
+    const phone = phoneToKick || searchSquadPhone.trim();
+    if (!phone) return;
+    
+    try {
+      await deleteDoc(doc(db, 'squad_members', phone));
+      
+      if (!phoneToKick || phoneToKick === searchSquadPhone.trim()) {
+        setSearchSquadResult(prev => prev ? {
+          ...prev,
+          squadMember: null
+        } : null);
+        setSquadDriverName('');
+      }
+      
+      setSquadNotification({
+        type: 'success',
+        text: `✓ 已成功将手机号为 ${phone} 的司机从本小队中踢出。该司机已失去接收商户代叫新派单资格。`
+      });
+      setTimeout(() => setSquadNotification(null), 5000);
+    } catch (err: any) {
+      setSquadNotification({
+        type: 'error',
+        text: `踢出失败：${err.message}`
+      });
+      setTimeout(() => setSquadNotification(null), 5000);
+    }
+  };
+
+  const handleSaveSquadName = async () => {
+    const newName = tempSquadName.trim();
+    if (!newName) {
+      alert('小队名称不能为空！');
+      return;
+    }
+    try {
+      await setDoc(doc(db, 'config', 'team_config'), {
+        teamName: newName,
+        updatedAt: new Date().toISOString(),
+        setBy: userPhone || '开发者'
+      }, { merge: true });
+      setIsEditingSquadName(false);
+      alert('✓ 小队名称已成功保存，并在所有端实时生效！');
+    } catch (err: any) {
+      alert(`保存小队名称失败：${err.message}`);
     }
   };
 
@@ -1467,7 +1697,7 @@ export default function HomeView({
 
       {/* 2. Top menu cards (overlapping dark section) */}
       <div className="px-4 -translate-y-6 z-10" id="top-menu-grid-container">
-        <div className="bg-white rounded-2xl shadow-md border border-[#ededed] p-3 grid grid-cols-5 gap-1.5 text-center">
+        <div className="bg-white rounded-2xl shadow-md border border-[#ededed] p-3 grid grid-cols-6 gap-1 text-center">
           <button 
             onClick={() => setShowBuyPage(true)} 
             className="flex flex-col items-center justify-center group"
@@ -1506,7 +1736,7 @@ export default function HomeView({
                 {vipInfo.daysText}
               </span>
             </div>
-            <span className="text-[10px] text-gray-700 font-bold font-sans">有效期/购买</span>
+            <span className="text-[10px] text-gray-700 font-bold font-sans">有效期</span>
             <span className={`absolute -top-1 right-0 text-[8px] px-1 rounded-full scale-80 font-bold text-white ${
               settings.vipExpiry ? 'bg-amber-500 animate-pulse' : 'bg-slate-400'
             }`}>
@@ -1516,6 +1746,10 @@ export default function HomeView({
 
           <button 
             onClick={() => {
+              if (masterSwitches.online_app_enabled === false) {
+                alert('测试阶段，未开放');
+                return;
+              }
               // If they are already approved/active, check if dispatch is disabled for their city.
               // If they are NOT approved yet (e.g. resigned or applying), allow them to open the modal to apply/re-apply.
               if (settings.onlineOrdersEnabled && isCityDispatchEnabled === false) {
@@ -1550,6 +1784,27 @@ export default function HomeView({
 
           <button 
             onClick={() => {
+              if (masterSwitches.merchant_dispatch_enabled === false) {
+                alert('测试阶段，未开放');
+                return;
+              }
+              setShowMerchantDispatchModal(true);
+            }}
+            className="flex flex-col items-center justify-center relative transition-all duration-200 group"
+            id="menu-btn-merchant-dispatch"
+          >
+            <div className="w-10 h-10 rounded-full flex items-center justify-center mb-1.5 transition-all duration-200 bg-indigo-50 text-indigo-600 group-active:scale-95 border border-indigo-100">
+              <Briefcase className="w-5 h-5 text-indigo-600" />
+            </div>
+            <span className="text-[10px] text-gray-700 font-bold font-sans whitespace-nowrap">商户代叫</span>
+          </button>
+
+          <button 
+            onClick={() => {
+              if (masterSwitches.squad_management_enabled === false) {
+                alert('测试阶段，未开放');
+                return;
+              }
               const isManagementTeam = userRole === '开发者司机' || userRole === '城市老板司机' || userRole === '城市管理司机' || userRole === '城市派单员司机';
               if (!isManagementTeam) {
                 alert('您不是管理，无权限。');
@@ -1557,24 +1812,16 @@ export default function HomeView({
               }
               setShowDispatchModal(true);
             }}
-            className={`flex flex-col items-center justify-center relative transition-all duration-200 group ${
-              settings.onlineOrdersEnabled ? 'opacity-100' : 'opacity-40'
-            }`}
+            className="flex flex-col items-center justify-center relative transition-all duration-200 group"
             id="menu-btn-dispatch"
           >
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center mb-1.5 transition-all duration-200 ${
-              settings.onlineOrdersEnabled
-                ? 'bg-teal-500 text-white shadow-xs group-active:scale-95' 
-                : 'bg-teal-50 text-teal-600'
-            }`}>
-              <ClipboardList className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-full flex items-center justify-center mb-1.5 transition-all duration-200 bg-teal-50 text-teal-600 group-active:scale-95 border border-teal-100">
+              <Users className="w-5 h-5" />
             </div>
-            <span className="text-[10px] text-gray-500 font-bold font-sans">派单</span>
-            {settings.onlineOrdersEnabled ? (
-              <span className="absolute -top-1 -right-0.5 bg-red-500 text-white text-[8px] px-1 rounded-full scale-80 font-bold animate-pulse">待锁</span>
-            ) : (
-              <span className="absolute -top-1 -right-0.5 bg-slate-400 text-white text-[8px] px-1 rounded-full scale-80 font-bold">待锁</span>
-            )}
+            <span className="text-[10px] text-gray-500 font-bold font-sans">小队管理</span>
+            <span className="absolute -top-1 -right-1 bg-teal-500 text-white text-[8px] px-1.5 py-0.5 rounded-full font-bold scale-90 whitespace-nowrap">
+              {squadMembers.length}人
+            </span>
           </button>
         </div>
       </div>
@@ -1848,135 +2095,141 @@ export default function HomeView({
         </div>
       )}
 
-      {/* 7. System Messages & Notifications Modal */}
+      {/* 7. System Messages & Notifications Overlay Screen Page */}
       {showMessagesModal && (
-        <div id="system-messages-modal" className="absolute inset-0 bg-black/65 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl w-full max-w-[320px] shadow-2xl overflow-hidden flex flex-col max-h-[85%] animate-in zoom-in-95 duration-200 border border-slate-100">
-            {/* Modal Header */}
-            <div className="bg-gradient-to-r from-pink-600 to-indigo-600 text-white py-4 px-5 flex items-center justify-between shrink-0">
-              <div className="flex items-center space-x-1.5">
-                <MessageSquare className="w-5 h-5 text-pink-200" />
-                <span className="font-bold text-sm tracking-wide">📬 系统消息通知</span>
-              </div>
+        <div id="system-messages-modal" className="absolute inset-0 bg-slate-50 z-50 flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300">
+          {/* Page Toolbar Header */}
+          <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white py-4 px-4 flex items-center justify-between shrink-0 shadow-md">
+            <div className="flex items-center space-x-3">
               <button 
                 onClick={() => {
                   setShowMessagesModal(false);
-                  // Automatically mark all as read when closing the messages dialog
                   handleMarkAllRead();
                 }}
-                className="p-1 rounded-full hover:bg-white/10 text-white transition-transform active:scale-90"
+                className="p-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-white transition-all active:scale-90"
+                title="返回首页"
               >
-                <X className="w-4 h-4 text-white" />
+                <ChevronLeft className="w-5 h-5" />
               </button>
+              <div className="text-left">
+                <h3 className="font-extrabold text-sm text-white">系统消息与通知中心</h3>
+                <span className="text-[10px] text-slate-300 font-normal">实时接收管理后台下发的重要公告</span>
+              </div>
             </div>
+            
+            {unreadMessages.length > 0 && (
+              <button 
+                onClick={handleMarkAllRead}
+                className="px-3 py-1.5 bg-white/10 hover:bg-white/20 active:scale-95 text-xs text-white rounded-xl font-bold transition-all"
+              >
+                全部标为已读
+              </button>
+            )}
+          </div>
 
-            {/* Modal Body */}
-            <div className="p-4 overflow-y-auto space-y-3 flex-1 min-h-0 bg-slate-50/50">
-              {unreadMessages.length > 0 && (
-                <div className="flex justify-between items-center bg-indigo-50 border border-indigo-150 px-3 py-2 rounded-xl text-[10.5px]">
-                  <span className="text-black font-black font-sans">
-                    📥 有 {unreadMessages.length} 条未读公告 / 消息
+          {/* Page Body Content */}
+          <div className="flex-1 overflow-y-auto px-4 py-5 space-y-4 bg-slate-50">
+            {unreadMessages.length > 0 && (
+              <div className="flex items-center justify-between bg-indigo-50 border border-indigo-150 px-4 py-3 rounded-2xl text-[11px] shadow-xs">
+                <div className="flex items-center space-x-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse" />
+                  <span className="text-slate-800 font-extrabold">
+                    📥 有 {unreadMessages.length} 条未读公告 / 消息已下发
                   </span>
-                  <button 
-                    onClick={handleMarkAllRead}
-                    className="text-black hover:text-opacity-80 font-black cursor-pointer underline"
-                  >
-                    全部标为已读
-                  </button>
                 </div>
-              )}
+              </div>
+            )}
 
-              {userMessages.length === 0 ? (
-                <div className="py-10 text-center text-slate-400 space-y-2">
-                  <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-400">
-                    <MessageSquare className="w-5 h-5" />
-                  </div>
-                  <p className="text-xs font-black text-slate-900">暂无可查看的系统消息</p>
-                  <p className="text-[10px] leading-relaxed text-slate-600 max-w-[200px] mx-auto font-medium">
-                    请留意管理后台，管理员可能会下发安全通知、福利卡券或调试消息。
-                  </p>
+            {userMessages.length === 0 ? (
+              <div className="py-20 text-center text-slate-400 space-y-3 bg-white border border-slate-150 rounded-2xl p-6 shadow-xs max-w-md mx-auto font-sans">
+                <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-400">
+                  <MessageSquare className="w-6 h-6" />
                 </div>
-              ) : (
-                <div className="space-y-2.5">
-                  {userMessages.map((msg) => {
-                    const isNew = !viewedMessageIds.includes(msg.id);
-                    return (
-                      <div 
-                        key={msg.id} 
-                        onClick={() => handleMarkSingleRead(msg.id)}
-                        className={`p-3.5 rounded-2xl border transition-all text-left relative ${
-                          isNew 
-                            ? 'bg-white border-slate-300 shadow-xs ring-1 ring-black/5' 
-                            : 'bg-white/95 border-slate-200 opacity-95'
-                        }`}
-                      >
-                        {isNew && (
-                          <span className="absolute top-3.5 right-3.5 px-1.5 py-0.5 rounded bg-red-650 text-white text-[8px] font-black leading-none uppercase tracking-wider animate-pulse flex items-center gap-0.5">
-                            <span className="w-1 h-1 rounded-full bg-white"></span>
-                            未读
-                          </span>
-                        )}
+                <p className="text-sm font-extrabold text-slate-900">暂无可查看的系统消息</p>
+                <p className="text-xs leading-relaxed text-slate-500 max-w-[240px] mx-auto font-medium">
+                  请留意管理后台。管理员可能会下发安全通知、福利卡券、升级指南或系统维护调试消息。
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3.5 max-w-md mx-auto">
+                {userMessages.map((msg) => {
+                  const isNew = !viewedMessageIds.includes(msg.id);
+                  return (
+                    <div 
+                      key={msg.id} 
+                      onClick={() => handleMarkSingleRead(msg.id)}
+                      className={`p-4 rounded-2xl border transition-all text-left relative cursor-pointer shadow-xs ${
+                        isNew 
+                          ? 'bg-white border-slate-300 ring-1 ring-black/5 hover:border-indigo-300' 
+                          : 'bg-white/95 border-slate-200 opacity-95 hover:border-slate-300'
+                      }`}
+                    >
+                      {isNew && (
+                        <span className="absolute top-4 right-4 px-2 py-0.5 rounded-full bg-red-500 text-white text-[9px] font-black leading-none uppercase tracking-wider animate-pulse flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
+                          未读
+                        </span>
+                      )}
 
-                        <div className="pr-10 space-y-1">
-                          <h4 className="text-sm font-black text-black leading-snug">{msg.title}</h4>
-                          <span className="text-[9.5px] text-slate-800 font-mono font-bold block">
-                            {msg.createdAt ? new Date(msg.createdAt).toLocaleString('zh-CN', { hour12: false }) : ''}
-                          </span>
-                        </div>
-
-                        <p className="text-xs text-black mt-2.5 leading-relaxed font-sans font-extrabold whitespace-pre-wrap break-words">
-                          {msg.content}
-                        </p>
-                        
-                        {!isNew && (
-                          <div className="text-right mt-1">
-                            <span className="text-[9px] text-slate-800 font-bold">✓ 已阅读</span>
-                          </div>
-                        )}
+                      <div className="pr-12 space-y-1">
+                        <h4 className="text-sm font-extrabold text-slate-900 leading-snug">{msg.title}</h4>
+                        <span className="text-[10px] text-slate-500 font-mono font-medium block">
+                          {msg.createdAt ? new Date(msg.createdAt).toLocaleString('zh-CN', { hour12: false }) : ''}
+                        </span>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
 
-            {/* Modal Footer */}
-            <div className="p-4 border-t border-slate-100 bg-white shadow-inner flex justify-end shrink-0">
-              <button
-                onClick={() => {
-                  setShowMessagesModal(false);
-                  handleMarkAllRead();
-                }}
-                className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs rounded-xl active:scale-97 cursor-pointer transition-all text-center uppercase tracking-wide"
-              >
-                我知道了，标记全部已读并关闭
-              </button>
-            </div>
+                      <p className="text-xs text-slate-700 mt-3 leading-relaxed font-medium whitespace-pre-wrap break-words border-t border-slate-100 pt-2.5">
+                        {msg.content}
+                      </p>
+                      
+                      {!isNew && (
+                        <div className="text-right mt-2 pt-1.5 border-t border-slate-100">
+                          <span className="text-[10px] text-slate-400 font-bold">✓ 已阅读</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Page Footer Action Bar */}
+          <div className="p-4 bg-white border-t border-slate-100 shrink-0 flex flex-col space-y-2">
+            <button
+              onClick={() => {
+                setShowMessagesModal(false);
+                handleMarkAllRead();
+              }}
+              className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs rounded-xl active:scale-98 cursor-pointer transition-all text-center flex items-center justify-center space-x-2 shadow-md shadow-slate-900/10"
+            >
+              <Check className="w-4 h-4 text-white" />
+              <span>全部标记已读并返回首页</span>
+            </button>
           </div>
         </div>
       )}
 
-      {/* 8.5 Quick One-key Dispatch Overlay Screen Page */}
+      {/* 8.5 Squad Management Overlay Screen Page */}
       {showDispatchModal && (
         <div className="absolute inset-0 bg-slate-50 z-50 flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300">
           {/* Page Toolbar Header */}
           <div className="bg-slate-900 text-white py-3.5 px-4 flex items-center justify-between shrink-0 border-b border-slate-800">
             <div className="flex items-center space-x-2">
               <div className="w-8 h-8 rounded-full bg-teal-500/10 flex items-center justify-center border border-teal-500/20 text-teal-400">
-                <ClipboardCheck className="w-4 h-4" />
+                <Users className="w-4 h-4" />
               </div>
               <div className="text-left">
-                <h3 className="font-extrabold text-xs text-white">平台快捷派单</h3>
-                <span className="text-[9px] text-slate-400 font-normal">一键极速调配直线距离最近司机</span>
+                <h3 className="font-extrabold text-xs text-white">小队安全管理战队中心</h3>
+                <span className="text-[9px] text-slate-400 font-normal">设置接收商户代叫新派单资格与配置</span>
               </div>
             </div>
             <button 
               onClick={() => {
                 setShowDispatchModal(false);
-                setDispatchStartPlace('');
-                setDispatchPhone('');
-                setDispatchSuggestions([]);
-                setDispatchSelectedCoords(null);
+                setSearchSquadPhone('');
+                setSearchSquadResult(null);
+                setSquadDriverName('');
               }}
               className="p-1.5 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition-all active:scale-90"
             >
@@ -1987,265 +2240,325 @@ export default function HomeView({
           {/* Page Content */}
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
             
-            {/* 智能匹配规则与管理身份设定 */}
-            <div className="space-y-3.5 bg-slate-100/60 p-3 rounded-2xl border border-slate-200 text-left">
-              
-              {/* Part 1: Current Admin Identity Display */}
-              <div className="bg-white rounded-xl p-3 border border-slate-200/80 shadow-3xs flex items-center justify-between gap-3">
-                <div className="flex items-center space-x-2.5 min-w-0">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                    ['开发者司机', '城市老板司机', '城市管理司机', '城市派单员司机'].includes(userRole)
-                      ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20'
-                      : 'bg-slate-100 text-slate-400 border border-slate-200'
-                  }`}>
-                    <Shield className="w-4 h-4" />
+            {squadNotification && (
+              <div className={`p-3 rounded-xl text-xs font-bold border animate-in slide-in-from-top duration-200 text-left flex items-start space-x-2.5 ${
+                squadNotification.type === 'success' 
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                  : 'bg-rose-50 border-rose-200 text-rose-800'
+              }`}>
+                <span className="text-sm">
+                  {squadNotification.type === 'success' ? '✓' : '❌'}
+                </span>
+                <span className="leading-normal">{squadNotification.text}</span>
+              </div>
+            )}
+            
+            {/* Squad Name Settings */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200/85 text-left shadow-3xs space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <div className="w-8 h-8 rounded-full bg-teal-550/10 text-teal-600 flex items-center justify-center font-bold">
+                    ⚔️
                   </div>
-                  <div className="text-left min-w-0">
-                    <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">我的管理员身份</span>
-                    <div className="flex items-center space-x-1 mt-0.5">
-                      <span className="text-[11.5px] font-black text-slate-800 truncate">{userPhone || '未登录'}</span>
-                      <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold whitespace-nowrap shrink-0 ${
-                        userRole === '开发者司机' ? 'bg-indigo-100 text-indigo-700' :
-                        userRole === '城市老板司机' ? 'bg-amber-100 text-amber-700' :
-                        userRole === '城市管理司机' ? 'bg-blue-100 text-blue-700' :
-                        userRole === '城市派单员司机' ? 'bg-teal-100 text-teal-700' :
-                        'bg-slate-150 text-slate-500'
-                      }`}>
-                        {userRole}
-                      </span>
-                    </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">小队名称</span>
+                    <span className="text-xs font-black text-slate-800">
+                      {teamConfig?.teamName || '默认小队'}
+                    </span>
                   </div>
                 </div>
-
-                <div className="text-right shrink-0">
-                  {['开发者司机', '城市老板司机', '城市管理司机', '城市派单员司机'].includes(userRole) ? (
-                    <span className="inline-flex items-center space-x-0.5 text-[9px] font-extrabold bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-md">
-                      <Check className="w-3 h-3 text-emerald-600 font-bold" />
-                      <span>准许派单</span>
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center space-x-0.5 text-[9px] font-extrabold bg-rose-100 text-rose-800 px-1.5 py-0.5 rounded-md">
-                      <UserX className="w-3 h-3 text-rose-600 font-bold" />
-                      <span>无权派单</span>
-                    </span>
-                  )}
-                </div>
+                {userRole === '开发者司机' ? (
+                  <button
+                    onClick={() => {
+                      if (isEditingSquadName) {
+                        handleSaveSquadName();
+                      } else {
+                        setIsEditingSquadName(true);
+                      }
+                    }}
+                    className="px-2.5 py-1 text-[10px] font-black bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-all border border-slate-200"
+                  >
+                    {isEditingSquadName ? '保存名称' : '设置名称'}
+                  </button>
+                ) : (
+                  <span className="text-[9px] text-slate-400 font-bold bg-slate-50 px-2 py-1 rounded">
+                    仅开发者司机可设
+                  </span>
+                )}
               </div>
 
-              {/* Part 2: Search Input and Dispatcher Role Settings */}
-              <div className="bg-white rounded-xl p-3 border border-slate-200/80 shadow-3xs space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                  <div className="flex items-center space-x-1 text-slate-700">
-                    <UserCheck className="w-3.5 h-3.5 text-teal-600" />
-                    <span className="text-[11px] font-extrabold">设置指定派单员</span>
-                  </div>
-                  <span className="text-[9px] text-slate-400 font-bold">按手机号检索团队</span>
+              {isEditingSquadName && userRole === '开发者司机' && (
+                <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 animate-in slide-in-from-top duration-200">
+                  <input
+                    type="text"
+                    value={tempSquadName}
+                    onChange={(e) => setTempSquadName(e.target.value)}
+                    placeholder="请输入新小队名称..."
+                    className="flex-1 px-3 py-1.5 text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500"
+                  />
+                  <button
+                    onClick={() => setIsEditingSquadName(false)}
+                    className="px-2 py-1.5 text-xs font-bold text-slate-450 hover:text-slate-600"
+                  >
+                    取消
+                  </button>
                 </div>
+              )}
+            </div>
 
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
-                    <Search className="h-3.5 w-3.5 text-slate-400" />
-                  </div>
+            {/* Squad Total Size Display */}
+            <div className="grid grid-cols-2 gap-3 text-left">
+              <div className="bg-gradient-to-br from-teal-500 to-emerald-600 text-white rounded-2xl p-4 shadow-sm border border-emerald-500/10">
+                <span className="text-[9px] text-teal-100 font-extrabold uppercase tracking-wide block">小队总人数</span>
+                <span className="text-2xl font-black block mt-1 font-mono">
+                  {squadMembers.length} <span className="text-xs font-bold">人</span>
+                </span>
+                <span className="text-[8.5px] text-teal-150 block mt-1">无需搜索，直接展示总人数</span>
+              </div>
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 text-left shadow-3xs flex flex-col justify-between">
+                <div>
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wide block">我的当前身份</span>
+                  <span className="text-xs font-black block mt-1 text-slate-800 truncate">
+                    {squadMembers.find(m => m.id === userPhone)?.name || settings.customAppName || '未设置名字'}
+                  </span>
+                </div>
+                <span className={`inline-block mt-1 text-[8.5px] px-1.5 py-0.5 rounded font-black max-w-fit ${
+                  userRole === '开发者司机' ? 'bg-indigo-100 text-indigo-700' :
+                  ['城市老板司机', '城市管理司机', '城市派单员司机'].includes(userRole) ? 'bg-amber-100 text-amber-700' :
+                  'bg-slate-100 text-slate-600'
+                }`}>
+                  {userRole}
+                </span>
+              </div>
+            </div>
+
+            {/* Driver Search & Squad Add/Kick */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200/85 text-left shadow-3xs space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                <div className="flex items-center space-x-1.5 text-slate-700">
+                  <Search className="w-3.5 h-3.5 text-teal-600" />
+                  <span className="text-[11px] font-extrabold">搜索/管理小队人员</span>
+                </div>
+                <span className="text-[9px] text-slate-400 font-bold">支持手机号一键加/踢</span>
+              </div>
+
+              <div className="flex gap-2">
+                <div className="relative flex-1">
                   <input
                     type="tel"
                     maxLength={11}
-                    value={adminSearchPhone}
-                    onChange={(e) => setAdminSearchPhone(e.target.value.replace(/\D/g, ''))}
-                    placeholder="输入司机手机号快速设置/降级..."
-                    className="block w-full pl-8 pr-3 py-1.5 text-[11px] font-bold text-slate-800 placeholder-slate-400 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 transition-all font-mono"
+                    value={searchSquadPhone}
+                    onChange={(e) => setSearchSquadPhone(e.target.value.replace(/\D/g, ''))}
+                    placeholder="输入平台登录手机号..."
+                    className="block w-full pl-3 pr-3 py-2 text-[11px] font-bold text-slate-800 placeholder-slate-400 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500 transition-all font-mono animate-none"
                   />
                 </div>
+                <button
+                  onClick={handleSearchSquadMember}
+                  disabled={isSearchingSquad}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-[11px] rounded-xl transition-all flex items-center space-x-1 shadow-xs active:scale-97 disabled:bg-slate-300"
+                >
+                  {isSearchingSquad ? (
+                    <>
+                      <Loader2 className="w-3 h-3 animate-spin text-white" />
+                      <span>搜索中</span>
+                    </>
+                  ) : (
+                    <span>搜索手机号</span>
+                  )}
+                </button>
+              </div>
 
-                {/* Display search results if length === 11 */}
-                {searchedPhoneTrim.length === 11 && (
-                  <div className="bg-slate-50 rounded-xl p-2.5 border border-slate-200/50 space-y-2.5 text-xs animate-in fade-in duration-150">
-                    <div className="flex justify-between items-start text-[11px] leading-normal font-medium text-slate-500">
-                      <div>
-                        <span className="block text-[9.5px] font-bold text-slate-400">检索结果姓名 / 线上单身份：</span>
-                        <span className="font-extrabold text-slate-800 font-sans mt-0.5 block">{searchedDriverName}</span>
+              {/* Search Result display */}
+              {searchSquadResult?.checked && (
+                <div className="bg-slate-50 border border-slate-150 rounded-xl p-3 space-y-3 animate-in fade-in duration-200 text-left">
+                  {searchSquadResult.squadMember ? (
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <span className="inline-flex items-center space-x-1 text-[9px] font-black bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-md">
+                            <span>已加入小队</span>
+                          </span>
+                          <div className="text-xs font-black text-slate-800 mt-1.5">
+                            司机姓名: <span className="text-emerald-700">{searchSquadResult.squadMember.name}</span>
+                          </div>
+                          <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                            手机号码: {searchSquadResult.squadMember.phone}
+                          </div>
+                        </div>
+                        <div className="text-right text-[10px] text-slate-400 max-w-[50%]">
+                          <span className="block font-bold">归属管理员信息:</span>
+                          <span className="font-black text-slate-700 mt-0.5 block truncate">
+                            {searchSquadResult.squadMember.addedByName || '系统'} ({searchSquadResult.squadMember.addedByPhone || '无'})
+                          </span>
+                          <span className="text-[8.5px] text-slate-400 mt-0.5 block">
+                            添加时间: {searchSquadResult.squadMember.addedAt}
+                          </span>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <span className="block text-[9.5px] font-bold text-slate-400">当前系统角色：</span>
-                        <span className="font-extrabold text-indigo-650 font-sans mt-0.5 block">{searchedUserRole}</span>
+
+                      <div className="pt-2 border-t border-slate-200/55 flex justify-end">
+                        <button
+                          onClick={() => setSquadKickConfirm({ 
+                            phone: searchSquadResult.squadMember?.phone || searchSquadPhone.trim(), 
+                            name: searchSquadResult.squadMember?.name 
+                          })}
+                          className="px-3.5 py-1.5 bg-rose-500 hover:bg-rose-600 active:scale-97 text-white text-[10.5px] font-black rounded-lg shadow-sm cursor-pointer transition-all"
+                        >
+                          一键踢出小队
+                        </button>
                       </div>
                     </div>
-
-                    {/* Check if searched driver is in management team */}
-                    {['开发者司机', '城市老板司机', '城市管理司机'].includes(searchedUserRole) && (
-                      <div className="bg-amber-50 border border-amber-200/60 rounded-xl p-2.5 text-left flex items-start gap-2 animate-in fade-in duration-150">
-                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                        <div className="text-amber-800 font-bold text-[10px] leading-relaxed">
-                          ⚠️ 提示：该用户为管理团队人员（{searchedUserRole}），无法在此变更为其他角色。
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Check if the driver has not registered or been approved for online orders */}
-                    {!isOnlineApproved && (
-                      <div className="bg-amber-50 border border-amber-200/60 rounded-xl p-2.5 text-left flex items-start gap-2 animate-in fade-in duration-150">
-                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                        <div className="text-amber-800 font-bold text-[10px] leading-relaxed">
-                          ⚠️ 提示：该司机没有注册线上单开通（或线上开通审批尚未通过）
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Role operation actions - only allow setting if they are not in the management team and are approved for online orders */}
-                    {!['开发者司机', '城市老板司机', '城市管理司机'].includes(searchedUserRole) && isOnlineApproved ? (
-                      canSetRoles ? (
-                        <div className="flex gap-2">
-                          {settingRoleLoading ? (
-                            <div className="w-full py-1.5 flex items-center justify-center space-x-1.5 bg-slate-100 text-slate-400 rounded-lg border border-slate-200">
-                              <Loader2 className="w-3.5 h-3.5 animate-spin text-teal-600" />
-                              <span className="text-[10px] font-extrabold">同步设置中...</span>
-                            </div>
-                          ) : (
-                            <>
-                              {searchedUserRole !== '城市派单员司机' ? (
-                                <button
-                                  onClick={() => handleSetRole('城市派单员司机')}
-                                  className="flex-1 py-1.5 bg-teal-500 hover:bg-teal-600 active:scale-97 text-white font-extrabold text-[10px] rounded-lg border border-teal-600/20 shadow-3xs cursor-pointer transition-all text-center"
-                                >
-                                  设为派单员
-                                </button>
-                              ) : null}
-                              {searchedUserRole === '城市派单员司机' ? (
-                                <button
-                                  onClick={() => handleSetRole('普通司机')}
-                                  className="flex-1 py-1.5 bg-rose-500 hover:bg-rose-600 active:scale-97 text-white font-extrabold text-[10px] rounded-lg border border-rose-600/20 shadow-3xs cursor-pointer transition-all text-center"
-                                >
-                                  设为普通司机 (降级)
-                                </button>
-                              ) : null}
-                            </>
-                          )}
-                        </div>
-                      ) : (
-                        <p className="text-[9.5px] text-amber-600 font-semibold bg-amber-50/50 p-1.5 rounded-lg border border-amber-100">
-                          ⚠️ 提示：您当前的身份没有权限设置指定派单员，请联系高级管理员协助。
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="bg-amber-50 border border-amber-150 rounded-lg p-2.5">
+                        <p className="text-[10.5px] text-amber-800 font-bold leading-normal">
+                          该手机号司机当前【不在】小队中。请输入他的真实姓名，为其添加进入小队。
                         </p>
-                      )
-                    ) : null}
-                  </div>
-                )}
-              </div>
-            </div>
+                      </div>
 
-            {/* Form */}
-            <div className="space-y-3.5">
-              
-              {/* Departure Input */}
-              <div className="space-y-1 text-left relative">
-                <label className="text-[10px] font-black text-slate-500 tracking-wider block">乘客出发地 (输入并搜索)</label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <MapPin className="h-4 w-4 text-slate-400" />
-                  </div>
-                  <input
-                    type="text"
-                    value={dispatchStartPlace}
-                    onChange={(e) => {
-                      setDispatchStartPlace(e.target.value);
-                      setDispatchSelectedCoords(null);
-                    }}
-                    placeholder="输入并搜索..."
-                    className="block w-full pl-9 pr-3 py-2.5 text-xs font-bold text-slate-800 placeholder-slate-400 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 shadow-xs"
-                  />
-                  {dispatchStartPlace && (
-                    <button 
-                      onClick={() => {
-                        setDispatchStartPlace('');
-                        setDispatchSuggestions([]);
-                        setDispatchSelectedCoords(null);
-                      }}
-                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 block uppercase">添加司机姓名</label>
+                        <input
+                          type="text"
+                          value={squadDriverName}
+                          onChange={(e) => setSquadDriverName(e.target.value)}
+                          placeholder="请输入司机真实姓名..."
+                          className="block w-full px-3 py-2 text-xs font-bold text-slate-800 placeholder-slate-400 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500"
+                        />
+                      </div>
+
+                      <div className="pt-1 flex justify-end">
+                        <button
+                          onClick={handleAddToSquad}
+                          className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 active:scale-97 text-white text-[10.5px] font-black rounded-lg shadow-sm cursor-pointer transition-all"
+                        >
+                          一键添加进入小队
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
+              )}
+            </div>
 
-                {/* Suggestions dropdown */}
-                {dispatchSuggestions.length > 0 && (
-                  <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-50 max-h-48 overflow-y-auto divide-y divide-slate-100">
-                    {dispatchSuggestions.map((tip, idx) => (
+            {/* Roster list */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200/85 text-left shadow-3xs space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                <span className="text-[11px] font-extrabold text-slate-700">小队成员全员名单 ({squadMembers.length})</span>
+                <span className="text-[9px] font-bold text-slate-400">所有加入成员实时列表</span>
+              </div>
+
+              {squadMembers.length === 0 ? (
+                <div className="py-8 text-center text-slate-400 text-xs">
+                  <span>📭 暂无小队成员，请在上方搜索手机号添加</span>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                  {squadMembers.map((member) => (
+                    <div key={member.id} className="flex justify-between items-center bg-slate-50/65 border border-slate-150 p-2.5 rounded-xl hover:bg-slate-50 transition-all">
+                      <div className="text-left min-w-0 flex-1 pr-2">
+                        <div className="flex items-center space-x-1.5">
+                          <span className="font-extrabold text-xs text-slate-800 truncate">{member.name}</span>
+                          <span className="text-[9.5px] font-mono text-slate-500 font-bold bg-slate-100 px-1 py-0.2 rounded">{member.phone}</span>
+                        </div>
+                        <div className="text-[8.5px] text-slate-400 mt-1 leading-normal">
+                          管理员: <span className="text-slate-600 font-bold">{member.addedByName || '系统'}</span> 
+                          <span className="font-mono ml-1">({member.addedByPhone || '无'})</span>
+                        </div>
+                      </div>
                       <button
-                        key={idx}
-                        onClick={() => handleSelectSuggestion(tip)}
-                        className="w-full text-left px-3 py-2.5 hover:bg-slate-50 flex flex-col transition-all"
+                        onClick={() => setSquadKickConfirm({ 
+                          phone: member.phone, 
+                          name: member.name 
+                        })}
+                        className="p-1 text-rose-500 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition-all active:scale-90 shrink-0"
+                        title="踢出小队"
                       >
-                        <span className="text-xs font-bold text-slate-800">{tip.name}</span>
-                        <span className="text-[9px] text-slate-400 mt-0.5">{tip.district || (effectiveCity || '未知区域')}</span>
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
-                    ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {squadKickConfirm && (
+              <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-xs z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
+                <div className="bg-white rounded-3xl p-5 max-w-sm w-full border border-slate-100 shadow-2xl text-center space-y-4 animate-in zoom-in-95 duration-200">
+                  <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center mx-auto text-xl border border-rose-100">
+                    ⚠️
                   </div>
-                )}
+                  <div className="space-y-1.5 text-center">
+                    <h4 className="text-xs font-black text-slate-800">确认将该司机踢出小队吗？</h4>
+                    <p className="text-[11px] text-slate-500 leading-normal">
+                      您正在将司机 <span className="font-extrabold text-slate-700">{squadKickConfirm.name || squadKickConfirm.phone}</span> 踢出本小队。<br />
+                      踢出后，该司机将 <span className="text-rose-600 font-extrabold">无法接收</span> 任何商户代叫新派单！
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5 pt-1">
+                    <button
+                      onClick={() => setSquadKickConfirm(null)}
+                      className="py-2 bg-slate-100 hover:bg-slate-150 active:scale-97 text-slate-600 text-[11px] font-black rounded-xl transition-all cursor-pointer"
+                    >
+                      取消
+                    </button>
+                    <button
+                      onClick={async () => {
+                        const phone = squadKickConfirm.phone;
+                        setSquadKickConfirm(null);
+                        await handleKickFromSquad(phone);
+                      }}
+                      className="py-2 bg-rose-500 hover:bg-rose-600 active:scale-97 text-white text-[11px] font-black rounded-xl shadow-xs transition-all cursor-pointer"
+                    >
+                      确认踢出
+                    </button>
+                  </div>
+                </div>
               </div>
-
-              {/* Passenger Phone Input */}
-              <div className="space-y-1 text-left">
-                <label className="text-[10px] font-black text-slate-500 tracking-wider block">乘客手机号码</label>
-                <input
-                  type="tel"
-                  value={dispatchPhone}
-                  onChange={(e) => setDispatchPhone(e.target.value)}
-                  placeholder="请输入接单乘客手机号码..."
-                  className="block w-full px-3 py-2.5 text-xs font-bold text-slate-800 placeholder-slate-400 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 shadow-xs"
-                />
-              </div>
-
-            </div>
-
-            {/* Quick pre-fill buttons */}
-            <div className="bg-slate-100 border border-slate-150/50 rounded-xl p-3 text-left">
-              <span className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-2">快速填充推荐</span>
-              <div className="flex flex-wrap gap-1.5">
-                {[
-                  { name: '银川火车站', phone: '13812345678' },
-                  { name: '金凤万达广场东门', phone: '13988887777' },
-                  { name: '建发大阅城', phone: '18866665555' },
-                  { name: '悦海新天地', phone: '15599990000' }
-                ].map((item, index) => (
-                  <button
-                    key={index}
-                    onClick={() => {
-                      setDispatchStartPlace(item.name);
-                      setDispatchPhone(item.phone);
-                      setDispatchSuggestions([]);
-                    }}
-                    className="px-2 py-1 text-[9.5px] font-extrabold bg-white border border-slate-200 text-slate-600 rounded-lg hover:border-teal-500 hover:text-teal-600 transition-all shadow-2xs"
-                  >
-                    {item.name} ({item.phone.slice(-4)})
-                  </button>
-                ))}
-              </div>
-            </div>
+            )}
 
           </div>
+        </div>
+      )}
 
-          {/* Footer Submit Area */}
-          <div className="p-4 bg-white border-t border-slate-100 shrink-0">
-            <button
-              disabled={dispatchingOrder}
-              onClick={handleOneKeyDispatch}
-              className={`w-full py-3 rounded-xl font-bold text-xs text-white transition-all shadow-md flex items-center justify-center space-x-2 active:scale-98 ${
-                dispatchingOrder
-                  ? 'bg-slate-400 cursor-not-allowed'
-                  : 'bg-teal-500 hover:bg-teal-600 shadow-teal-500/10'
-              }`}
+      {/* 8.3 Merchant Dispatch Overlay Screen Page */}
+      {showMerchantDispatchModal && (
+        <div className="absolute inset-0 bg-[#0a0c16] z-50 flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300">
+          {/* Page Toolbar Header */}
+          <div className="bg-slate-950 text-white py-3.5 px-4 flex items-center justify-between shrink-0 border-b border-slate-800">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center border border-indigo-500/25 text-indigo-400">
+                <Briefcase className="w-4 h-4" />
+              </div>
+              <div className="text-left">
+                <h3 className="font-extrabold text-xs text-white">商户代叫派单系统</h3>
+                <span className="text-[9px] text-slate-400 font-normal">调度管理特定司机与订单派发</span>
+              </div>
+            </div>
+            <button 
+              onClick={() => setShowMerchantDispatchModal(false)}
+              className="text-slate-400 hover:text-white transition-colors p-1"
+              title="返回首页"
             >
-              {dispatchingOrder ? (
-                <>
-                  <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent"></span>
-                  <span>正在匹配直线距离最近司机...</span>
-                </>
-              ) : (
-                <>
-                  <ClipboardCheck className="w-4 h-4" />
-                  <span>一键极速派单</span>
-                </>
-              )}
+              <X className="w-4.5 h-4.5" />
             </button>
+          </div>
+
+          {/* Page Body Content */}
+          <div className="flex-1 overflow-y-auto">
+            <DispatchValetOrder 
+              onShowToast={(msg) => {
+                setLocalAlert({
+                  title: '提示',
+                  message: msg,
+                  type: 'info'
+                });
+              }}
+              userPhone={userPhone}
+              userRole={userRole}
+              userTeamCity={effectiveCity}
+            />
           </div>
         </div>
       )}
@@ -2505,18 +2818,18 @@ export default function HomeView({
         </div>
       )}
 
-      {/* 8.3 Manual VIP Payment Buy Overlay Screen Page */}
+      {/* 8.3 Xianyu VIP Purchase Overlay Screen Page */}
       {showBuyPage && (
         <div className="absolute inset-0 bg-slate-50 z-50 flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300">
           {/* Header */}
           <div className="bg-slate-900 text-white py-3.5 px-4 flex items-center justify-between shrink-0 border-b border-slate-800">
             <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 text-emerald-400">
-                <ShoppingBag className="w-4 h-4" />
+              <div className="w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center border border-amber-500/20 text-amber-400">
+                <Crown className="w-4 h-4 animate-pulse" />
               </div>
               <div className="text-left">
-                <h3 className="font-extrabold text-xs text-white">购买 VIP 激活特权 Center</h3>
-                <span className="text-[9px] text-slate-400 font-normal">黑湾代驾MAX 官方自助开通渠道</span>
+                <h3 className="font-extrabold text-xs text-white">上咸鱼购买 VIP 兑换码</h3>
+                <span className="text-[9px] text-slate-400 font-normal">担保交易 · 秒级卡密自动兑换</span>
               </div>
             </div>
             <button 
@@ -2529,63 +2842,93 @@ export default function HomeView({
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto px-4 py-5 space-y-5 text-center bg-slate-50">
-            {/* Warning / Prompt text */}
-            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-left space-y-2 shadow-sm">
-              <div className="flex items-center space-x-2 text-emerald-800 font-bold">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-xs">自助购买与开通流程指引</span>
+            {/* Guide Card */}
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-left space-y-2.5 shadow-xs">
+              <div className="flex items-center space-x-2 text-amber-800 font-bold">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                <span className="text-xs">官方闲鱼担保交易流程</span>
               </div>
-              <p className="text-[11px] text-emerald-700 leading-relaxed font-semibold">
-                请先在下方保存或截屏【付款账单格式】和【微信收款二维码】。付款时，<span className="text-red-500 underline font-extrabold">务必在备注中添加您注册代驾账号所用的手机号码</span>。
+              <p className="text-[11px] text-amber-700 leading-relaxed font-bold">
+                为确保交易资金安全，本应用已全面接入「闲鱼」官方平台担保交易。复制网址后在浏览器或闲鱼App中访问，下单后可立即获得【VIP尊享激活兑换码】。
               </p>
               <p className="text-[10px] text-slate-500 leading-relaxed">
-                付款成功后，客服会根据您备注的手机号在后台人工核对并为您极速开通，一般 1-3 分钟内即可生效，请耐心等待，切勿着急！
+                下单后卡密将自动或由客服发送给您。收到卡密后，在首页点击 <span className="text-amber-600 font-bold">「兑换码」</span> 输入即可一秒自助激活，全功能无限特权立即生效。
               </p>
             </div>
 
-            {/* Images display */}
-            <div className="space-y-6">
-              {/* Image 1: VIP Payment Mockup */}
-              <div className="rounded-2xl overflow-hidden shadow-lg border border-slate-200 bg-white max-w-sm mx-auto">
-                <img 
-                  src={vipPaymentMockupImg} 
-                  alt="VIP Payment Mockup" 
-                  className="w-full h-auto object-contain block"
-                  referrerPolicy="no-referrer"
-                />
+            {/* URL Display and Action Section */}
+            <div className="bg-white border border-slate-150 rounded-2xl p-4 shadow-sm text-left space-y-3.5">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
+                🛒 闲鱼购买官方直达网址
+              </span>
+
+              <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 break-all select-all text-[11px] font-mono text-slate-600 leading-relaxed">
+                {xianyuUrl}
               </div>
 
-              {/* Image 2: WeChat Pay QR Code */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-md">
-                <p className="text-[11px] font-bold text-slate-700 mb-2 flex items-center justify-center gap-1">
-                  <span>② 扫描微信二维码进行支付 (截屏保存)</span>
-                </p>
-                <div className="rounded-xl overflow-hidden border border-slate-100 max-w-sm mx-auto">
-                  <img 
-                    src={wechatPayQrImg} 
-                    alt="WeChat Pay QR" 
-                    className="w-full h-auto object-contain"
-                    referrerPolicy="no-referrer"
-                  />
-                </div>
-              </div>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(xianyuUrl);
+                  setLocalAlert({
+                    title: '一键复制成功！',
+                    message: '咸鱼购买网址已复制到剪贴板，请在浏览器或闲鱼App中打开，下单购买兑换码。',
+                    type: 'success'
+                  });
+                }}
+                className="w-full py-2.5 rounded-xl font-bold text-xs text-white bg-amber-500 hover:bg-amber-600 active:scale-98 transition-all flex items-center justify-center space-x-2 shadow-md shadow-amber-500/10 cursor-pointer"
+              >
+                <ClipboardCheck className="w-4 h-4" />
+                <span>一键复制咸鱼购买网址</span>
+              </button>
             </div>
 
-            {/* Support Notice */}
-            <div className="pt-4 text-center">
-              <span className="text-[9px] text-slate-400 font-mono tracking-wider block">
-                黑湾代驾MAX 会员专属自助结算终端 // 安全授信节点
+            {/* VIP Rights Checklist */}
+            <div className="space-y-2.5 text-left">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
+                💎 VIP 尊享五大专属特权
               </span>
+              
+              <div className="space-y-2">
+                {[
+                  { title: '1. 自主修改首页标题名称', desc: '随心定义展示，支持自定义您的专属代驾品牌，不再受软件名称限制。' },
+                  { title: '2. 轨迹无限制高精校准纠偏', desc: '一键自动纠偏校正轨迹，避免地图偏移导致的计费产生严重差错。' },
+                  { title: '3. 无限使用呼客二维码创单', desc: '轻松生成报单呼叫二维码，提供乘客呼叫下单的完美流畅闭环。' },
+                  { title: '4. 实时计费中无限调用导航', desc: '支持在代驾计费过程中拉起高德地图高精路线规划与智能语音。' },
+                  { title: '5. 支持添加多笔额外垫付费用', desc: '不设上限，计费结算单支持灵活添加红牛、过桥费、高速费等垫资。' }
+                ].map((item, index) => (
+                  <div key={index} className="flex items-start space-x-3 p-3 bg-white border border-slate-150 rounded-xl">
+                    <div className="w-5 h-5 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-600 shrink-0 mt-0.5">
+                      <Crown className="w-3 h-3 text-amber-500" />
+                    </div>
+                    <div>
+                      <h4 className="text-[11px] font-bold text-slate-800">{item.title}</h4>
+                      <p className="text-[9.5px] text-slate-500 mt-0.5 leading-relaxed">{item.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
           {/* Footer Action */}
-          <div className="p-4 bg-white border-t border-slate-100 shrink-0">
+          <div className="p-4 bg-white border-t border-slate-100 shrink-0 flex flex-col space-y-2">
+            <button
+              onClick={() => {
+                setShowBuyPage(false);
+                setShowRedeemModal(true);
+                setRedeemCode('');
+                setModalMessage(null);
+              }}
+              className="w-full py-3 rounded-xl font-bold text-xs text-white bg-slate-900 hover:bg-slate-800 transition-all flex items-center justify-center space-x-2 cursor-pointer active:scale-98"
+            >
+              <Gift className="w-4 h-4 text-white" />
+              <span>已购买？立即去兑换卡密</span>
+            </button>
             <button
               onClick={() => setShowBuyPage(false)}
-              className="w-full py-3 rounded-xl font-bold text-xs text-white bg-slate-900 hover:bg-slate-800 transition-all flex items-center justify-center cursor-pointer active:scale-98"
+              className="w-full py-2 rounded-xl font-bold text-[10px] text-slate-400 hover:bg-slate-100 transition-all cursor-pointer"
             >
-              <span>我已截屏，返回首页</span>
+              暂不购买，返回首页
             </button>
           </div>
         </div>

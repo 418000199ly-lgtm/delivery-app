@@ -182,7 +182,8 @@ export const IncomingOrderOverlay: React.FC<IncomingOrderOverlayProps> = ({
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         try {
           window.speechSynthesis.cancel(); // Ready the synthesis queue
-          const speechText = getTTSBroadcastText(approxPrice, startLocation, destination, distanceText);
+          const effectivePrice = (order.isValetOrder || order.isPlatformDispatch) ? '未知' : approxPrice;
+          const speechText = getTTSBroadcastText(effectivePrice, startLocation, destination, distanceText);
           const utter = new SpeechSynthesisUtterance(speechText);
           utter.lang = 'zh-CN';
           
@@ -258,7 +259,7 @@ export const IncomingOrderOverlay: React.FC<IncomingOrderOverlayProps> = ({
       <header className="bg-[#e61a1a] text-white px-4 flex flex-col items-center relative py-6 pb-20 shrink-0">
         <div className="w-full flex justify-between items-center mb-3">
           <span className="text-white/80 font-semibold text-xs tracking-wider">
-            {order.isValetOrder ? '⚠️ 商户代叫订单' : '⚡ 线上派单机制'}
+            {order.isValetOrder || order.isPlatformDispatch ? '⚠️ 商户代叫订单' : '⚡ 线上派单机制'}
           </span>
           <button 
             onClick={onDecline}
@@ -270,7 +271,7 @@ export const IncomingOrderOverlay: React.FC<IncomingOrderOverlayProps> = ({
 
         {/* Income Display */}
         <div className="flex flex-col items-center my-2">
-          {order.isPlatformDispatch || approxPrice === '未知' ? (
+          {order.isPlatformDispatch || order.isValetOrder || approxPrice === '未知' ? (
             <div className="flex items-baseline justify-center">
               <span className="text-xl font-bold mr-1 opacity-90">约</span>
               <span className="text-5xl font-black tracking-tight animate-pulse" style={{ fontFamily: 'sans-serif' }}>
@@ -291,7 +292,7 @@ export const IncomingOrderOverlay: React.FC<IncomingOrderOverlayProps> = ({
 
         {/* Service Badge */}
         <div className="border border-white/40 rounded-full py-1.5 px-6 font-medium text-sm mt-3 bg-white/5 backdrop-blur-xs tracking-wide">
-          {order.isPlatformDispatch ? "商户代叫订单" : (onlineBillingRules?.templateName?.trim() ? onlineBillingRules.templateName : "XX代驾")}
+          {order.isPlatformDispatch || order.isValetOrder ? "商户代叫订单" : (onlineBillingRules?.templateName?.trim() ? onlineBillingRules.templateName : "滴滴代驾")}
         </div>
       </header>
 

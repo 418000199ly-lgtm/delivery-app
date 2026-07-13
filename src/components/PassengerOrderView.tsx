@@ -501,8 +501,7 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
       </main>
 
       {/* Small Tech Credit Footer */}
-      <footer className="py-2.5 text-center text-[9px] text-slate-400 font-medium border-t border-slate-150 shrink-0 font-sans select-none tracking-tight">
-        SECURE CONNECT • CLOUDFLARE ENCRYPTED PROXIED
+      <footer className="py-1 text-center shrink-0 select-none">
       </footer>
     </div>
   );

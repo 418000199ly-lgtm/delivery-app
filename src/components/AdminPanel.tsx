@@ -1,4 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  RecaptchaVerifier, 
+  signInWithPhoneNumber,
+  ConfirmationResult
+} from 'firebase/auth';
+import { auth } from '../lib/firebase';
 import { checkVipActive } from '../types';
 import { ALL_CITIES_FLAT } from '../constants/cities';
 import { 
@@ -43,7 +49,11 @@ import {
   History,
   ArrowUpCircle,
   ArrowDownCircle,
-  RefreshCw
+  RefreshCw,
+  ShieldCheck,
+  KeyRound,
+  AlertCircle,
+  Power
 } from 'lucide-react';
 import DispatchValetOrder from './DispatchValetOrder';
 import AdminBillingRules from './AdminBillingRules';
@@ -115,6 +125,41 @@ export default function AdminPanel({
   };
   const [adminUsername, setAdminUsername] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
+  
+  // --- Admin Phone Login States ---
+  const [adminPhone, setAdminPhone] = useState('');
+  const [adminSmsCode, setAdminSmsCode] = useState('');
+  const [adminTimer, setAdminTimer] = useState(0);
+  const [isAdminSending, setIsAdminSending] = useState(false);
+  const [isAdminLoggingIn, setIsAdminLoggingIn] = useState(false);
+  const [adminConfirmationResult, setAdminConfirmationResult] = useState<ConfirmationResult | null>(null);
+  const [adminSimulatedCode, setAdminSimulatedCode] = useState('');
+  const [adminLoginMode, setAdminLoginMode] = useState<'real' | 'sandbox'>('real');
+  const adminRecaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
+
+  // Countdown timer handler for SMS backoff
+  useEffect(() => {
+    if (adminTimer > 0) {
+      const interval = setInterval(() => {
+        setAdminTimer(prev => prev - 1);
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [adminTimer]);
+
+  // Clean up reCAPTCHA verifier on unmount
+  useEffect(() => {
+    return () => {
+      if (adminRecaptchaVerifierRef.current) {
+        try {
+          adminRecaptchaVerifierRef.current.clear();
+        } catch (e) {
+          console.error('[AdminLogin] Error clearing recaptcha:', e);
+        }
+      }
+    };
+  }, []);
+
   const [loginError, setLoginError] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
 
@@ -131,8 +176,67 @@ export default function AdminPanel({
   const [toastMsg, setToastMsg] = useState('');
   const [newlyGenerated, setNewlyGenerated] = useState<string[]>([]);
 
+  // --- Cloudflare Sync States & Logic ---
+  const [cfWorkerUrl, setCfWorkerUrl] = useState(() => {
+    try {
+      const stored = localStorage.getItem('cloudflare_worker_api_url');
+      if (stored && stored.trim()) return stored.trim();
+    } catch (_) {}
+    return 'https://daijiajifei.ccwu.cc';
+  });
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'failed'>('idle');
+
+  const handleSaveAndTestCfWorker = async (urlVal: string) => {
+    const trimmed = urlVal.trim();
+    setCfWorkerUrl(trimmed);
+    try {
+      localStorage.setItem('cloudflare_worker_api_url', trimmed);
+    } catch (_) {}
+
+    setIsTestingConnection(true);
+    setConnectionStatus('idle');
+
+    const targetUrl = trimmed ? (trimmed.startsWith('http') ? trimmed : `https://${trimmed}`) : '';
+    const testEndpoint = `${targetUrl}/api/health`;
+
+    try {
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), 4000);
+
+      const res = await fetch(testEndpoint, { signal: controller.signal });
+      clearTimeout(id);
+
+      if (res.ok) {
+        setConnectionStatus('success');
+        setShowToast(true);
+        setToastMsg('⚡ Cloudflare 实时数据库通信检测：成功连接！');
+        setTimeout(() => setShowToast(false), 3000);
+      } else {
+        setConnectionStatus('failed');
+      }
+    } catch (err) {
+      console.warn("Cloudflare worker health connection test failed:", err);
+      setConnectionStatus('failed');
+    } finally {
+      setIsTestingConnection(false);
+    }
+  };
+
+  useEffect(() => {
+    if (cfWorkerUrl) {
+      const targetUrl = cfWorkerUrl.startsWith('http') ? cfWorkerUrl : `https://${cfWorkerUrl}`;
+      fetch(`${targetUrl}/api/health`)
+        .then(res => {
+          if (res.ok) setConnectionStatus('success');
+          else setConnectionStatus('failed');
+        })
+        .catch(() => setConnectionStatus('failed'));
+    }
+  }, [cfWorkerUrl]);
+
   // Navigation tab
-  const [activeTab, setActiveTab] = useState<'overview' | 'generate' | 'codes' | 'drivers' | 'sms' | 'messages' | 'applications' | 'dispatch' | 'online_billing' | 'team'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'generate' | 'codes' | 'drivers' | 'sms' | 'messages' | 'applications' | 'dispatch' | 'online_billing' | 'team' | 'master_controls' | 'seal'>('overview');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Team member state variables
@@ -192,10 +296,61 @@ export default function AdminPanel({
   const [sysVersion, setSysVersion] = useState<string>('V1.0');
   const [sysForceUpgrade, setSysForceUpgrade] = useState<boolean>(false);
   const [sysUpgradeUrl, setSysUpgradeUrl] = useState<string>('https://download.heiwan.com/max');
+  const [sysXianyuUrl, setSysXianyuUrl] = useState<string>('https://www.goofish.com');
   const [inputVersion, setInputVersion] = useState<string>('V1.0');
   const [inputUpgradeUrl, setInputUpgradeUrl] = useState<string>('https://download.heiwan.com/max');
+  const [inputXianyuUrl, setInputXianyuUrl] = useState<string>('https://www.goofish.com');
   const [versionSyncStatus, setVersionSyncStatus] = useState<string>('');
   const [versionHistory, setVersionHistory] = useState<any[]>([]);
+
+  // Master switches state variables
+  const [masterSwitches, setMasterSwitches] = useState<{
+    online_app_enabled: boolean;
+    merchant_dispatch_enabled: boolean;
+    squad_management_enabled: boolean;
+  }>({
+    online_app_enabled: true,
+    merchant_dispatch_enabled: true,
+    squad_management_enabled: true,
+  });
+
+  // Subscribe to `/config/master_switches` document in real-time
+  useEffect(() => {
+    const docRef = doc(db, 'config', 'master_switches');
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setMasterSwitches({
+          online_app_enabled: data.online_app_enabled !== false,
+          merchant_dispatch_enabled: data.merchant_dispatch_enabled !== false,
+          squad_management_enabled: data.squad_management_enabled !== false,
+        });
+      } else {
+        setMasterSwitches({
+          online_app_enabled: true,
+          merchant_dispatch_enabled: true,
+          squad_management_enabled: true,
+        });
+      }
+    }, (error) => {
+      console.error("Error subscribing to master switches:", error);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const updateMasterSwitch = async (key: 'online_app_enabled' | 'merchant_dispatch_enabled' | 'squad_management_enabled', value: boolean) => {
+    try {
+      const docRef = doc(db, 'config', 'master_switches');
+      await setDoc(docRef, {
+        ...masterSwitches,
+        [key]: value
+      }, { merge: true });
+      triggerToast(`✨ 已成功${value ? '开启' : '关闭'}对应组件！`);
+    } catch (err: any) {
+      console.error("Error updating master switch:", err);
+      alert(`操作失败：${err.message}`);
+    }
+  };
 
   // Subscribe to real-time system version settings
   useEffect(() => {
@@ -206,12 +361,15 @@ export default function AdminPanel({
         const v = data.version || 'V1.0';
         const fu = !!data.forceUpgrade;
         const url = data.upgradeUrl || 'https://download.heiwan.com/max';
+        const xianyu = data.xianyuUrl || 'https://www.goofish.com';
         setSysVersion(v);
         setSysForceUpgrade(fu);
         setSysUpgradeUrl(url);
+        setSysXianyuUrl(xianyu);
         // Initial / sync fields
         setInputVersion(v);
         setInputUpgradeUrl(url);
+        setInputXianyuUrl(xianyu);
       }
     });
     return () => unsubscribe();
@@ -982,55 +1140,117 @@ export default function AdminPanel({
   });
 
   if (!isAuth) {
-    const handleAdminLogin = async (e: React.FormEvent) => {
+    const handleAdminGetSMSCode = async () => {
+      const phoneTrimmed = adminPhone.trim();
+      if (!phoneTrimmed) {
+        setLoginError('请输入您的手机号码');
+        return;
+      }
+      if (!/^1[3-9]\d{9}$/.test(phoneTrimmed)) {
+        setLoginError('请输入正确的11位中国大陆手机号');
+        return;
+      }
+
+      setLoginError('');
+      setAdminSimulatedCode('');
+      setIsAdminSending(true);
+
+      try {
+        const res = await fetch('/api/sms/send', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ phone: phoneTrimmed }),
+        });
+
+        const data = await res.json();
+        setIsAdminSending(false);
+
+        if (data.success) {
+          setAdminTimer(60);
+          if (data.mode === 'simulated') {
+            setAdminSimulatedCode(data.code || '');
+            setShowToast(true);
+            setToastMsg('💡 成功通过测试沙盒通道：系统已为您离线生成验证码。');
+            setTimeout(() => setShowToast(false), 3000);
+          } else {
+            setShowToast(true);
+            setToastMsg('✓ 真实阿里云短信验证码已发送！请查收您的手机短信。');
+            setTimeout(() => setShowToast(false), 3000);
+          }
+        } else {
+          setLoginError(`❌ 验证码获取失败: ${data.error || '服务器响应异常'}`);
+        }
+      } catch (err: any) {
+        console.error('[AdminLogin] Send SMS failed:', err);
+        setIsAdminSending(false);
+        setLoginError(`❌ 验证码发送失败: ${err.message || '网络连接超时，请检查服务'}`);
+      }
+    };
+
+    const handleAdminPhoneLoginSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
       setLoginError('');
-      setIsVerifying(true);
-      
+
+      const phoneTrimmed = adminPhone.trim();
+      if (!phoneTrimmed || !/^1[3-9]\d{9}$/.test(phoneTrimmed)) {
+        setLoginError('请输入正确的手机号码');
+        return;
+      }
+
+      if (!adminSmsCode) {
+        setLoginError('请输入验证码');
+        return;
+      }
+
+      setIsAdminLoggingIn(true);
+
       try {
-        const sha256 = async (str: string): Promise<string> => {
-          const msgBuffer = new TextEncoder().encode(str);
-          const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-          const hashArray = Array.from(new Uint8Array(hashBuffer));
-          return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-        };
+        const res = await fetch('/api/sms/verify', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ phone: phoneTrimmed, code: adminSmsCode }),
+        });
 
-        const hsUser = await sha256(adminUsername.trim());
-        const hsPass = await sha256(adminPassword);
+        const data = await res.json();
+        setIsAdminLoggingIn(false);
 
-        // Prehashed credentials to prevent reverse-engineering decompiling exposure
-        if (hsUser === '150c354e9c4ed84366c928da7519ab314fe2b8bf98751de0a54aa0d948703f22' && 
-            hsPass === '16cf01d58c35aaa278bd5b538b420596c3feeffc435ee4cf53ba7a6144400238') {
+        if (data.success) {
           setIsAdminAuthenticated(true);
           localStorage.setItem('isAdminAuthenticated', 'true');
-          // Trigger quick custom alert or toast
+          localStorage.setItem('dd_user_phone', phoneTrimmed);
+
           setShowToast(true);
           setToastMsg('🎉 运营中心最高验权授权通过，接管监控大屏！');
-          setTimeout(() => setShowToast(false), 2500);
+          setTimeout(() => {
+            setShowToast(false);
+            window.location.reload();
+          }, 1500);
         } else {
-          setLoginError('请正确输入运营中心安全管理员账号或安全密钥');
+          const rawError = data.error || '验证码校验未通过';
+          let displayError = rawError;
+          if (rawError.includes('isv.ValidateFail') || rawError.includes('400') || rawError.includes('验证失败')) {
+            displayError = '阿里云400验证失败，请正确填写验证码';
+          }
+          setLoginError(`❌ 登录失败: ${displayError}`);
         }
-      } catch (err) {
-        console.error(err);
-        // Fallback for secure offline checking (graceful failover check without crashes)
-        if (adminUsername.trim() === '15509601222' && adminPassword === '6085500aA') {
-          setIsAdminAuthenticated(true);
-          localStorage.setItem('isAdminAuthenticated', 'true');
-        } else {
-          setLoginError('请正确输入运营中心安全管理员账号或安全密钥');
-        }
-      } finally {
-        setIsVerifying(false);
+      } catch (err: any) {
+        console.error('[AdminLogin] Verify SMS failed:', err);
+        setIsAdminLoggingIn(false);
+        setLoginError(`❌ 校验登录失败: ${err.message || '网络连接超时'}`);
       }
     };
 
     return (
       <div className="flex-1 bg-[#0A0B10] text-[#E2E8F0] min-h-screen flex flex-col items-center justify-center p-4 md:p-8 font-sans relative overflow-hidden">
-        {/* Subtle decorative grid/orbs without tech-larping logs */}
+        {/* Subtle decorative grid/orbs */}
         <div className="absolute -right-32 -top-32 w-96 h-96 rounded-full bg-teal-500/5 blur-3xl"></div>
         <div className="absolute -left-32 -bottom-32 w-96 h-96 rounded-full bg-indigo-500/5 blur-3xl"></div>
         
-        {/* Toast Alert overlay inside login screen as well */}
+        {/* Toast Alert overlay */}
         {showToast && (
           <div className="fixed top-8 right-8 z-50 bg-[#16A34A] border border-green-400/30 text-white px-5 py-3.5 rounded-2xl shadow-[0_10px_30px_rgb(22,163,74,0.35)] flex items-center space-x-2.5 animate-in fade-in slide-in-from-top-4 duration-300">
             <CheckCircle className="w-5 h-5 text-green-200 shrink-0" />
@@ -1044,51 +1264,108 @@ export default function AdminPanel({
               <Lock className="w-5 h-5 text-slate-900" />
             </div>
             <h2 className="text-lg font-black text-white tracking-tight pt-1">运营管理中心 · 身份安全授权</h2>
-            <p className="text-xs text-slate-400">请进行服务系统受控账户的终极机密密钥核查</p>
+            <p className="text-xs text-slate-400">请使用受控管理员手机验证码进行双因子身份校对</p>
           </div>
 
-          <form onSubmit={handleAdminLogin} className="space-y-4">
+          <form onSubmit={handleAdminPhoneLoginSubmit} className="space-y-4">
             {loginError && (
               <div className="p-3.5 bg-rose-500/10 border border-rose-500/25 rounded-2xl flex items-start space-x-2.5 animate-bounce">
                 <span className="text-[#fb7185] text-xs font-bold leading-relaxed">{loginError}</span>
               </div>
             )}
 
+            {/* Phone Input */}
             <div className="space-y-1.5 text-left">
-              <label className="text-[11px] font-bold text-slate-400 tracking-wider uppercase">管理员账号</label>
-              <input
-                type="text"
-                required
-                value={adminUsername}
-                onChange={(e) => setAdminUsername(e.target.value)}
-                placeholder="请输入11位安全管理员账号"
-                className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-100 text-xs font-bold font-mono tracking-wider focus:outline-none focus:border-teal-500 transition-all placeholder:text-slate-600"
-              />
+              <label className="text-[11px] font-bold text-slate-400 tracking-wider uppercase">管理员手机号</label>
+              <div className="relative">
+                <div className="absolute left-3.5 top-1/2 -translate-y-1/2 flex items-center space-x-1 border-r border-slate-800 pr-2">
+                  <span className="text-xs font-black text-teal-400">+86</span>
+                </div>
+                <input
+                  type="tel"
+                  maxLength={11}
+                  required
+                  value={adminPhone}
+                  onChange={(e) => {
+                    const cleanVal = e.target.value.replace(/\D/g, '');
+                    setAdminPhone(cleanVal);
+                    setLoginError('');
+                  }}
+                  placeholder="请输入最高管理员手机号码"
+                  className="w-full pl-[56px] pr-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-100 text-xs font-bold font-mono tracking-wider focus:outline-none focus:border-teal-500 transition-all placeholder:text-slate-600"
+                />
+              </div>
             </div>
 
+            {/* Verification Code Field */}
             <div className="space-y-1.5 text-left">
-              <label className="text-[11px] font-bold text-slate-400 tracking-wider uppercase">安全密码</label>
-              <input
-                type="password"
-                required
-                value={adminPassword}
-                onChange={(e) => setAdminPassword(e.target.value)}
-                placeholder="请输入系统最高管理密码"
-                className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-100 text-xs font-mono tracking-wider focus:outline-none focus:border-teal-500 transition-all placeholder:text-slate-600"
-              />
+              <label className="text-[11px] font-bold text-slate-400 tracking-wider uppercase">安全短信验证码</label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <KeyRound className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-600" />
+                  <input
+                    type="text"
+                    maxLength={6}
+                    required
+                    value={adminSmsCode}
+                    onChange={(e) => {
+                      setAdminSmsCode(e.target.value.trim());
+                      setLoginError('');
+                    }}
+                    placeholder="请输入验证码"
+                    className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-100 text-xs font-bold focus:outline-none focus:border-teal-500 transition-all placeholder:text-slate-600 font-mono tracking-widest text-center"
+                  />
+                </div>
+                
+                {/* Send button with countdown */}
+                <button
+                  type="button"
+                  onClick={handleAdminGetSMSCode}
+                  disabled={adminTimer > 0 || isAdminSending}
+                  className="px-3.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-teal-400 hover:text-teal-300 rounded-2xl text-xs font-black transition-colors min-w-[96px] shrink-0 border border-slate-800 flex items-center justify-center cursor-pointer"
+                >
+                  {isAdminSending ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-teal-400" />
+                  ) : adminTimer > 0 ? (
+                    `${adminTimer}s`
+                  ) : (
+                    '获取验证码'
+                  )}
+                </button>
+              </div>
             </div>
+
+            {/* Simulated sandbox code helper */}
+            {adminSimulatedCode && (
+              <div 
+                onClick={() => setAdminSmsCode(adminSimulatedCode)}
+                className="p-2.5 bg-sky-500/10 border border-sky-500/20 hover:border-sky-500/40 rounded-xl text-left cursor-pointer transition-all flex items-center justify-between"
+              >
+                <div className="text-[10px] text-sky-400 font-semibold">
+                  💡 沙盒验证码已生成！点击自动填入：
+                </div>
+                <div className="font-mono text-xs text-white font-black bg-sky-950 px-2 py-0.5 rounded border border-sky-500/30 animate-pulse">
+                  {adminSimulatedCode}
+                </div>
+              </div>
+            )}
 
             <button
               type="submit"
-              disabled={isVerifying}
-              className="w-full py-3.5 bg-gradient-to-r from-teal-500 to-emerald-400 hover:from-teal-600 hover:to-emerald-500 disabled:opacity-50 text-slate-950 text-xs font-black rounded-2xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
+              disabled={isAdminLoggingIn}
+              className="w-full py-3.5 bg-gradient-to-r from-teal-500 to-emerald-400 hover:from-teal-600 hover:to-emerald-500 disabled:opacity-50 text-slate-950 text-xs font-black rounded-2xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer pt-3"
             >
-              {isVerifying ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+              {isAdminLoggingIn ? (
+                <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
               ) : (
-                <span>授权并登录运控台 ➔</span>
+                <span>双因子安全授权登录 ➔</span>
               )}
             </button>
+
+            {/* reCAPTCHA Hidden target container required by Firebase Phone Auth */}
+            <div id="admin-recaptcha-wrapper" className="hidden">
+              <div id="admin-recaptcha-container"></div>
+            </div>
           </form>
 
           <div className="border-t border-slate-900/80 pt-4 flex items-center justify-between text-[10px] text-slate-500 font-medium">
@@ -1396,6 +1673,42 @@ export default function AdminPanel({
               Team
             </span>
           </button>
+
+          {/* Tab Button 11: Master Controls / One-click Close */}
+          <button
+            onClick={() => setActiveTab('master_controls')}
+            className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'master_controls'
+                ? 'bg-gradient-to-r from-rose-500/10 to-transparent border-l-2 border-rose-500 text-rose-400'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
+            }`}
+          >
+            <div className="flex items-center space-x-2.5">
+              <Power className="w-4 h-4 text-rose-400" />
+              <span>🛑 一键关闭功能</span>
+            </div>
+            <span className="text-[10px] font-mono font-bold bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded-sm shrink-0">
+              Off
+            </span>
+          </button>
+
+          {/* Tab Button 12: Electronic Official Seal Generator */}
+          <button
+            onClick={() => setActiveTab('seal')}
+            className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'seal'
+                ? 'bg-gradient-to-r from-amber-500/10 to-transparent border-l-2 border-amber-500 text-amber-400'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
+            }`}
+          >
+            <div className="flex items-center space-x-2.5">
+              <ShieldCheck className="w-4 h-4 text-amber-400" />
+              <span>印 电子公章生成器</span>
+            </div>
+            <span className="text-[10px] font-mono font-bold bg-amber-500/10 text-amber-400 px-1.5 py-0.5 rounded-sm shrink-0">
+              Seal
+            </span>
+          </button>
         </div>
 
         {/* Footer profile area */}
@@ -1522,6 +1835,24 @@ export default function AdminPanel({
               <Users className="w-4 h-4 text-orange-400" />
               <span>👥 团队成员设置 ({teamMembers.length})</span>
             </button>
+            <button
+              onClick={() => { setActiveTab('master_controls'); setIsMobileMenuOpen(false); }}
+              className={`flex items-center space-x-2 text-left p-2.5 rounded-xl text-xs font-black ${
+                activeTab === 'master_controls' ? 'bg-rose-500/10 text-rose-400' : 'text-slate-400'
+              }`}
+            >
+              <Power className="w-4 h-4 text-rose-400" />
+              <span>🛑 一键关闭功能</span>
+            </button>
+            <button
+              onClick={() => { setActiveTab('seal'); setIsMobileMenuOpen(false); }}
+              className={`flex items-center space-x-2 text-left p-2.5 rounded-xl text-xs font-black ${
+                activeTab === 'seal' ? 'bg-amber-500/10 text-amber-400' : 'text-slate-400'
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4 text-amber-400" />
+              <span>印 电子公章生成器</span>
+            </button>
           </div>
         )}
       </div>
@@ -1544,6 +1875,8 @@ export default function AdminPanel({
                 {activeTab === 'dispatch' && 'Valet Dispatch Station'}
                 {activeTab === 'online_billing' && 'Online Order Billing Details'}
                 {activeTab === 'team' && 'Team Member Configurations'}
+                {activeTab === 'master_controls' && 'Master Controls / One-click Close'}
+                {activeTab === 'seal' && 'Official Seal Electronic Generator'}
               </span>
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
               <span className="text-[10px] text-slate-500 font-mono">Live Sync Engine v3.5</span>
@@ -1559,6 +1892,8 @@ export default function AdminPanel({
               {activeTab === 'dispatch' && '高管代客派单调度系统 — AMap 2.0 联席总控'}
               {activeTab === 'online_billing' && '线上单价格计费规则配置 — 双系统隔离独立配置端'}
               {activeTab === 'team' && '团队成员设置 - 核心管理与分级赋权'}
+              {activeTab === 'master_controls' && '核心功能一键开启/关闭 — 实时拦截中心'}
+              {activeTab === 'seal' && '高清洗印电子公章生成器 — 备案辅助工具'}
             </h1>
             <p className="text-xs text-slate-500">
               {activeTab === 'overview' && '决策概览数据自动汇总，直观掌控卡密发布流通与司机注册状态。'}
@@ -1571,6 +1906,8 @@ export default function AdminPanel({
               {activeTab === 'dispatch' && '集成高德 2D 平面大屏。支持滑动、搜索地址自绘盲区及 3 公里绝对直线距离最邻近搜寻派单，并实现对全国所有城市的一键线上听单挂锁总开关。'}
               {activeTab === 'online_billing' && '后台独立设置的线上派单计费逻辑，与司机端报单模板独立分流。修改此计费配置只会影响系统分配、后台派遣等所有线上单的最终账单，司机端无法改变。'}
               {activeTab === 'team' && '输入手机号码手动将司机或管理员赋予不同团队阶梯，权限依次为：开发者司机 > 城市老板司机 > 城市管理司机 > 城市派单员司机 > 普通司机。'}
+              {activeTab === 'master_controls' && '一键关闭或开启软件app首页的「线上单开通」、「商户代叫」和「小队管理」三大核心按钮组件。关闭后，司机点击对应组件将弹出测试阶段提示并无法使用。'}
+              {activeTab === 'seal' && '专为备案承诺书设计的红色圆形公章生成器。支持自定义名称、横向字样、红星控制与模拟印泥质感，实时渲染并导出一键下载 100% 透明背景的高清 PNG。'}
             </p>
           </div>
 
@@ -1603,6 +1940,96 @@ export default function AdminPanel({
         {/* 1. OVERVIEW TAB PANEL */}
         {activeTab === 'overview' && (
           <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Cloudflare Datastore Integration Card */}
+            <div className="bg-[#111625] border border-[#212b44] rounded-2xl p-5 relative overflow-hidden shadow-xl">
+              <div className="absolute right-0 top-0 -mr-16 -mt-16 w-48 h-48 bg-teal-500/5 rounded-full blur-3xl pointer-events-none"></div>
+              
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-start gap-3.5">
+                  <div className="p-3 bg-gradient-to-tr from-orange-500/10 to-amber-500/20 text-orange-400 rounded-xl border border-orange-500/20 shadow-md">
+                    <Server className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-extrabold text-white tracking-wide">
+                        Cloudflare KV 实时数据库分布式互通中心
+                      </h3>
+                      {connectionStatus === 'success' ? (
+                        <span className="flex items-center gap-1 text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-bold">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                          已接入
+                        </span>
+                      ) : connectionStatus === 'failed' ? (
+                        <span className="flex items-center gap-1 text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2 py-0.5 rounded-full font-bold animate-pulse">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+                          未连接
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-[10px] bg-slate-500/10 text-slate-400 border border-slate-500/20 px-2 py-0.5 rounded-full font-bold">
+                          检测中...
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-1 max-w-2xl leading-relaxed">
+                      管理后台与司机手机客户端、乘客下单端默认全部连接到同一个 Cloudflare Worker KV 云数据库。
+                      任何一端更改规则、发放优惠卡密、派单，其他终端和您的新域名 <code className="text-teal-400 font-mono select-all">heiwandaijiamax.ccwu.cc</code> 均会实时响应，实现完全数据互联！
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2 shrink-0 md:min-w-[320px]">
+                  <div className="text-[10px] text-gray-400 flex items-center justify-between font-mono">
+                    <span>数据库通信端点 (API URL)</span>
+                    {connectionStatus === 'success' && <span className="text-emerald-400 font-bold">通信畅通 (Health OK)</span>}
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={cfWorkerUrl}
+                      onChange={(e) => setCfWorkerUrl(e.target.value)}
+                      placeholder="例如: https://daijiajifei.ccwu.cc"
+                      className="flex-grow bg-[#090b11] border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-teal-300 font-mono focus:outline-none focus:border-teal-500 transition-colors"
+                    />
+                    <button
+                      onClick={() => handleSaveAndTestCfWorker(cfWorkerUrl)}
+                      disabled={isTestingConnection}
+                      className="px-4 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-500 disabled:bg-slate-800 text-white text-xs font-bold transition-all cursor-pointer shadow-md shadow-teal-600/15"
+                    >
+                      {isTestingConnection ? '检测中...' : '保存并检测'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Step-by-Step Deployment Guide Accordion */}
+              <div className="mt-4 pt-4 border-t border-slate-900 flex flex-col gap-2 text-xs">
+                <div className="flex items-center gap-1.5 text-[11px] font-bold text-gray-300">
+                  <Zap className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                  <span>如何将完整的管理后台部署到您注册的新域名 heiwandaijiamax.ccwu.cc 下？</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 text-[11px] text-gray-400 leading-relaxed mt-1">
+                  <div className="bg-[#090b11]/50 border border-slate-900 rounded-xl p-3">
+                    <div className="font-extrabold text-white mb-1">第一步：一键打包前端</div>
+                    在开发工作区运行构建命令，将静态 React 前端项目输出到目录：
+                    <pre className="mt-1 bg-black/60 p-1.5 rounded text-[9px] font-mono text-teal-300 overflow-x-auto">
+                      npm run build
+                    </pre>
+                    生成的内容将完整存放在 <code className="text-amber-500 font-mono">dist/</code> 目录下。
+                  </div>
+                  <div className="bg-[#090b11]/50 border border-slate-900 rounded-xl p-3">
+                    <div className="font-extrabold text-white mb-1">第二步：部署至 Cloudflare Pages</div>
+                    1. 登录您的 Cloudflare Dashboard，点击 <strong>Pages / 网页项目</strong>。<br/>
+                    2. 点击 “创建项目”，选择上传文件夹，直接拖入 <strong>dist/</strong> 文件夹打包上传即可。<br/>
+                    3. 在 Pages 的自定义域中绑定您申请的域名 <span className="text-teal-400 font-mono font-bold">heiwandaijiamax.ccwu.cc</span>。
+                  </div>
+                  <div className="bg-[#090b11]/50 border border-slate-900 rounded-xl p-3">
+                    <div className="font-extrabold text-white mb-1">第三步：实时数据互联同步</div>
+                    由于您已经在上方将数据库端点绑定为您的 Worker 域名（或默认检测到 <code className="text-teal-400 font-mono">daijiajifei.ccwu.cc</code>），在 <code className="text-white font-mono">heiwandaijiamax.ccwu.cc</code> 打开的页面将<strong>自动共享和互通</strong>所有数据（包括司机、卡密、计费、派单和位置），实现无缝连通。
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Grid of Remaining Quantities Dashboard Blocks */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 shrink-0">
               
@@ -2703,7 +3130,7 @@ export default function AdminPanel({
             {/* Version Form */}
             <div className="bg-slate-950/30 border border-slate-900 rounded-2xl p-5 space-y-4">
               <h4 className="text-xs font-black text-slate-200 tracking-wider border-b border-indigo-950/20 pb-2">
-                ✏️ 发布最新版本 / 调整强更姿态
+                ✏️ 发布最新版本 / 调整强更及咸鱼配置
               </h4>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2728,6 +3155,17 @@ export default function AdminPanel({
                     className="w-full bg-[#181B2B] text-slate-100 text-xs px-3.5 py-2.5 rounded-xl border border-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500"
                   />
                 </div>
+
+                <div className="space-y-1.5 md:col-span-2">
+                  <label className="text-[10px] text-slate-400 font-bold block">3. 咸鱼购买 VIP 兑换码网址</label>
+                  <input
+                    type="text"
+                    value={inputXianyuUrl}
+                    onChange={(e) => setInputXianyuUrl(e.target.value)}
+                    placeholder="请输入咸鱼购买宝贝/店铺的分享链接或访问网址"
+                    className="w-full bg-[#181B2B] text-slate-100 text-xs px-3.5 py-2.5 rounded-xl border border-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                  />
+                </div>
               </div>
 
               <div className="flex flex-wrap gap-3 pt-2">
@@ -2748,6 +3186,7 @@ export default function AdminPanel({
                         version: inputVersion.trim(),
                         forceUpgrade: true,
                         upgradeUrl: inputUpgradeUrl.trim(),
+                        xianyuUrl: inputXianyuUrl.trim(),
                         updatedAt: new Date().toISOString()
                       };
                       await setDoc(versionDocRef, vData);
@@ -2756,7 +3195,7 @@ export default function AdminPanel({
                       const historyDocRef = doc(db, 'version_history', inputVersion.trim());
                       await setDoc(historyDocRef, vData);
 
-                      triggerToast(`🚀 升级指令发布成功！当前版本已强制锁定为 ${inputVersion}`);
+                      triggerToast(`🚀 升级指令及配置发布成功！当前版本已强制锁定为 ${inputVersion}`);
                       setVersionSyncStatus('success');
                     } catch (err: any) {
                       triggerToast(`同步失败：${err.message || err}`);
@@ -2774,11 +3213,13 @@ export default function AdminPanel({
                       setVersionSyncStatus('syncing');
                       const v = inputVersion.trim() || sysVersion;
                       const url = inputUpgradeUrl.trim() || sysUpgradeUrl;
+                      const xianyu = inputXianyuUrl.trim() || sysXianyuUrl;
                       const versionDocRef = doc(db, 'config', 'system_version');
                       const vData = {
                         version: v,
                         forceUpgrade: false,
                         upgradeUrl: url,
+                        xianyuUrl: xianyu,
                         updatedAt: new Date().toISOString()
                       };
                       await setDoc(versionDocRef, vData);
@@ -2797,6 +3238,40 @@ export default function AdminPanel({
                   className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs px-5 py-2.5 rounded-xl active:opacity-90 transition-all flex items-center space-x-1.5 cursor-pointer"
                 >
                   <span>✅ 一键执行降级 (Disable Force)</span>
+                </button>
+
+                <button
+                  onClick={async () => {
+                    if (!inputXianyuUrl.trim()) {
+                      triggerToast('请输入合规的咸鱼购买网址！');
+                      return;
+                    }
+                    try {
+                      setVersionSyncStatus('syncing');
+                      const versionDocRef = doc(db, 'config', 'system_version');
+                      const vData = {
+                        version: inputVersion.trim() || sysVersion,
+                        forceUpgrade: sysForceUpgrade,
+                        upgradeUrl: inputUpgradeUrl.trim() || sysUpgradeUrl,
+                        xianyuUrl: inputXianyuUrl.trim(),
+                        updatedAt: new Date().toISOString()
+                      };
+                      await setDoc(versionDocRef, vData);
+                      
+                      // Also save/update in history list
+                      const historyDocRef = doc(db, 'version_history', inputVersion.trim() || sysVersion);
+                      await setDoc(historyDocRef, vData);
+
+                      triggerToast(`🔄 咸鱼购买网址一键实时同步更新成功！`);
+                      setVersionSyncStatus('success');
+                    } catch (err: any) {
+                      triggerToast(`同步失败：${err.message || err}`);
+                      setVersionSyncStatus('error');
+                    }
+                  }}
+                  className="bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-md active:opacity-90 transition-all flex items-center space-x-1.5 cursor-pointer"
+                >
+                  <span>🔄 一键更新 (Sync Config)</span>
                 </button>
               </div>
 
@@ -2877,6 +3352,7 @@ export default function AdminPanel({
                                       version: item.version,
                                       forceUpgrade: true,
                                       upgradeUrl: item.upgradeUrl,
+                                      xianyuUrl: item.xianyuUrl || inputXianyuUrl,
                                       updatedAt: now
                                     };
                                     await setDoc(versionDocRef, vData);
@@ -2911,6 +3387,7 @@ export default function AdminPanel({
                                       version: item.version,
                                       forceUpgrade: false,
                                       upgradeUrl: item.upgradeUrl,
+                                      xianyuUrl: item.xianyuUrl || inputXianyuUrl,
                                       updatedAt: now
                                     };
                                     await setDoc(versionDocRef, vData);
@@ -3926,6 +4403,145 @@ export default function AdminPanel({
           </div>
         )}
 
+        {/* 11. MASTER CONTROLS TAB */}
+        {activeTab === 'master_controls' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            <div className="max-w-4xl bg-[#12141F] rounded-2xl border border-slate-900 p-6 space-y-6">
+              <div className="flex items-center space-x-2 border-b border-indigo-950/20 pb-4">
+                <div className="p-2 rounded-xl bg-rose-500/10 text-rose-400">
+                  <Power className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-sans font-black text-sm text-slate-200">核心功能控制中心</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">控制软件App首页组件的正常开放与一键临时关闭</p>
+                </div>
+              </div>
+
+              <div className="divide-y divide-slate-800/60">
+                {/* 1. 线上单开通 */}
+                <div className="py-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-black text-slate-200">线上单开通</span>
+                      <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${
+                        masterSwitches.online_app_enabled ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400'
+                      }`}>
+                        {masterSwitches.online_app_enabled ? '已开启' : '已关闭'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 max-w-xl">
+                      控制司机端App首页“线上单开通”按钮。关闭后，点击该组件将拦截并提示“测试阶段，未开放”。
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => updateMasterSwitch('online_app_enabled', false)}
+                      className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+                        !masterSwitches.online_app_enabled 
+                          ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/20 font-black' 
+                          : 'bg-slate-900 hover:bg-slate-800 text-slate-300'
+                      }`}
+                    >
+                      一键关闭
+                    </button>
+                    <button
+                      onClick={() => updateMasterSwitch('online_app_enabled', true)}
+                      className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+                        masterSwitches.online_app_enabled 
+                          ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 font-black' 
+                          : 'bg-slate-900 hover:bg-slate-800 text-slate-300'
+                      }`}
+                    >
+                      一键开启
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. 商户代叫 */}
+                <div className="py-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-black text-slate-200">商户代叫</span>
+                      <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${
+                        masterSwitches.merchant_dispatch_enabled ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400'
+                      }`}>
+                        {masterSwitches.merchant_dispatch_enabled ? '已开启' : '已关闭'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 max-w-xl">
+                      控制司机端App首页“商户代叫”按钮。关闭后，点击该组件将拦截并提示“测试阶段，未开放”。
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => updateMasterSwitch('merchant_dispatch_enabled', false)}
+                      className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+                        !masterSwitches.merchant_dispatch_enabled 
+                          ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/20 font-black' 
+                          : 'bg-slate-900 hover:bg-slate-800 text-slate-300'
+                      }`}
+                    >
+                      一键关闭
+                    </button>
+                    <button
+                      onClick={() => updateMasterSwitch('merchant_dispatch_enabled', true)}
+                      className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+                        masterSwitches.merchant_dispatch_enabled 
+                          ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 font-black' 
+                          : 'bg-slate-900 hover:bg-slate-800 text-slate-300'
+                      }`}
+                    >
+                      一键开启
+                    </button>
+                  </div>
+                </div>
+
+                {/* 3. 小队管理 */}
+                <div className="py-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-black text-slate-200">小队管理</span>
+                      <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${
+                        masterSwitches.squad_management_enabled ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400'
+                      }`}>
+                        {masterSwitches.squad_management_enabled ? '已开启' : '已关闭'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 max-w-xl">
+                      控制司机端App首页“小队管理”按钮。关闭后，点击该组件将拦截并提示“测试阶段，未开放”。
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => updateMasterSwitch('squad_management_enabled', false)}
+                      className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+                        !masterSwitches.squad_management_enabled 
+                          ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/20 font-black' 
+                          : 'bg-slate-900 hover:bg-slate-800 text-slate-300'
+                      }`}
+                    >
+                      一键关闭
+                    </button>
+                    <button
+                      onClick={() => updateMasterSwitch('squad_management_enabled', true)}
+                      className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+                        masterSwitches.squad_management_enabled 
+                          ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 font-black' 
+                          : 'bg-slate-900 hover:bg-slate-800 text-slate-300'
+                      }`}
+                    >
+                      一键开启
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 12. ELECTRONIC SEAL GENERATOR TAB */}
+        {activeTab === 'seal' && <SealGeneratorPanel />}
+
       </div>
 
       {/* Custom Confirmation Modal */}
@@ -3959,6 +4575,428 @@ export default function AdminPanel({
           </div>
         </div>
       )}
+
+    </div>
+  );
+}
+
+// ==========================================
+// 12. ELECTRONIC OFFICIAL SEAL GENERATOR PANEL
+// ==========================================
+function SealGeneratorPanel() {
+  const [text, setText] = useState('银川市兴庆区扬湾途信息技术工作室');
+  const [subText, setSubText] = useState('（个体工商户）');
+  const [hasStar, setHasStar] = useState(true);
+  const [color, setColor] = useState('#E60012'); // Standard seal red
+  const [textureLevel, setTextureLevel] = useState<'none' | 'subtle' | 'medium' | 'heavy'>('subtle');
+  const [fontSizeScale, setFontSizeScale] = useState(100);
+  const [borderWidth, setBorderWidth] = useState(10);
+  const [arcAngleScale, setArcAngleScale] = useState(100);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const drawSeal = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Use a clean 600x600 canvas for high-resolution PNG downloads
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    const width = canvas.width;
+    const height = canvas.height;
+    const cx = width / 2;
+    const cy = height / 2;
+    const radius = Math.min(width, height) * 0.43;
+
+    // 1. Draw outer circle
+    ctx.strokeStyle = color;
+    ctx.lineWidth = borderWidth;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius - borderWidth/2, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 2. Draw five-pointed star in the center
+    if (hasStar) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      const starRadius = radius * 0.28;
+      for (let i = 0; i < 5; i++) {
+        const angleOuter = (Math.PI * 2 * i) / 5 - Math.PI / 2;
+        const angleInner = (Math.PI * 2 * i) / 5 - Math.PI / 2 + Math.PI / 5;
+        const rOuter = starRadius;
+        const rInner = starRadius * 0.38;
+        
+        const xOuter = cx + Math.cos(angleOuter) * rOuter;
+        const yOuter = cy + Math.sin(angleOuter) * rOuter;
+        const xInner = cx + Math.cos(angleInner) * rInner;
+        const yInner = cy + Math.sin(angleInner) * rInner;
+        
+        if (i === 0) {
+          ctx.moveTo(xOuter, yOuter);
+        } else {
+          ctx.lineTo(xOuter, yOuter);
+        }
+        ctx.lineTo(xInner, yInner);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // 3. Draw curved main text
+    if (text) {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.fillStyle = color;
+      
+      const computedFontSize = Math.round(radius * 0.155 * (fontSizeScale / 100));
+      // Standard Chinese seals use SimSun / STSong style serif typefaces
+      ctx.font = `bold ${computedFontSize}px "STSong", "SimSun", "Songti SC", "Microsoft YaHei", serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      
+      const len = text.length;
+      // Normal arc angle is ~235 degrees
+      const arcAngle = Math.PI * 1.32 * (arcAngleScale / 100); 
+      const startAngle = -Math.PI / 2 - arcAngle / 2;
+      const step = len > 1 ? arcAngle / (len - 1) : 0;
+      const textRadius = radius * 0.74;
+      
+      for (let i = 0; i < len; i++) {
+        const angle = len > 1 ? startAngle + step * i : -Math.PI / 2;
+        ctx.save();
+        ctx.rotate(angle + Math.PI / 2);
+        ctx.translate(0, -textRadius);
+        ctx.fillText(text[i], 0, 0);
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+
+    // 4. Draw horizontal subText (e.g. "（个体工商户）")
+    if (subText) {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.fillStyle = color;
+      const computedSubFontSize = Math.round(radius * 0.11 * (fontSizeScale / 100));
+      ctx.font = `bold ${computedSubFontSize}px "STSong", "SimSun", "Songti SC", "Microsoft YaHei", serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(subText, 0, radius * 0.44);
+      ctx.restore();
+    }
+
+    // 5. Apply weathered textured effect (clipping/destination-out for transparency voids)
+    if (textureLevel !== 'none') {
+      let density = 0;
+      if (textureLevel === 'subtle') density = 0.0006;
+      else if (textureLevel === 'medium') density = 0.0016;
+      else if (textureLevel === 'heavy') density = 0.0036;
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-out';
+      
+      // Draw random tiny transparent speckles to simulate ink fading
+      const numSpeckles = Math.floor(width * height * density);
+      for (let i = 0; i < numSpeckles; i++) {
+        const x = Math.random() * width;
+        const y = Math.random() * height;
+        const size = 0.5 + Math.random() * 1.2;
+        const opacity = 0.4 + Math.random() * 0.6;
+        
+        ctx.fillStyle = `rgba(0,0,0,${opacity})`;
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      
+      // Draw small scratches
+      const numScratches = Math.floor(width * (density * 10));
+      for (let i = 0; i < numScratches; i++) {
+        const x = Math.random() * width;
+        const y = Math.random() * height;
+        const len = 2.0 + Math.random() * 5;
+        const angle = Math.random() * Math.PI * 2;
+        
+        ctx.strokeStyle = `rgba(0,0,0,${0.3 + Math.random() * 0.5})`;
+        ctx.lineWidth = 0.4 + Math.random() * 0.6;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + Math.cos(angle) * len, y + Math.sin(angle) * len);
+        ctx.stroke();
+      }
+      
+      ctx.restore();
+    }
+  };
+
+  useEffect(() => {
+    drawSeal();
+  }, [text, subText, hasStar, color, textureLevel, fontSizeScale, borderWidth, arcAngleScale]);
+
+  const handleDownload = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    // Create an anchor element and trigger download
+    const link = document.createElement('a');
+    link.download = `${text || 'official_seal'}_电子公章.png`;
+    link.href = canvas.toDataURL('image/png');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in fade-in duration-300 select-none">
+      
+      {/* Left controls column */}
+      <div className="lg:col-span-7 bg-[#111625] border border-[#212b44] rounded-2xl p-6 space-y-6">
+        <div className="flex items-center gap-3 border-b border-[#212b44] pb-4">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center font-bold text-lg border border-amber-500/20 shadow-md">
+            印
+          </div>
+          <div>
+            <h3 className="font-extrabold text-sm text-slate-100">印章定制与配置面板</h3>
+            <p className="text-xs text-slate-500">自拟任意公司或工作室名、章体字样并一键下载透明 PNG</p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {/* Main Text Input */}
+          <div className="space-y-1.5">
+            <label className="block text-xs font-black text-slate-400">印章主文字（弧形排列，通常是公司/工作室全称）</label>
+            <input
+              type="text"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              className="w-full bg-[#090b11] border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500 transition-colors font-bold"
+              placeholder="请输入公司 or 工作室全称"
+            />
+            <div className="flex flex-wrap gap-2 pt-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setText('银川市兴庆区扬湾途信息技术工作室');
+                  setSubText('（个体工商户）');
+                }}
+                className="px-2.5 py-1 text-[10px] bg-amber-500/10 border border-amber-500/15 text-amber-400 hover:bg-amber-500/20 rounded font-bold transition-all cursor-pointer"
+              >
+                💾 载入：扬湾途工作室 (执照原件章)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setText('银川市兴庆区扬湾途信息技术工作室');
+                  setSubText('合同专用章');
+                }}
+                className="px-2.5 py-1 text-[10px] bg-slate-800 text-slate-400 hover:text-slate-200 rounded font-bold transition-all cursor-pointer"
+              >
+                📜 载入：合同专用章
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setText('银川市兴庆区扬湾途信息技术工作室');
+                  setSubText('财务专用章');
+                }}
+                className="px-2.5 py-1 text-[10px] bg-slate-800 text-slate-400 hover:text-slate-200 rounded font-bold transition-all cursor-pointer"
+              >
+                💰 载入：财务专用章
+              </button>
+            </div>
+          </div>
+
+          {/* Sub Text Input */}
+          <div className="space-y-1.5">
+            <label className="block text-xs font-black text-slate-400">底部横向字样（例如：合同专用章、财务专用章）</label>
+            <input
+              type="text"
+              value={subText}
+              onChange={(e) => setSubText(e.target.value)}
+              className="w-full bg-[#090b11] border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500 transition-colors font-bold"
+              placeholder="例如: （个体工商户）"
+            />
+          </div>
+
+          {/* Controls row */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Color selection */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-black text-slate-400">印泥印油颜色</label>
+              <div className="flex gap-2">
+                <input
+                  type="color"
+                  value={color}
+                  onChange={(e) => setColor(e.target.value)}
+                  className="w-10 h-8 rounded-lg bg-transparent border border-slate-800 cursor-pointer animate-none"
+                />
+                <select
+                  value={color}
+                  onChange={(e) => setColor(e.target.value)}
+                  className="flex-1 bg-[#090b11] border border-slate-800 rounded-xl px-3 text-xs text-slate-300 focus:outline-none"
+                >
+                  <option value="#E60012">标准正红印泥 (#E60012)</option>
+                  <option value="#C30D23">朱砂暗红印泥 (#C30D23)</option>
+                  <option value="#FF3B30">鲜红光电印泥 (#FF3B30)</option>
+                  <option value="#000000">纯黑章印 (#000000)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Texture level */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-black text-slate-400">模拟印油干枯/纸张斑驳质感</label>
+              <select
+                value={textureLevel}
+                onChange={(e) => setTextureLevel(e.target.value as any)}
+                className="w-full bg-[#090b11] border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none"
+              >
+                <option value="none">无损矢量 (100% Solid Vector)</option>
+                <option value="subtle">轻微斑驳 (Subtle Ink texture - 推荐)</option>
+                <option value="medium">中度磨损 (Medium worn texture)</option>
+                <option value="heavy">重度斑驳 (Heavy weathered print)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Sliders Accordion */}
+          <div className="bg-[#090b11]/40 border border-slate-900 rounded-2xl p-4 space-y-4">
+            <div className="text-[11px] font-black tracking-wide text-slate-400 flex items-center justify-between">
+              <span>📐 细节微调尺寸参数</span>
+              <span className="text-[10px] font-mono text-amber-500">高级排版校准</span>
+            </div>
+
+            {/* Slider 1: Font scale */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[11px] font-mono">
+                <span className="text-slate-500">字体大小比例</span>
+                <span className="text-slate-300 font-bold">{fontSizeScale}%</span>
+              </div>
+              <input
+                type="range"
+                min="60"
+                max="140"
+                value={fontSizeScale}
+                onChange={(e) => setFontSizeScale(Number(e.target.value))}
+                className="w-full accent-amber-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+              />
+            </div>
+
+            {/* Slider 2: Border width */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[11px] font-mono">
+                <span className="text-slate-500">外圆边框粗细</span>
+                <span className="text-slate-300 font-bold">{borderWidth} px</span>
+              </div>
+              <input
+                type="range"
+                min="4"
+                max="18"
+                value={borderWidth}
+                onChange={(e) => setBorderWidth(Number(e.target.value))}
+                className="w-full accent-amber-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+              />
+            </div>
+
+            {/* Slider 3: Arc Angle Scale */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[11px] font-mono">
+                <span className="text-slate-500">文字包裹弧度跨度</span>
+                <span className="text-slate-300 font-bold">{arcAngleScale}%</span>
+              </div>
+              <input
+                type="range"
+                min="60"
+                max="140"
+                value={arcAngleScale}
+                onChange={(e) => setArcAngleScale(Number(e.target.value))}
+                className="w-full accent-amber-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+              />
+            </div>
+
+            {/* Five pointed star Toggle */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pt-1 gap-2">
+              <span className="text-xs text-slate-400 font-bold">印章中心印制红五角星</span>
+              <button
+                type="button"
+                onClick={() => setHasStar(!hasStar)}
+                className={`px-3 py-1 text-xs rounded-xl font-bold transition-all border ${
+                  hasStar 
+                    ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 font-black' 
+                    : 'bg-slate-900 border-slate-800 text-slate-500'
+                }`}
+              >
+                {hasStar ? '★ 开启红五星 (常规公章)' : '☆ 关闭红五星 (椭圆或特殊章)'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Action button */}
+        <button
+          onClick={handleDownload}
+          className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 hover:from-amber-600 hover:to-red-600 text-slate-950 font-black text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-lg shadow-amber-500/10 cursor-pointer"
+        >
+          📥 一键生成并保存透明背景高清印章 (PNG)
+        </button>
+      </div>
+
+      {/* Right Canvas visual preview column */}
+      <div className="lg:col-span-5 flex flex-col space-y-6">
+        <div className="bg-[#12141F] border border-slate-900 rounded-2xl p-6 flex flex-col items-center justify-center space-y-4">
+          <div className="text-xs font-black text-slate-400 uppercase tracking-wider self-start flex items-center gap-1.5 border-b border-slate-800 pb-2.5 w-full">
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+            实时印章无损预览面板
+          </div>
+          
+          {/* Canvas display wrapper - styled with a dark checkerboard transparent background indicator */}
+          <div className="p-4 bg-slate-950/90 rounded-2xl border border-slate-900 flex items-center justify-center w-full max-w-[320px] aspect-square shadow-inner relative overflow-hidden group">
+            {/* Checkerboard style indicator background */}
+            <div 
+              className="absolute inset-0 opacity-10 pointer-events-none" 
+              style={{
+                backgroundImage: 'radial-gradient(#ffffff 25%, transparent 25%), radial-gradient(#ffffff 25%, transparent 25%)',
+                backgroundPosition: '0 0, 8px 8px',
+                backgroundSize: '16px 16px'
+              }}
+            ></div>
+            
+            <canvas
+              ref={canvasRef}
+              width={600}
+              height={600}
+              className="w-full h-full relative z-10 select-none pointer-events-none drop-shadow-[0_4px_12px_rgba(230,0,18,0.25)]"
+            />
+          </div>
+
+          <p className="text-[10px] text-slate-500 leading-normal text-center">
+            上面黑白格背景代表<strong>100% 纯透明底色</strong>。
+            生成的 PNG 只有红色的印章线条与微弱斑驳，背景绝对干净无杂色，可完美融入任何白纸或彩色背景的表格中。
+          </p>
+        </div>
+
+        {/* Step-by-Step Instructions card */}
+        <div className="bg-[#111625] border border-[#212b44] rounded-2xl p-5 space-y-3.5">
+          <h4 className="text-xs font-black text-amber-400 flex items-center gap-1.5">
+            💡 备案指南：如何将印章插入到不涉及前置审批承诺书？
+          </h4>
+          <div className="space-y-2.5 text-[11px] text-slate-400 leading-relaxed">
+            <p>
+              1. <strong>编辑承诺书</strong>：复制您的承诺书模板文本到 Word 文档或 WPS 文档，根据您的企业详情填写好空缺处（如银川市兴庆区扬湾途信息技术工作室）。
+            </p>
+            <p>
+              2. <strong>插入印章图片</strong>：点击上方的<strong>「一键生成并保存透明背景高清印章」</strong>下载 PNG。然后在 Word / WPS 中选择 <code className="text-amber-500 font-mono">插入 - 图片 - 来自本地</code>。
+            </p>
+            <p>
+              3. <strong>调整环绕方式</strong>：在 Word 中右键印章图片，选择 <code className="text-amber-500 font-mono">环绕方式 - 浮于文字上方 (In Front of Text)</code>。这一步非常关键，这样您就可以任意拖动它，将它完全重叠覆盖在 “主办单位（公章）” 的文字偏上方位置，甚至可以微调旋转一个极其微小的角度（例如 1~2 度），这样看起来像真实盖上去的一样！
+            </p>
+            <p>
+              4. <strong>导出 PDF 并提交</strong>：调整满意后，将 Word 文档直接另存为 <code className="text-emerald-400 font-mono font-bold">PDF 文件</code>，然后上传到阿里云备案系统，即可完美、高分通过人工审核！
+            </p>
+          </div>
+        </div>
+      </div>
 
     </div>
   );
