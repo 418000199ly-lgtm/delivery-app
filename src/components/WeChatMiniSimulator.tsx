@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import TencentMap from './TencentMap';
 import { db, doc, setDoc } from '../lib/dbProxy';
+import driverAvatar from '../assets/images/driver_cycling_helmet_avatar_1784017817358.jpg';
 import { 
   Phone, 
   MapPin, 
@@ -180,7 +181,9 @@ export default function WeChatMiniSimulator({ currentDriverPhone, onTriggerToast
   const [destination, setDestination] = useState('');
   const [isRainy, setIsRainy] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [orderStatus, setOrderStatus] = useState<'idle' | 'success' | 'profile' | 'about' | 'rules' | 'agreement' | 'select-start' | 'select-dest'>('idle');
+  const [orderStatus, setOrderStatus] = useState<'idle' | 'success' | 'profile' | 'about' | 'rules' | 'agreement' | 'privacy' | 'select-start' | 'select-dest' | 'driver-register'>('idle');
+  const [privacyBackTo, setPrivacyBackTo] = useState<'profile' | 'driver-register'>('profile');
+  const [isLogOutConfirmMode, setIsLogOutConfirmMode] = useState<boolean>(false);
   const [selectedLocationIndex, setSelectedLocationIndex] = useState<number>(0);
   const [selectedLocName, setSelectedLocName] = useState<string>('');
   const [searchKeyword, setSearchKeyword] = useState<string>('');
@@ -195,6 +198,58 @@ export default function WeChatMiniSimulator({ currentDriverPhone, onTriggerToast
   const [showMapSelector, setShowMapSelector] = useState<boolean>(false);
   const [aiInputText, setAiInputText] = useState<string>('');
   const [showAiInput, setShowAiInput] = useState<boolean>(false);
+
+  // Driver Registration States
+  const [registerPhone, setRegisterPhone] = useState<string>('');
+  const [registerCode, setRegisterCode] = useState<string>('');
+  const [registerCountdown, setRegisterCountdown] = useState<number>(0);
+  const [sentCode, setSentCode] = useState<string>('');
+  const [driverRegStep, setDriverRegStep] = useState<'login' | 'form' | 'agreement' | 'success'>('login');
+  const [driverRegName, setDriverRegName] = useState<string>('');
+  const [driverRegIdCard, setDriverRegIdCard] = useState<string>('');
+  const [driverRegCompany, setDriverRegCompany] = useState<string>('银川');
+  const [driverRegGender, setDriverRegGender] = useState<'male' | 'female'>('male');
+  const [driverRegJobType, setDriverRegJobType] = useState<'full' | 'part'>('full');
+  const [driverRegEmergencyContact, setDriverRegEmergencyContact] = useState<string>('');
+  const [driverRegEmergencyPhone, setDriverRegEmergencyPhone] = useState<string>('');
+  const [driverRegIdPhoto, setDriverRegIdPhoto] = useState<string>('');
+  const [driverRegIdPhotoBack, setDriverRegIdPhotoBack] = useState<string>('');
+  const [driverRegLicensePhoto, setDriverRegLicensePhoto] = useState<string>('');
+  const [driverRegLicenseType, setDriverRegLicenseType] = useState<string>('A1');
+  const [driverRegIssueDate, setDriverRegIssueDate] = useState<string>('');
+  const [driverRegAgreed, setDriverRegAgreed] = useState<boolean>(false);
+  const [isSendingCode, setIsSendingCode] = useState<boolean>(false);
+  const [isVerifyingCode, setIsVerifyingCode] = useState<boolean>(false);
+  const [isSubmittingReg, setIsSubmittingReg] = useState<boolean>(false);
+
+  // Helper to check if driver registration form and images are fully completed
+  const isDriverRegFormComplete = () => {
+    return (
+      driverRegName.trim() !== '' &&
+      driverRegIdCard.trim() !== '' &&
+      /^\d{17}[\dXx]$/.test(driverRegIdCard.trim()) &&
+      driverRegCompany.trim() !== '' &&
+      driverRegEmergencyContact.trim() !== '' &&
+      driverRegEmergencyPhone.trim().length === 11 &&
+      driverRegIdPhoto !== '' &&
+      driverRegIdPhotoBack !== '' &&
+      driverRegLicensePhoto !== '' &&
+      driverRegIssueDate !== ''
+    );
+  };
+
+  const handleAgreementClick = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (!isDriverRegFormComplete()) {
+      onTriggerToast('⚠️ 请先填写完所有的基本信息并上传所有的图片，再勾选同意协议！');
+      setDriverRegAgreed(false);
+      return;
+    }
+    setDriverRegAgreed(!driverRegAgreed);
+  };
 
   // Tencent Map interactive states
   const [tencentMapCenter, setTencentMapCenter] = useState({ lat: 38.487193, lng: 106.230912 });
@@ -213,6 +268,35 @@ export default function WeChatMiniSimulator({ currentDriverPhone, onTriggerToast
       setTargetDriver(currentDriverPhone);
     }
   }, [currentDriverPhone]);
+
+  // Countdown timer for driver registration verification code
+  useEffect(() => {
+    if (registerCountdown > 0) {
+      const timer = setTimeout(() => {
+        setRegisterCountdown(prev => prev - 1);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [registerCountdown]);
+
+  // Persistent Login logic: keep user logged in unless they click "退出登录"
+  useEffect(() => {
+    const savedPhone = localStorage.getItem('driver_register_phone');
+    const savedStep = localStorage.getItem('driver_register_step');
+    if (savedPhone && savedStep && savedStep !== 'login') {
+      setRegisterPhone(savedPhone);
+      setDriverRegStep(savedStep as any);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (driverRegStep) {
+      localStorage.setItem('driver_register_step', driverRegStep);
+    }
+    if (registerPhone) {
+      localStorage.setItem('driver_register_phone', registerPhone);
+    }
+  }, [driverRegStep, registerPhone]);
 
   const fetchPoisForCoords = (lng: number, lat: number, isInitial = false) => {
     setPoisLoading(true);
@@ -1033,7 +1117,7 @@ Page({
             </div>
 
             {/* WeChat Header Bar with Capsule Menu button */}
-            {orderStatus === 'select-start' || orderStatus === 'select-dest' ? null : orderStatus === 'profile' || orderStatus === 'about' || orderStatus === 'rules' || orderStatus === 'agreement' ? (
+            {orderStatus === 'select-start' || orderStatus === 'select-dest' ? null : orderStatus === 'profile' || orderStatus === 'about' || orderStatus === 'rules' || orderStatus === 'agreement' || orderStatus === 'privacy' || orderStatus === 'driver-register' ? (
               <header className="w-full bg-white px-3 py-1.5 flex items-center justify-between sticky top-0 z-50 border-b border-slate-100 select-none">
                 <button 
                   onClick={() => {
@@ -1043,6 +1127,22 @@ Page({
                       setOrderStatus('profile');
                     } else if (orderStatus === 'agreement') {
                       setOrderStatus('profile');
+                    } else if (orderStatus === 'privacy') {
+                      if (isLogOutConfirmMode) {
+                        setIsLogOutConfirmMode(false);
+                      }
+                      setOrderStatus(privacyBackTo);
+                    } else if (orderStatus === 'driver-register') {
+                      if (driverRegStep === 'agreement') {
+                        setDriverRegStep('form');
+                      } else if (driverRegStep === 'form') {
+                        // User stays logged in when clicking Back - they just go back to home screen
+                        setOrderStatus('idle');
+                      } else if (driverRegStep === 'success') {
+                        setDriverRegStep('form');
+                      } else {
+                        setOrderStatus('idle');
+                      }
                     } else {
                       setOrderStatus('idle');
                     }
@@ -1055,7 +1155,7 @@ Page({
                   </svg>
                 </button>
                 <h1 className="text-sm font-bold absolute left-1/2 -translate-x-1/2 text-slate-800">
-                  {orderStatus === 'rules' ? '计价规则' : orderStatus === 'about' ? '关于我们' : orderStatus === 'agreement' ? '代驾协议' : '个人中心'}
+                  {orderStatus === 'rules' ? '计价规则' : orderStatus === 'about' ? '关于我们' : orderStatus === 'agreement' ? '代驾协议' : orderStatus === 'privacy' ? (isLogOutConfirmMode ? '确认退出与隐私权宣告' : '隐私政策') : orderStatus === 'driver-register' ? (driverRegStep === 'form' ? '基本信息' : driverRegStep === 'agreement' ? '合作协议' : driverRegStep === 'success' ? '提交成功' : '成为司机') : '个人中心'}
                 </h1>
                 
                 {/* WeChat standard Capsule button */}
@@ -1289,17 +1389,21 @@ Page({
                         </div>
                       </div>
 
-                      <div className="bg-white rounded-xl p-3 shadow-xs border border-slate-100 flex flex-col justify-between h-24 relative overflow-hidden">
+                      <div 
+                        onClick={() => setOrderStatus('driver-register')}
+                        className="bg-white rounded-xl p-3 shadow-xs border border-slate-100 flex flex-col justify-between h-24 relative overflow-hidden cursor-pointer hover:bg-slate-50/80 active:scale-98 transition-all duration-200"
+                      >
                         <div>
                           <span className="text-[10px] font-black text-slate-800 block">招募司机</span>
                           <span className="text-[8px] text-slate-400">海量订单·多劳多得</span>
                         </div>
                         <button className="bg-blue-500 text-white text-[8px] font-bold px-2 py-1 rounded-full w-max cursor-pointer">期待加入</button>
-                        <div className="absolute right-1 bottom-1 w-10 h-10 overflow-hidden opacity-80">
+                        <div className="absolute right-1 bottom-1 w-10 h-10 overflow-hidden opacity-80 pointer-events-none">
                           <img 
                             alt="driver" 
                             className="w-full h-auto object-cover" 
-                            src="https://lh3.googleusercontent.com/aida-public/AB6AXuB1UaTuiY0V-FR2lFLrMoA6sIiC6WqFYGJHxc4IH3p9PZ8dFm0tWKKL0Pyuo235CZglC5ZRy7lTZv3l8_33kiesqKC6fLp7jht-S5aOlkqHtdLygzsERGE_jYSaWAQU-C4sn8j1EAtqLgruvLFAMdJYNrAH4UcgvK9Q0Hek33BX1Nf7Kte0vTX2fEROJPD1xjMSehRTRRNWnbUlTpUije4iSLMUAm0Dtc8wqZcMvr2A1E5HIl91MsxS5Q"
+                            referrerPolicy="no-referrer"
+                            src={driverAvatar}
                           />
                         </div>
                       </div>
@@ -1883,66 +1987,23 @@ Page({
                           </h3>
                           <div className="space-y-1 pl-1 text-slate-500">
                             <p className="font-medium">
-                              1. 您注册时，请您认真阅读本协议，审阅并接受或不接受本协议。若您确认注册为本平台用户，即表示您已充分阅读、理解并同意自己与本平台订立本协议，且您自愿受本协议的条款约束。本平台有权随时根据实际情况变更本协议并在本平台上予以公告。经修订的条款一经在本平台的公布后，立即自动生效。如您不同意相关变更，必须停止使用本平台，并注销您的账户信息，一旦您继续使用本平台，则表示您已接受并自愿遵守经修订后的条款。本协议内容包括协议正文及所有本平台已经发布的各类规则。所有规则为本协议不可分割的一部分，与本协议正文具有同等法律效力。
-                            </p>
-                            <p>
-                              2. 用户一经签署本协议，即视为用户允许代驾平台通过短信、公众号、APP 服务器推送或其他方式向其发送订单服务信息、优惠服务信息及与本协议相关的其他信息。
-                            </p>
-                            <p>
-                              3. 用户应保证其注册信息的真实、准确、有效；如该等信息有任何变更，用户应当及时完成信息更新。因用户信息更新不及时所导致用户遭受任何损失的，应由用户自行承担责任，代驾平台不承担责任。
-                            </p>
-                            <p>
-                              4、只有符合下列条件之一的自然人或法人才能申请成为本平台用户，可以使用本平台的服务：a、年满十八岁，并具有民事权利能力和民事行为能力的自然人；b、无民事行为能力人或限制民事行为能力人应事先取得其监护人的同意；
+                              1. 您注册时，请您认真阅读本协议，审阅并接受或不接受本协议。若您确认注册为本平台用户，即表示您已充分阅读、理解并同意自己与本平台订立本协议。
                             </p>
                           </div>
                         </div>
 
                         {/* Section 2 */}
-                        <div className="space-y-1.5">
+                        <div className="space-y-1.5 text-left">
                           <h3 className="font-extrabold text-slate-800 text-[11px] border-l-2 border-orange-500 pl-1.5">
-                            第二条 信息服务
+                            第二条 居间服务与收费
                           </h3>
                           <div className="space-y-1 pl-1 text-slate-500">
                             <p>
-                              1. 代驾平台为用户提供发送代驾请求（叫单）和接受该请求（接单）的信息推送服务，以及用户代驾订单履行情况的信息记录服务。
+                              1. 本平台仅为用户与代驾员之间提供信息居间发布与撮合服务，并非道路运输主体或承运人。
                             </p>
                             <p>
-                              2. 代驾服务费收费标准由代驾服务提供商当地合作商制定及调整。
+                              2. 服务费用的计算标准将在“计价规则”中明确列示。用户应根据行程结束后的系统结算提示，通过本平台支持的支付渠道完成费用支付。
                             </p>
-                            <p>
-                              3. 用户可通过代驾平台对代驾服务行为作出评价或投诉，代驾平台将用户评价和投诉实时反馈。
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Section 3 */}
-                        <div className="space-y-1.5">
-                          <h3 className="font-extrabold text-slate-800 text-[11px] border-l-2 border-orange-500 pl-1.5">
-                            第三条 双方的权利义务
-                          </h3>
-                          <div className="space-y-2 pl-1 text-slate-500">
-                            <p>
-                              1. 用户应确保提供给代驾司机代驾的车辆满足如下所有条件；如任一条件不满足，用户应如实告知代驾平台指派的代驾司机，代驾司机有权拒绝该次服务。如因用户不主动告知或隐瞒以上情况带来的纠纷或者损害，代驾及代驾平台不承担任何责任及赔偿，由用户自行承担。
-                            </p>
-                            <div className="pl-2 space-y-0.5 text-[9.5px]">
-                              <p>（1）对代驾车辆有合法使用权；</p>
-                              <p>（2）车辆手续齐全（具备符合法律规定的号牌证、机动车登记证、行驶证等上路手续）；</p>
-                              <p>（3）车况正常，符合机动车国家安全技术标准，已按规定检验车辆并检验合格；</p>
-                              <p>（4）已购买机动车交通事故责任强制保险；</p>
-                              <p>（5）代驾车辆上路符合当地法律法规和政策，不违反针对尾号、高峰期、外地车等的行驶限制。</p>
-                              <p>（6）对于营运车辆，车主应如实告知，公司禁止代驾营运车辆，如未告知，发生事故后代驾员及飞鸟代驾公司不承担任何责任。</p>
-                            </div>
-                            <p className="pt-1">
-                              2. 代驾平台在如下情形下不承担责任：
-                            </p>
-                            <div className="pl-2 space-y-0.5 text-[9.5px]">
-                              <p>（1）不满足本协议第 1 条条件；</p>
-                              <p>（2）代驾服务过程中因用户及 / 或代驾车辆上人员及代驾司机及 / 或代驾车辆本身原因导致发生的所有损失（包括但不限于政府部门罚款、代驾车辆上人员人身伤亡和财产损失、代驾车辆损失、代驾车辆上财产损失、任何第三方财产损失和人身伤亡损失）；</p>
-                              <p>（3）代驾车辆上违法、违章搭乘人员的人身伤亡；</p>
-                              <p>（4）代驾车辆上人员及代驾司机因疾病、分娩、斗殴、自杀、犯罪行为造成的伤亡或损失；</p>
-                              <p>（5）用户财产及 / 或任何第三方财产因 market 价格变动造成的贬值，修理后因价值降低引起；</p>
-                              <p>（6）损失发生后，用户放任损失发生未进行必要修理或适当处理，致使损失扩大的部分。</p>
-                            </div>
                           </div>
                         </div>
 
@@ -1950,10 +2011,10 @@ Page({
                     </div>
 
                     {/* Small inline Return Button */}
-                    <div className="pt-1 pb-4 flex justify-center">
+                    <div className="pt-2 pb-4 flex justify-center">
                       <button 
                         onClick={() => setOrderStatus('profile')}
-                        className="px-4 py-1.5 bg-gradient-to-r from-orange-400 to-orange-500 active:scale-95 text-white font-black rounded-xl text-[10px] transition-all flex items-center gap-1 shadow-md cursor-pointer"
+                        className="px-4 py-1.5 bg-gradient-to-r from-slate-700 to-slate-800 active:scale-95 text-white font-black rounded-xl text-[10px] transition-all flex items-center gap-1 shadow-md cursor-pointer"
                       >
                         <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path d="M15 19l-7-7 7-7" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5"></path>
@@ -1963,6 +2024,1140 @@ Page({
                     </div>
 
                   </main>
+                </div>
+              ) : orderStatus === 'privacy' ? (
+                <div className="flex-1 flex flex-col bg-slate-50 text-slate-800 select-none pb-6 overflow-y-auto animate-in fade-in slide-in-from-right duration-200">
+                  <main className="px-3 pt-3.5 space-y-4">
+                    {/* Privacy Policy Card */}
+                    <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 space-y-4">
+                      
+                      <div className="flex flex-col items-center gap-1 pb-2 border-b border-slate-100">
+                        <span className="text-[9px] uppercase tracking-widest text-slate-400 font-extrabold">PRIVACY POLICY</span>
+                        <h2 className="text-xs font-black text-slate-800">隐私条款与个人信息保护政策</h2>
+                      </div>
+
+                      {isLogOutConfirmMode && (
+                        <div className="bg-rose-50/70 border border-rose-100 text-rose-800 rounded-xl p-3 text-[9.5px] space-y-1">
+                          <p className="font-extrabold text-[10px] flex items-center gap-1">⚠️ 确定退出登录并清除手机缓存吗？</p>
+                          <p className="leading-relaxed">
+                            为了保障您的数据隐私，退出登录将清除您在当前设备上的全部手机号认证及草稿状态。请阅读下方《隐私条款》以了解您的数据如何受到全面保护。<b>退出后如需重新注册，您需要再次输入手机号和验证码进行校验。</b>
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="space-y-4 text-[10px] text-slate-600 leading-relaxed max-h-[300px] overflow-y-auto pr-1 font-sans">
+                        
+                        {/* Summary / Preamble */}
+                        <div className="bg-amber-50/50 text-[9.5px] border border-amber-100 rounded-xl p-3 text-amber-800 space-y-1">
+                          <p className="font-extrabold text-[10px]">💡 核心摘要与风险提示：</p>
+                          <p>
+                            为保障您的个人隐私与合法权益，我们特根据《中华人民共和国个人信息保护法》等法律法规制定本政策。本平台收集的手机号、GPS定位、身份信息及驾驶资质为提供<b>核心叫单、行车安全、居间匹配、代驾资质核验</b>所绝对必需。我们郑重承诺，绝不将您的个人敏感信息泄露或滥用。同时，本政策中包含了多项<b>平台免责及第三方SDK（如地图、短信）服务免责条款</b>，请您务必仔细阅读以了解您的权益范围。
+                          </p>
+                        </div>
+
+                        {/* Section 1 */}
+                        <div className="space-y-1.5">
+                          <h3 className="font-extrabold text-slate-800 text-[11px] border-l-2 border-blue-500 pl-1.5">
+                            第一条 个人信息收集与授权范围
+                          </h3>
+                          <div className="space-y-1 pl-1 text-slate-500">
+                            <p className="font-medium">
+                              在您使用黑湾代驾服务（包括叫单、查看路线、申请成为代驾司机等）过程中，我们将本着“合法、正当、必要和诚信”原则收集、使用、存储您的个人信息，用途如下：
+                            </p>
+                            <p>
+                              1. <b>账号注册、登录与安全校验</b>：我们将收集您的<b>手机号码</b>。该信息用于为您建立用户档案、下发验证码、提供客服支持。
+                            </p>
+                            <p>
+                              2. <b>精准定位与行车安全服务</b>：当您在前端叫单或在司机听单模式下，我们需要收集、使用您的<b>精准GPS地理位置信息、行驶轨迹、起点和终点</b>。这是计算行程里程、进行精确车费结算、向您推荐就近司机、在途路线追踪、保障行车人身安全的核心技术手段。若您拒绝授权，将无法使用本平台的地图核心叫单功能。
+                            </p>
+                            <p>
+                              3. <b>服务人员（司机）资质核验与背景审查</b>：如果您申请注册成为代驾服务人员，根据中国法律关于公共道路运输、网约、代驾行业的合规要求，我们必须收集您的<b>真实姓名、身份证号码、身份证正反面照片、驾驶证正副页照片、准驾车型及领证日期</b>。这些信息仅用于背景安全审查、核查无犯罪记录、验证驾驶证有效性及排除危险驾驶倾向，不作他用。如您不提供，本平台有权拒绝您的注册申请。
+                            </p>
+                            <p>
+                              4. <b>紧急情况救助保障</b>：在注册司机或叫单时，我们允许您填写<b>紧急联系人姓名及电话</b>。我们仅在极端突发状况（如交通事故、人身危险、紧急失联）下拨打该电话，以最大可能维护您生命财产安全。
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Section 2 */}
+                        <div className="space-y-1.5">
+                          <h3 className="font-extrabold text-slate-800 text-[11px] border-l-2 border-blue-500 pl-1.5">
+                            第二条 信息的存储期限与安全防御
+                          </h3>
+                          <div className="space-y-1 pl-1 text-slate-500">
+                            <p>
+                              1. <b>本地存储与跨境</b>：我们在中华人民共和国境内收集和产生的个人信息将<b>存储在中华人民共和国境内</b>。除非有中国法律法规的明确授权或政府行政、司法机关的要求，我们不会将您的个人信息传输至境外。
+                            </p>
+                            <p>
+                              2. <b>存储期限</b>：我们仅在提供本平台服务所必需的期限内保留您的个人信息。在您注销账号或删除个人信息后，我们将在法律要求的合理保留期（如《电子商务法》要求的交易信息保留不少于三年）届满后对您的信息进行删除或匿名化处理。
+                            </p>
+                            <p>
+                              3. <b>技术安全防护措施</b>：本平台采用符合业界标准的安全防护措施、数据加密传输（如 HTTPS、TLS 协议）和存储加密（对身份证号、手机号采用高强度单向哈希或对称加密脱敏存储），严格防范他人未经授权访问、修改、泄露您的个人信息。
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Section 3 */}
+                        <div className="space-y-1.5">
+                          <h3 className="font-extrabold text-slate-800 text-[11px] border-l-2 border-blue-500 pl-1.5">
+                            第三条 平台法律责任豁免与风险防范（重要）
+                          </h3>
+                          <div className="space-y-1 pl-1 text-slate-500">
+                            <p className="font-semibold text-slate-700">
+                              为了保障本平台的正常、合规运转，并妥善厘清各方的法律责任边界，特约定如下免责与风险分散机制：
+                            </p>
+                            <p>
+                              1. <b>第三方组件（SDK）独立责任豁免</b>：
+                              本平台的核心定位、地图展示、路径规划及短信发送分别集成了第三方供应商的成熟产品（如：腾讯地图 SDK、阿里云/腾讯云短信服务）。这些第三方服务为提供其特定功能，将独立收集和处理您的网络状态、IP及设备标识等。<b>本平台已在合理商业限度内对服务商的安全合规情况进行了审核，因第三方系统漏洞、未授权篡改、或不可抗拒技术波动引发的个人数据泄露，平台在法律允许的最大范围内不对第三方的独立侵权行为承担直接及连带赔偿责任。</b>
+                            </p>
+                            <p>
+                              2. <b>居间撮合与法律关系独立性</b>：
+                              本平台提供的是技术信息发布与居间匹配服务。代驾司机与乘客之间独立形成代驾服务合同关系。在服务履行期间（从司机接车开始至安全停靠交车完毕），如因道路突发车祸、财产遗失、三方侵权等原因遭受损失的，<b>应首先由各方的承运险、车辆交强险及商业险或司乘个人保险进行理赔</b>。本平台依法建立健全平台安全管理制度与资质审核，但除法律明文规定的严重审核失职、平台故意过错等法定责任外，不对司机或乘客在服务过程中的单方违约、过失侵权、交通违法罚款或人身损害等承担连带赔偿和合同保底责任。
+                            </p>
+                            <p>
+                              3. <b>用户账号凭证保管义务</b>：
+                              短信验证码、登录凭证是您访问本平台的唯一数字标识。任何由于您<b>主动或过失将验证码泄露给第三方、手机不慎遗失而被他人冒用、未及时申请挂失、或遭遇个人终端病毒木马感染</b>而导致的身份泄露、申请资料被篡改、财产遭受损失的情形，其不利法律后果应由您自行承担。
+                            </p>
+                            <p>
+                              4. <b>技术与不可抗力免责</b>：
+                              鉴于互联网无线通信技术的特殊性，遭遇黑客攻击、电信运营商基站故障、卫星定位信号盲区、政府管制命令、自然灾害等导致的定位偏差、系统卡顿、消息延迟发送或数据部分丢失，平台将尽力协助救援并恢复，但在法律允许限度内免于承担违约与赔偿连带责任。
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Section 4 */}
+                        <div className="space-y-1.5">
+                          <h3 className="font-extrabold text-slate-800 text-[11px] border-l-2 border-blue-500 pl-1.5">
+                            第四条 个人信息管理权利
+                          </h3>
+                          <div className="space-y-1 pl-1 text-slate-500">
+                            <p>
+                              根据中国法律规定，您对您的个人信息享有合法的控制权，具体包括：
+                            </p>
+                            <p>
+                              1. <b>查询与更正</b>：您有权访问您的个人资料及注册司机资料。若信息发生变化或发现有误，您可以随时修改。
+                            </p>
+                            <p>
+                              2. <b>撤回同意</b>：您可以随时在系统设置中关闭位置定位权限、通知权限，撤回对相应数据的继续收集。撤回不影响在此之前基于您同意已进行的信息处理。
+                            </p>
+                            <p>
+                              3. <b>注销账号</b>：若您不需要继续使用本平台服务，您可以联系客服申请注销。我们将在核验账户安全后为您彻底删除所有关联数据或进行不可逆的匿名化。
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Section 5 */}
+                        <div className="space-y-1.5">
+                          <h3 className="font-extrabold text-slate-800 text-[11px] border-l-2 border-blue-500 pl-1.5">
+                            第五条 条款更新与适用法律
+                          </h3>
+                          <div className="space-y-1 pl-1 text-slate-500">
+                            <p>
+                              1. <b>政策调整公告</b>：本《隐私政策》将根据大陆法律政策动态、本平台服务升级等情况进行修订。一旦进行修改，我们将通过本软件弹窗、公告等合理形式告知。若您在修订后继续使用，即视为您完全阅读并理解新版隐私政策。
+                            </p>
+                            <p>
+                              2. <b>管辖与争议解决</b>：本政策的成立、生效、履行、解释及争议解决均适用<b>中华人民共和国大陆地区法律</b>。若因本政策产生任何争议，双方应首先友好协商解决；协商不成的，任何一方均有权向<b>本平台运营方所在地有管辖权的人民法院提起诉讼</b>。
+                            </p>
+                          </div>
+                        </div>
+
+                      </div>
+                    </div>
+
+                    {/* Return or Action Buttons */}
+                    {isLogOutConfirmMode ? (
+                      <div className="pt-2 pb-6 flex gap-3 justify-center">
+                        <button 
+                          onClick={() => {
+                            setIsLogOutConfirmMode(false);
+                            setOrderStatus('driver-register');
+                          }}
+                          className="flex-1 max-w-[120px] py-2 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-600 font-extrabold rounded-xl text-[10px] transition-all text-center border border-slate-200 cursor-pointer"
+                        >
+                          取消并返回
+                        </button>
+                        <button 
+                          onClick={() => {
+                            setIsLogOutConfirmMode(false);
+                            setOrderStatus('driver-register');
+                            setDriverRegStep('login');
+                            setRegisterPhone('');
+                            setRegisterCode('');
+                            setSentCode('');
+                            setDriverRegName('');
+                            setDriverRegIdCard('');
+                            setDriverRegEmergencyContact('');
+                            setDriverRegEmergencyPhone('');
+                            setDriverRegIdPhoto('');
+                            setDriverRegIdPhotoBack('');
+                            setDriverRegLicensePhoto('');
+                            setDriverRegIssueDate('');
+                            setDriverRegAgreed(false);
+                            onTriggerToast('✓ 已成功退出登录，临时缓存已安全清除。');
+                          }}
+                          className="flex-1 max-w-[120px] py-2 bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 active:scale-95 text-white font-extrabold rounded-xl text-[10px] transition-all text-center shadow-md cursor-pointer flex items-center justify-center gap-1"
+                        >
+                          <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path d="M17 16l4-4m0 0l-4-4m4 4H7" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5"></path>
+                          </svg>
+                          <span>确定退出登录</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="pt-1 pb-4 flex justify-center">
+                        <button 
+                          onClick={() => setOrderStatus(privacyBackTo)}
+                          className="px-4 py-1.5 bg-gradient-to-r from-blue-500 to-indigo-600 active:scale-95 text-white font-black rounded-xl text-[10px] transition-all flex items-center gap-1 shadow-md cursor-pointer"
+                        >
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path d="M15 19l-7-7 7-7" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5"></path>
+                          </svg>
+                          <span>返回上一页</span>
+                        </button>
+                      </div>
+                    )}
+
+                  </main>
+                </div>
+              ) : orderStatus === 'driver-register' ? (
+                <div className="flex-1 flex flex-col bg-[#F7F7F7] text-slate-800 select-none pb-6 overflow-y-auto animate-in fade-in slide-in-from-right duration-250">
+                  {driverRegStep === 'login' ? (
+                    <>
+                      {/* BEGIN: HeaderSection */}
+                      <header 
+                        className="w-full pt-10 pb-10 px-6 relative overflow-hidden shrink-0" 
+                        style={{ background: 'linear-gradient(180deg, #FF8D3F 0%, #FF741F 100%)' }}
+                        data-purpose="hero-banner"
+                      >
+                        <div className="relative z-10 max-w-[62%] text-left">
+                          <h1 className="text-white text-2xl font-black italic tracking-wider mb-2 leading-tight">
+                            海量订单·保险保障
+                          </h1>
+                          <div className="text-orange-100 text-xs opacity-95 leading-snug font-bold">
+                            加入黑湾代驾 开启赚钱之旅
+                            <div className="mt-1 text-[11px] font-medium text-orange-200">长期招募代驾员， 期待您的加入</div>
+                          </div>
+                        </div>
+                        {/* Illustration Container */}
+                        <div className="absolute right-4 top-1/2 -translate-y-1/2 w-24 h-24 pointer-events-none flex items-center justify-end" data-purpose="illustration-container">
+                          <img 
+                            alt="Driver Illustration" 
+                            className="object-contain max-h-full max-w-full mix-blend-multiply rounded-full" 
+                            referrerPolicy="no-referrer"
+                            src={driverAvatar}
+                          />
+                        </div>
+                      </header>
+                      {/* END: HeaderSection */}
+
+                      {/* BEGIN: RegistrationForm */}
+                      <main className="flex-1 -mt-4 bg-white rounded-t-2xl px-5 pt-5 z-10 shadow-lg flex flex-col" data-purpose="main-form-container">
+
+                        {/* Phone Number Field */}
+                        <div className="mb-4" data-purpose="phone-input-group">
+                          <label className="block text-slate-800 text-xs font-black mb-1.5">1. 手机号码</label>
+                          <div className="relative border-b border-gray-200 focus-within:border-[#FF741F] transition-all">
+                            <input 
+                              className="w-full bg-transparent border-0 py-1.5 px-0 text-slate-900 text-sm font-bold placeholder-gray-300 focus:ring-0 focus:outline-none" 
+                              placeholder="请输入您的手机号码" 
+                              type="tel"
+                              maxLength={11}
+                              value={registerPhone}
+                              onChange={(e) => setRegisterPhone(e.target.value.replace(/\D/g, ''))}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Verification Code Field */}
+                        <div className="mb-5" data-purpose="verification-input-group">
+                          <label className="block text-slate-800 text-xs font-black mb-1.5">2. 验证码</label>
+                          <div className="flex items-center border-b border-gray-200 focus-within:border-[#FF741F] transition-all">
+                            <input 
+                              className="flex-grow bg-transparent border-0 py-1.5 px-0 text-slate-900 text-sm font-bold placeholder-gray-300 focus:ring-0 focus:outline-none" 
+                              placeholder="请输入验证码" 
+                              type="text"
+                              maxLength={6}
+                              value={registerCode}
+                              onChange={(e) => setRegisterCode(e.target.value.replace(/\D/g, ''))}
+                            />
+                            <button 
+                              onClick={async () => {
+                                if (!registerPhone || registerPhone.length !== 11) {
+                                  onTriggerToast('⚠️ 请先输入11位有效手机号码！');
+                                  return;
+                                }
+                                setIsSendingCode(true);
+                                try {
+                                  const res = await fetch('/api/sms/send', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ phone: registerPhone.trim() })
+                                  });
+                                  const data = await res.json();
+                                  setIsSendingCode(false);
+                                  if (data.success) {
+                                    setRegisterCountdown(60);
+                                    if (data.mode === 'simulated') {
+                                      setSentCode(data.code || '');
+                                      onTriggerToast(`📱 [测试环境模拟短信] 验证码为: ${data.code}，请填入。`);
+                                    } else {
+                                      setSentCode('REAL_SMS');
+                                      onTriggerToast('✓ 真实验证码已发送！请查收您的手机短信。');
+                                    }
+                                  } else {
+                                    onTriggerToast(`❌ 发送失败: ${data.error || '短信接口异常'}`);
+                                  }
+                                } catch (err: any) {
+                                  setIsSendingCode(false);
+                                  onTriggerToast('❌ 发送失败: 无法连接网络/服务器');
+                                }
+                              }}
+                              disabled={registerCountdown > 0 || isSendingCode}
+                              className={`font-black text-[11px] px-3 py-1 rounded-lg transition-all ${
+                                registerCountdown > 0 || isSendingCode
+                                  ? 'text-slate-400 bg-slate-100' 
+                                  : 'text-[#FF741F] bg-orange-50 hover:bg-orange-100 active:scale-95'
+                              }`}
+                              data-purpose="send-code-button" 
+                              type="button"
+                            >
+                              {isSendingCode ? '发送中...' : registerCountdown > 0 ? `${registerCountdown}s` : '发送验证码'}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Submit Button */}
+                        <div className="mt-auto pb-4" data-purpose="action-buttons">
+                          <button 
+                            onClick={async () => {
+                              if (!registerPhone || registerPhone.length !== 11) {
+                                onTriggerToast('⚠️ 请输入正确的11位手机号码！');
+                                return;
+                              }
+                              if (!registerCode) {
+                                onTriggerToast('⚠️ 请输入验证码！');
+                                return;
+                              }
+                              setIsVerifyingCode(true);
+                              try {
+                                const res = await fetch('/api/sms/verify', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ phone: registerPhone.trim(), code: registerCode.trim() })
+                                });
+                                const data = await res.json();
+                                setIsVerifyingCode(false);
+                                if (data.success) {
+                                  onTriggerToast('✓ 手机验证通过！请继续填写基本信息。');
+                                  setDriverRegStep('form');
+                                } else {
+                                  onTriggerToast(`⚠️ 校验失败: ${data.error || '验证码不正确'}`);
+                                }
+                              } catch (err: any) {
+                                setIsVerifyingCode(false);
+                                onTriggerToast('⚠️ 校验异常: 无法连接服务器');
+                              }
+                            }}
+                            disabled={isVerifyingCode}
+                            className="w-full text-white font-black py-2.5 rounded-full text-sm shadow-md tracking-wider transform transition-transform active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1"
+                            style={{ background: 'linear-gradient(180deg, #FF8D3F 0%, #FF741F 100%)' }}
+                            id="next-step-btn"
+                          >
+                            {isVerifyingCode ? '验证中...' : '下一步'}
+                          </button>
+                          {/* Agreement Link */}
+                          <div className="mt-2 text-center">
+                            <p className="text-[10px] text-gray-400 font-bold">
+                              点击下一步即代表您同意 
+                              <button 
+                                onClick={() => {
+                                  onTriggerToast('📑 打开《黑湾代驾用户注册协议》');
+                                  setOrderStatus('agreement');
+                                }}
+                                className="text-blue-500 font-black ml-1 cursor-pointer focus:outline-none inline"
+                              >
+                                《黑湾代驾用户注册协议》
+                              </button>
+                            </p>
+                          </div>
+
+                          {/* 🛠️ Debug Section: Simulated Login */}
+                          <div className="mt-5 p-3 border border-dashed border-orange-300 rounded-xl bg-orange-50/30 text-left">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-xs font-black text-orange-600 flex items-center gap-1">
+                                🛠️ 调试专区 · 模拟免密登录
+                              </span>
+                              <span className="text-[9px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-black">
+                                DEBUG
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-500 mb-2.5 leading-relaxed">
+                              输入手机号后点击“一键登录”，可免验证码直接进入成为司机表单填写页面，方便调试。
+                            </p>
+                            <div className="flex gap-2">
+                              <input 
+                                type="tel"
+                                maxLength={11}
+                                className="flex-grow min-w-0 bg-white border border-gray-200 rounded px-2.5 py-1 text-xs font-bold text-slate-800 placeholder-gray-300 focus:ring-1 focus:ring-orange-400 focus:border-orange-400 focus:outline-none"
+                                placeholder="输入手机号"
+                                value={registerPhone}
+                                onChange={(e) => setRegisterPhone(e.target.value.replace(/\D/g, ''))}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (!registerPhone || registerPhone.length !== 11) {
+                                    onTriggerToast('⚠️ 请先输入或选择一个11位手机号码！');
+                                    return;
+                                  }
+                                  onTriggerToast(`✓ 调试登录：手机号 ${registerPhone} 已免密通过校验！`);
+                                  setDriverRegStep('form');
+                                }}
+                                className="px-3 py-1 bg-[#FF8225] hover:bg-orange-600 text-white font-black text-[11px] rounded transition-all active:scale-[0.98] cursor-pointer shadow-sm shrink-0"
+                              >
+                                🚀 一键登录
+                              </button>
+                            </div>
+                            <div className="mt-2 flex gap-1.5 flex-wrap">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRegisterPhone('13888888888');
+                                  onTriggerToast('💡 已填入默认测试手机号 13888888888');
+                                }}
+                                className="text-[9px] text-orange-600 hover:underline cursor-pointer bg-white px-1.5 py-0.5 rounded border border-orange-200 font-bold"
+                              >
+                                填入 13888888888
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRegisterPhone('18899998888');
+                                  onTriggerToast('💡 已填入默认测试手机号 18899998888');
+                                }}
+                                className="text-[9px] text-orange-600 hover:underline cursor-pointer bg-white px-1.5 py-0.5 rounded border border-orange-200 font-bold"
+                              >
+                                填入 18899998888
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </main>
+                    </>
+                  ) : driverRegStep === 'agreement' ? (
+                    <div className="flex-1 flex flex-col bg-slate-50 text-slate-800 select-none pb-6 overflow-y-auto animate-in fade-in slide-in-from-right duration-200">
+                      <main className="px-3 pt-3.5 space-y-4">
+                        {/* Agreement Card */}
+                        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 space-y-4">
+                          
+                          <div className="flex flex-col items-center gap-1 pb-2 border-b border-slate-100">
+                            <span className="text-[9px] uppercase tracking-widest text-slate-400 font-extrabold">COOPERATION AGREEMENT</span>
+                            <h2 className="text-xs font-black text-slate-800">服务人员合作协议</h2>
+                          </div>
+
+                          <div className="space-y-4 text-[10px] text-slate-600 leading-relaxed max-h-[380px] overflow-y-auto pr-1">
+                            
+                            {/* Section 1 */}
+                            <div className="space-y-1.5 text-left">
+                              <h3 className="font-extrabold text-slate-800 text-[11px] border-l-2 border-[#FF8225] pl-1.5">
+                                第一条 用户注册与资格
+                              </h3>
+                              <div className="space-y-2 pl-1 text-slate-500">
+                                <p className="font-medium text-slate-700">
+                                  1. 您注册时，请您认真阅读本协议，审阅并接受或不接受本协议。若您确认注册为本平台用户，即表示您已充分阅读、理解并同意自己与本平台订立本协议，且您自愿受本协议的条款约束。本平台有权随时根据实际情况变更本协议并在本平台上予以公告。经修订的条款一经在本平台的公布后，立即自动生效。如您不同意相关变更，必须停止使用本平台，并注销您的账户信息，一旦您继续使用本平台，则表示您已接受并自愿遵守经修订后的条款。本协议内容包括协议正文及所有本平台已经发布的各类规则。所有规则为本协议不可分割的一部分，与本协议正文具有同等法律效力。
+                                </p>
+                                <p>
+                                  2. 用户一经签署本协议，即视为用户允许代驾平台通过短信、公众号、APP 服务器推送或其他方式向其发送订单服务信息、优惠服务信息及与本协议相关的其他信息。
+                                </p>
+                                <p>
+                                  3. 用户应保证其注册信息的真实、准确、有效；如该等信息有任何变更，用户应当及时完成信息更新。因用户信息更新不及时所导致用户遭受任何损失的，应由用户自行承担责任，代驾平台不承担责任。
+                                </p>
+                                <p>
+                                  4、只有符合下列条件之一的自然人或法人才能申请成为本平台用户，可以使用本平台的服务：a、年满十八岁，并具有民事权利能力和民事行为能力的自然人；b、无民事行为能力人或限制民事行为能力人应事先取得其监护人的同意。
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Section 2 */}
+                            <div className="space-y-1.5 text-left">
+                              <h3 className="font-extrabold text-slate-800 text-[11px] border-l-2 border-[#FF8225] pl-1.5">
+                                第二条 信息服务
+                              </h3>
+                              <div className="space-y-2 pl-1 text-slate-500">
+                                <p>
+                                  1. 代驾平台为用户提供发送代驾请求（叫单）和接受该请求（接单）的信息推送服务，以及用户代驾订单履行情况的信息记录服务。
+                                </p>
+                                <p>
+                                  2. 代驾服务费收费标准由代驾服务提供商当地合作商制定及调整。
+                                </p>
+                                <p>
+                                  3. 用户可通过代驾平台对代驾服务行为作出评价或投诉，代驾平台将用户评价和投诉实时反馈。
+                                </p>
+                              </div>
+                            </div>
+
+                          </div>
+                        </div>
+
+                        {/* Inline Return Buttons */}
+                        <div className="pt-1 pb-4 flex flex-col items-center gap-2">
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              setDriverRegAgreed(true);
+                              setDriverRegStep('form');
+                              onTriggerToast('✓ 已确认并同意服务人员合作协议');
+                            }}
+                            className="w-full max-w-[200px] py-2 bg-[#FF8225] active:scale-95 text-white font-extrabold rounded-lg text-xs transition-all shadow-md cursor-pointer text-center"
+                          >
+                            确认并同意协议
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => setDriverRegStep('form')}
+                            className="text-[10px] text-slate-400 hover:text-slate-600 font-bold hover:underline cursor-pointer"
+                          >
+                            返回信息填写页
+                          </button>
+                        </div>
+
+                      </main>
+                    </div>
+                  ) : driverRegStep === 'success' ? (
+                    <div className="flex-1 flex flex-col bg-[#f9f9f9] text-[#1a1c1c] animate-in fade-in duration-200 overflow-y-auto">
+                      {/* Main Content Canvas */}
+                      <main className="flex-grow flex flex-col items-center justify-center px-5 py-8 relative overflow-hidden text-center">
+                          
+                          {/* Background Decoration (Subtle) */}
+                          <div className="absolute inset-0 pointer-events-none -z-10 bg-radial-gradient from-orange-500/5 to-transparent"></div>
+
+                          {/* Success Hero Section */}
+                          <div className="w-full max-w-sm flex flex-col items-center text-center space-y-6">
+                              {/* Animated Success Icon Container */}
+                              <div className="relative w-20 h-20 flex items-center justify-center bg-[#ff7d00]/10 rounded-full animate-bounce">
+                                  <div className="absolute inset-0 rounded-full border-4 border-[#ff7d00]/20 scale-110"></div>
+                                  <svg className="w-14 h-14 text-[#ff7d00]" fill="currentColor" viewBox="0 0 24 24">
+                                    <path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm13.36-1.814a.75.75 0 10-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 00-1.06 1.06l2.5 2.5a.75.75 0 001.14-.082l3.75-5.25z" clipRule="evenodd" />
+                                  </svg>
+                              </div>
+
+                              {/* Typography Stack */}
+                              <div className="space-y-2">
+                                  <h2 className="text-lg font-black text-[#1a1c1c]">申请已提交</h2>
+                                  <p className="text-xs text-[#5f5e5e] px-4 leading-relaxed">
+                                      您的注册申请已收到，我们将在最多3个工作日内完成审核。审核结果以黑湾代驾司管审批为准，请耐心等待。
+                                  </p>
+                              </div>
+
+                              {/* Status Card (Bento-style detail) */}
+                              <div className="w-full bg-[#f3f3f3] border border-[#dfc0af] rounded-xl p-4 flex items-center gap-3 text-left">
+                                  <div className="p-2 bg-[#984800]/10 rounded-lg">
+                                      <svg className="w-5 h-5 text-[#984800]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                      </svg>
+                                  </div>
+                                  <div>
+                                      <p className="text-[10px] text-[#5f5e5e] font-extrabold uppercase tracking-wider">当前状态</p>
+                                      <p className="text-xs text-[#1a1c1c] font-black">资料审核中 (预计72小时内)</p>
+                                  </div>
+                              </div>
+                          </div>
+
+                          {/* Action Area */}
+                          <div className="w-full max-w-sm mt-8 space-y-3">
+                              <button 
+                                type="button"
+                                onClick={() => onTriggerToast('📋 您已提交申请，当前状态：黑湾代驾司管审批中（预计72小时内）。')}
+                                className="w-full py-3.5 bg-[#ff7d00] text-white font-extrabold text-xs rounded-xl shadow-sm hover:brightness-105 active:scale-95 transition-all cursor-pointer"
+                              >
+                                  查看申请进度
+                              </button>
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  setOrderStatus('idle');
+                                  setDriverRegStep('login');
+                                  setRegisterPhone('');
+                                  setRegisterCode('');
+                                  setSentCode('');
+                                  setDriverRegName('');
+                                  setDriverRegIdCard('');
+                                  setDriverRegEmergencyContact('');
+                                  setDriverRegEmergencyPhone('');
+                                  setDriverRegIdPhoto('');
+                                  setDriverRegIdPhotoBack('');
+                                  setDriverRegLicensePhoto('');
+                                  setDriverRegIssueDate('');
+                                  setDriverRegAgreed(false);
+                                }}
+                                className="w-full py-3.5 bg-white border border-[#ff7d00] text-[#ff7d00] font-extrabold text-xs rounded-xl hover:bg-orange-50 active:scale-95 transition-all cursor-pointer"
+                              >
+                                  返回首页
+                              </button>
+                          </div>
+                      </main>
+
+                      {/* Footer Links */}
+                      <footer className="pb-4 pt-2 flex flex-col items-center justify-center space-y-0.5 shrink-0">
+                          <div className="flex items-center space-x-2 text-[8.5px] text-[#5f5e5e] font-extrabold mb-0.5">
+                              <span 
+                                onClick={() => { 
+                                  setPrivacyBackTo('driver-register'); 
+                                  setOrderStatus('privacy'); 
+                                }} 
+                                className="text-blue-500 hover:text-blue-600 transition-colors cursor-pointer select-none underline decoration-dashed decoration-1"
+                              >
+                                隐私条款
+                              </span>
+                          </div>
+                          <p className="text-[8px] text-[#8b7263] opacity-60">司机注册平台 · 安全合规服务</p>
+                      </footer>
+                    </div>
+                  ) : (
+                    <>
+                      {/* BEGIN: Form Header Banner */}
+                      <section className="bg-gradient-to-r from-orange-400 to-orange-500 relative overflow-hidden h-32 flex items-center px-4 shrink-0 shadow-inner">
+                        <div className="z-10 text-left">
+                          <h2 className="text-lg font-black text-white leading-tight">海量订单·保险保障</h2>
+                          <p className="text-[10px] text-orange-50 bg-white/10 rounded-full px-2.5 py-0.5 inline-block mt-1 font-bold">
+                            长期招募代驾员，期待您的加入！
+                          </p>
+                        </div>
+                        {/* Driver Illustration */}
+                        <div className="absolute right-2 bottom-0 w-24 h-24 flex items-end justify-end">
+                          <img 
+                            alt="Driver Illustration" 
+                            className="max-h-full max-w-full object-contain rounded-full mix-blend-multiply" 
+                            src={driverAvatar}
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                      </section>
+                      {/* END: Form Header Banner */}
+
+                      {/* BEGIN: Detailed Form Content */}
+                      <main className="-mt-3 relative z-20 px-3 pb-8 flex-1">
+                        <div className="bg-white rounded-t-xl shadow-md p-4 text-left">
+                          {/* 退出登录组件 (Log Out Component) */}
+                          <div className="mb-4 p-3.5 rounded-2xl bg-gradient-to-br from-red-50/70 to-rose-50/50 border border-red-100/60 flex items-center justify-between shadow-xs">
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[9px] font-black text-red-500 uppercase tracking-widest">当前登录账户</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-black text-slate-800 flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                  {registerPhone || '13888888888'}
+                                </span>
+                              </div>
+                            </div>
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                setIsLogOutConfirmMode(true);
+                                setPrivacyBackTo('driver-register');
+                                setOrderStatus('privacy');
+                              }}
+                              className="text-[10px] text-red-600 font-black border border-red-200 bg-white hover:bg-red-50/50 px-2.5 py-1.5 rounded-xl transition-all active:scale-[0.98] flex items-center gap-1 cursor-pointer shadow-xs"
+                            >
+                              <svg className="w-3 h-3 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                              </svg>
+                              <span>退出登录</span>
+                            </button>
+                          </div>
+
+                          <form className="space-y-4" data-purpose="driver-registration-form" onSubmit={(e) => e.preventDefault()}>
+                            
+                            {/* 1. Name Input */}
+                            <div data-purpose="field-group">
+                              <label className="block text-slate-800 font-black text-xs mb-1">
+                                <span className="text-red-500 mr-1">*</span>1. 您的姓名
+                              </label>
+                              <input 
+                                className="w-full h-9 border border-gray-200 rounded px-3 text-slate-800 text-xs focus:ring-1 focus:ring-[#FF741F] focus:border-[#FF741F] focus:outline-none font-bold" 
+                                placeholder="请输入您的姓名" 
+                                type="text"
+                                value={driverRegName}
+                                onChange={(e) => setDriverRegName(e.target.value)}
+                              />
+                            </div>
+
+                            {/* 2. ID Card Input */}
+                            <div data-purpose="field-group">
+                              <label className="block text-slate-800 font-black text-xs mb-1">
+                                <span className="text-red-500 mr-1">*</span>2. 身份证号：
+                              </label>
+                              <input 
+                                className="w-full h-9 border border-gray-200 rounded px-3 text-slate-800 text-xs focus:ring-1 focus:ring-[#FF741F] focus:border-[#FF741F] focus:outline-none font-bold font-mono" 
+                                placeholder="请输入您的身份证号" 
+                                type="text"
+                                value={driverRegIdCard}
+                                onChange={(e) => setDriverRegIdCard(e.target.value.replace(/[^0-9Xx]/g, ''))}
+                                maxLength={18}
+                              />
+                            </div>
+
+                            {/* 3. Company Input */}
+                            <div data-purpose="field-group">
+                              <label className="block text-slate-800 font-black text-xs mb-1">
+                                <span className="text-red-500 mr-1">*</span>3. 公司
+                              </label>
+                              <input 
+                                className="w-full h-9 border border-gray-200 rounded px-3 text-slate-800 text-xs focus:ring-1 focus:ring-[#FF741F] focus:border-[#FF741F] focus:outline-none font-bold bg-slate-50" 
+                                type="text" 
+                                value={driverRegCompany}
+                                onChange={(e) => setDriverRegCompany(e.target.value)}
+                              />
+                            </div>
+
+                            {/* 4. Gender Selection */}
+                            <div data-purpose="field-group">
+                              <label className="block text-slate-800 font-black text-xs mb-1">
+                                <span className="text-red-500 mr-1">*</span>4. 性别
+                              </label>
+                              <div className="flex border border-gray-200 rounded overflow-hidden text-xs">
+                                <button 
+                                  type="button"
+                                  onClick={() => setDriverRegGender('male')}
+                                  className={`flex-1 py-1.5 font-black transition-colors flex items-center justify-center gap-1.5 ${driverRegGender === 'male' ? 'bg-orange-50 text-[#FF741F] font-extrabold' : 'bg-white text-slate-600'}`}
+                                >
+                                  <span className={`w-3 h-3 rounded-full border flex items-center justify-center ${driverRegGender === 'male' ? 'border-[#FF741F]' : 'border-gray-300'}`}>
+                                    {driverRegGender === 'male' && <span className="w-1.5 h-1.5 bg-[#FF741F] rounded-full" />}
+                                  </span>
+                                  男
+                                </button>
+                                <button 
+                                  type="button"
+                                  onClick={() => setDriverRegGender('female')}
+                                  className={`flex-1 py-1.5 font-black border-l border-gray-200 transition-colors flex items-center justify-center gap-1.5 ${driverRegGender === 'female' ? 'bg-orange-50 text-[#FF741F] font-extrabold' : 'bg-white text-slate-600'}`}
+                                >
+                                  <span className={`w-3 h-3 rounded-full border flex items-center justify-center ${driverRegGender === 'female' ? 'border-[#FF741F]' : 'border-gray-300'}`}>
+                                    {driverRegGender === 'female' && <span className="w-1.5 h-1.5 bg-[#FF741F] rounded-full" />}
+                                  </span>
+                                  女
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* 5. Job Type Selection */}
+                            <div data-purpose="field-group">
+                              <label className="block text-slate-800 font-black text-xs mb-1">
+                                <span className="text-red-500 mr-1">*</span>5. 职业
+                              </label>
+                              <div className="flex border border-gray-200 rounded overflow-hidden text-xs">
+                                <button 
+                                  type="button"
+                                  onClick={() => setDriverRegJobType('full')}
+                                  className={`flex-1 py-1.5 font-black transition-colors flex items-center justify-center gap-1.5 ${driverRegJobType === 'full' ? 'bg-orange-50 text-[#FF741F] font-extrabold' : 'bg-white text-slate-600'}`}
+                                >
+                                  <span className={`w-3 h-3 rounded-full border flex items-center justify-center ${driverRegJobType === 'full' ? 'border-[#FF741F]' : 'border-gray-300'}`}>
+                                    {driverRegJobType === 'full' && <span className="w-1.5 h-1.5 bg-[#FF741F] rounded-full" />}
+                                  </span>
+                                  全职
+                                </button>
+                                <button 
+                                  type="button"
+                                  onClick={() => setDriverRegJobType('part')}
+                                  className={`flex-1 py-1.5 font-black border-l border-gray-200 transition-colors flex items-center justify-center gap-1.5 ${driverRegJobType === 'part' ? 'bg-orange-50 text-[#FF741F] font-extrabold' : 'bg-white text-slate-600'}`}
+                                >
+                                  <span className={`w-3 h-3 rounded-full border flex items-center justify-center ${driverRegJobType === 'part' ? 'border-[#FF741F]' : 'border-gray-300'}`}>
+                                    {driverRegJobType === 'part' && <span className="w-1.5 h-1.5 bg-[#FF741F] rounded-full" />}
+                                  </span>
+                                  兼职
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* 6. Emergency Contact Name */}
+                            <div data-purpose="field-group">
+                              <label className="block text-slate-800 font-black text-xs mb-1">
+                                <span className="text-red-500 mr-1">*</span>6. 紧急联系人：
+                              </label>
+                              <input 
+                                className="w-full h-9 border border-gray-200 rounded px-3 text-slate-800 text-xs focus:ring-1 focus:ring-[#FF741F] focus:border-[#FF741F] focus:outline-none font-bold" 
+                                placeholder="请输入紧急联系人姓名" 
+                                type="text"
+                                value={driverRegEmergencyContact}
+                                onChange={(e) => setDriverRegEmergencyContact(e.target.value)}
+                              />
+                            </div>
+
+                            {/* 7. Emergency Contact Phone */}
+                            <div data-purpose="field-group">
+                              <label className="block text-slate-800 font-bold text-xs mb-1">
+                                <span className="text-red-500 mr-1">*</span>7. 紧急联系人电话：
+                              </label>
+                              <input 
+                                className="w-full h-9 border border-gray-200 rounded px-3 text-slate-800 text-xs focus:ring-1 focus:ring-[#FF741F] focus:border-[#FF741F] focus:outline-none font-bold font-mono" 
+                                placeholder="请输入紧急联系人电话" 
+                                type="tel"
+                                maxLength={11}
+                                value={driverRegEmergencyPhone}
+                                onChange={(e) => setDriverRegEmergencyPhone(e.target.value.replace(/\D/g, ''))}
+                              />
+                            </div>
+
+                            {/* 8. ID Photos Upload (人像面 & 国徽面) */}
+                            <div data-purpose="field-group">
+                              <label className="block text-slate-800 font-bold text-xs mb-2">
+                                <span className="text-red-500 mr-1">*</span>8. 身份证照片:
+                              </label>
+                              <div className="flex space-x-3">
+                                {/* ID Front */}
+                                <div className="border border-gray-200 rounded-lg w-[115px] h-[115px] flex flex-col items-center justify-center bg-white relative p-1 text-center shrink-0 shadow-sm">
+                                  {driverRegIdPhoto ? (
+                                    <div className="relative w-full h-full rounded overflow-hidden">
+                                      <img src={driverRegIdPhoto} className="w-full h-full object-cover" alt="身份证人像页" referrerPolicy="no-referrer" />
+                                      <button 
+                                        type="button"
+                                        onClick={() => setDriverRegIdPhoto('')}
+                                        className="absolute top-0.5 right-0.5 bg-black/60 text-white rounded-full p-1 hover:bg-black transition-colors"
+                                      >
+                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" />
+                                        </svg>
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <label className="cursor-pointer w-full h-full flex flex-col items-center justify-center">
+                                      <div className="relative w-[64px] h-[40px] border border-dashed border-gray-300 flex items-center justify-center mb-1 bg-slate-50/50">
+                                        <div className="absolute w-1 h-1 border-t border-l border-gray-400 top-[-1px] left-[-1px]"></div>
+                                        <div className="absolute w-1 h-1 border-t border-r border-gray-400 top-[-1px] right-[-1px]"></div>
+                                        <div className="absolute w-1 h-1 border-b border-l border-gray-400 bottom-[-1px] left-[-1px]"></div>
+                                        <div className="absolute w-1 h-1 border-b border-r border-gray-400 bottom-[-1px] right-[-1px]"></div>
+                                        <svg className="w-5 h-5 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
+                                          <path d="M12 10a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H5z" />
+                                          <circle cx="12" cy="12" fill="none" r="3" stroke="currentColor" strokeWidth="2" />
+                                          <path d="M4 4h3l2-2h6l2 2h3a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2zM12 7a5 5 0 100 10 5 5 0 000-10z" fill="currentColor" />
+                                        </svg>
+                                      </div>
+                                      <p className="text-[10px] text-gray-400 leading-normal">点击上传 <span className="text-[#FF8225] font-bold">人像面</span></p>
+                                      <input 
+                                        type="file" 
+                                        accept="image/*" 
+                                        className="hidden" 
+                                        onChange={(e) => {
+                                          const file = e.target.files?.[0];
+                                          if (file) {
+                                            const reader = new FileReader();
+                                            reader.onload = (ev) => {
+                                              if (ev.target?.result) setDriverRegIdPhoto(ev.target.result as string);
+                                            };
+                                            reader.readAsDataURL(file);
+                                          }
+                                        }}
+                                      />
+                                    </label>
+                                  )}
+                                </div>
+
+                                {/* ID Back */}
+                                <div className="border border-gray-200 rounded-lg w-[115px] h-[115px] flex flex-col items-center justify-center bg-white relative p-1 text-center shrink-0 shadow-sm">
+                                  {driverRegIdPhotoBack ? (
+                                    <div className="relative w-full h-full rounded overflow-hidden">
+                                      <img src={driverRegIdPhotoBack} className="w-full h-full object-cover" alt="身份证国徽页" referrerPolicy="no-referrer" />
+                                      <button 
+                                        type="button"
+                                        onClick={() => setDriverRegIdPhotoBack('')}
+                                        className="absolute top-0.5 right-0.5 bg-black/60 text-white rounded-full p-1 hover:bg-black transition-colors"
+                                      >
+                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" />
+                                        </svg>
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <label className="cursor-pointer w-full h-full flex flex-col items-center justify-center">
+                                      <div className="relative w-[64px] h-[40px] border border-dashed border-gray-300 flex items-center justify-center mb-1 bg-slate-50/50">
+                                        <div className="absolute w-1 h-1 border-t border-l border-gray-400 top-[-1px] left-[-1px]"></div>
+                                        <div className="absolute w-1 h-1 border-t border-r border-gray-400 top-[-1px] right-[-1px]"></div>
+                                        <div className="absolute w-1 h-1 border-b border-l border-gray-400 bottom-[-1px] left-[-1px]"></div>
+                                        <div className="absolute w-1 h-1 border-b border-r border-gray-400 bottom-[-1px] right-[-1px]"></div>
+                                        <svg className="w-5 h-5 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
+                                          <path d="M4 4h3l2-2h6l2 2h3a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2zM12 7a5 5 0 100 10 5 5 0 000-10z" />
+                                        </svg>
+                                      </div>
+                                      <p className="text-[10px] text-gray-400 leading-normal">点击上传 <span className="text-[#FF8225] font-bold">国徽面</span></p>
+                                      <input 
+                                        type="file" 
+                                        accept="image/*" 
+                                        className="hidden" 
+                                        onChange={(e) => {
+                                          const file = e.target.files?.[0];
+                                          if (file) {
+                                            const reader = new FileReader();
+                                            reader.onload = (ev) => {
+                                              if (ev.target?.result) setDriverRegIdPhotoBack(ev.target.result as string);
+                                            };
+                                            reader.readAsDataURL(file);
+                                          }
+                                        }}
+                                      />
+                                    </label>
+                                  )}
+                                </div>
+                              </div>
+                              <p className="text-[#FF4D4F] text-[11px] mt-1">格式：支持png、jpg，大小：不超过5M</p>
+                            </div>
+
+                            {/* 9. License Photo Upload */}
+                            <div data-purpose="field-group">
+                              <label className="block text-slate-800 font-bold text-xs mb-2">
+                                <span className="text-red-500 mr-1">*</span>9. 驾驶证照片:
+                              </label>
+                              <div className="border border-gray-200 rounded-lg w-[115px] h-[115px] flex flex-col items-center justify-center bg-white relative p-1 text-center shrink-0 shadow-sm">
+                                {driverRegLicensePhoto ? (
+                                  <div className="relative w-full h-full rounded overflow-hidden">
+                                    <img src={driverRegLicensePhoto} className="w-full h-full object-cover" alt="驾驶证首页" referrerPolicy="no-referrer" />
+                                    <button 
+                                      type="button"
+                                      onClick={() => setDriverRegLicensePhoto('')}
+                                      className="absolute top-0.5 right-0.5 bg-black/60 text-white rounded-full p-1 hover:bg-black transition-colors"
+                                    >
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <label className="cursor-pointer w-full h-full flex flex-col items-center justify-center">
+                                    <div className="relative w-[64px] h-[40px] border border-dashed border-gray-300 flex items-center justify-center mb-1 bg-slate-50/50">
+                                      <div className="absolute w-1 h-1 border-t border-l border-gray-400 top-[-1px] left-[-1px]"></div>
+                                      <div className="absolute w-1 h-1 border-t border-r border-gray-400 top-[-1px] right-[-1px]"></div>
+                                      <div className="absolute w-1 h-1 border-b border-l border-gray-400 bottom-[-1px] left-[-1px]"></div>
+                                      <div className="absolute w-1 h-1 border-b border-r border-gray-400 bottom-[-1px] right-[-1px]"></div>
+                                      <svg className="w-5 h-5 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M4 4h3l2-2h6l2 2h3a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2zm8 3a5 5 0 100 10 5 5 0 000-10z" />
+                                      </svg>
+                                    </div>
+                                    <p className="text-[10px] text-gray-400 leading-normal">点击上传 <span className="text-[#FF8225] font-bold">首页</span></p>
+                                    <input 
+                                      type="file" 
+                                      accept="image/*" 
+                                      className="hidden" 
+                                      onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) {
+                                          const reader = new FileReader();
+                                          reader.onload = (ev) => {
+                                            if (ev.target?.result) setDriverRegLicensePhoto(ev.target.result as string);
+                                          };
+                                          reader.readAsDataURL(file);
+                                        }
+                                      }}
+                                    />
+                                  </label>
+                                )}
+                              </div>
+                              <p className="text-[#FF4D4F] text-[11px] mt-1">格式：支持png、jpg，大小：不超过5M</p>
+                            </div>
+
+                            {/* 10. License Type Selection */}
+                            <div data-purpose="field-group">
+                              <label className="block text-slate-800 font-bold text-xs mb-1">
+                                <span className="text-red-500 mr-1">*</span>10. 驾驶证类型:
+                              </label>
+                              <select 
+                                value={driverRegLicenseType} 
+                                onChange={(e) => setDriverRegLicenseType(e.target.value)}
+                                className="w-full h-9 border border-gray-200 rounded px-3 text-slate-800 text-xs focus:ring-1 focus:ring-[#FF741F] focus:border-[#FF741F] focus:outline-none font-bold bg-white"
+                              >
+                                <option value="A1">A1</option>
+                                <option value="A2">A2</option>
+                                <option value="B1">B1</option>
+                                <option value="B2">B2</option>
+                                <option value="C1">C1</option>
+                                <option value="C2">C2</option>
+                              </select>
+                            </div>
+
+                            {/* 11. Issue Date */}
+                            <div data-purpose="field-group" className="mb-4">
+                              <label className="block text-slate-800 font-bold text-xs mb-1">
+                                <span className="text-red-500 mr-1">*</span>11. 领证时间:
+                              </label>
+                              <input 
+                                className="w-full h-9 border border-gray-200 rounded px-3 text-slate-800 text-xs focus:ring-1 focus:ring-[#FF741F] focus:border-[#FF741F] focus:outline-none font-bold font-mono" 
+                                placeholder="请选择您的领证时间" 
+                                type="date"
+                                value={driverRegIssueDate}
+                                onChange={(e) => setDriverRegIssueDate(e.target.value)}
+                              />
+                            </div>
+
+                             {/* Agreement Checkbox */}
+                             <div className="flex items-center justify-center space-x-2 py-2">
+                               <div 
+                                 id="agreement-cb"
+                                 onClick={() => handleAgreementClick()}
+                                 className={`w-4 h-4 rounded flex items-center justify-center transition-all cursor-pointer border ${
+                                   driverRegAgreed && isDriverRegFormComplete()
+                                     ? 'bg-blue-500 border-blue-500 text-white shadow-sm' 
+                                     : 'border-gray-300 bg-white'
+                                 }`}
+                               >
+                                 {driverRegAgreed && isDriverRegFormComplete() && (
+                                   <svg className="w-2.5 h-2.5 stroke-[4]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                     <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                                   </svg>
+                                 )}
+                               </div>
+                               <label 
+                                 onClick={() => handleAgreementClick()}
+                                 className="text-[10px] text-slate-600 font-medium select-none cursor-pointer flex flex-wrap items-center gap-x-1 justify-center leading-normal"
+                               >
+                                 <span>我已阅读并同意</span>
+                                 <span onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDriverRegStep('agreement'); }} className="text-[#FF8225] font-bold cursor-pointer hover:underline">《服务人员合作协议》</span>
+                                 <span>和</span>
+                                 <span onClick={(e) => { e.preventDefault(); e.stopPropagation(); setPrivacyBackTo('driver-register'); setOrderStatus('privacy'); }} className="text-blue-500 font-bold cursor-pointer hover:underline">《隐私条款》</span>
+                               </label>
+                             </div>
+
+                            {/* Sandbox Preset Image Option */}
+                            <div className="flex flex-col gap-2 pt-1 pb-2">
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  setDriverRegName('张伟');
+                                  setDriverRegIdCard('110101199001011234');
+                                  setDriverRegCompany('银川');
+                                  setDriverRegEmergencyContact('李娜');
+                                  setDriverRegEmergencyPhone('13999999999');
+                                  setDriverRegIdPhoto(driverAvatar);
+                                  setDriverRegIdPhotoBack(driverAvatar);
+                                  setDriverRegLicensePhoto(driverAvatar);
+                                  setDriverRegLicenseType('A1');
+                                  setDriverRegIssueDate('2018-05-12');
+                                  onTriggerToast('⚡ 已为您一键填写所有基本信息、联系人、领证时间及示例照片！(测试专用)');
+                                }}
+                                className="text-[10px] text-blue-600 font-black border border-blue-200 bg-blue-50/50 hover:bg-blue-50 px-2.5 py-1.5 rounded-md transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1"
+                              >
+                                ⚡ 快捷一键填写所有信息
+                              </button>
+                            </div>
+
+                            {/* Submit Button */}
+                            <div className="pt-1">
+                              <button 
+                                type="button"
+                                onClick={async () => {
+                                  if (!isDriverRegFormComplete()) {
+                                    onTriggerToast('⚠️ 请确保填写完所有的基本信息（姓名、身份证、城市、联系人等）并上传所有的图片（身份证和驾驶证照片）！');
+                                    return;
+                                  }
+                                  if (!driverRegAgreed) {
+                                    onTriggerToast('⚠️ 所有的信息已填写完整。现在请点击协议前的选项框以显示蓝色对号，才能点击下一步！');
+                                    return;
+                                  }
+
+                                  if (!driverRegName.trim()) {
+                                    onTriggerToast('⚠️ 请输入您的姓名！');
+                                    return;
+                                  }
+                                  if (!driverRegIdCard.trim()) {
+                                    onTriggerToast('⚠️ 请输入您的身份证号！');
+                                    return;
+                                  }
+                                  if (!/^\d{17}[\dXx]$/.test(driverRegIdCard.trim())) {
+                                    onTriggerToast('⚠️ 身份证号格式不正确！');
+                                    return;
+                                  }
+                                  if (!driverRegEmergencyContact.trim()) {
+                                    onTriggerToast('⚠️ 请输入紧急联系人姓名！');
+                                    return;
+                                  }
+                                  if (!driverRegEmergencyPhone.trim() || driverRegEmergencyPhone.trim().length !== 11) {
+                                    onTriggerToast('⚠️ 请输入正确的11位紧急联系人电话！');
+                                    return;
+                                  }
+                                  if (!driverRegIdPhoto) {
+                                    onTriggerToast('⚠️ 请上传身份证人像面照片！');
+                                    return;
+                                  }
+                                  if (!driverRegIdPhotoBack) {
+                                    onTriggerToast('⚠️ 请上传身份证国徽面照片！');
+                                    return;
+                                  }
+                                  if (!driverRegLicensePhoto) {
+                                    onTriggerToast('⚠️ 请上传驾驶证首页照片！');
+                                    return;
+                                  }
+                                  if (!driverRegIssueDate) {
+                                    onTriggerToast('⚠️ 请选择您的领证时间！');
+                                    return;
+                                  }
+
+                                  // Calculate driving years from issue date
+                                  let calculatedDrivingYears = 5;
+                                  const issueYear = new Date(driverRegIssueDate).getFullYear();
+                                  if (!isNaN(issueYear) && issueYear > 1950 && issueYear <= 2026) {
+                                    calculatedDrivingYears = Math.max(0, 2026 - issueYear);
+                                  }
+
+                                  // Calculate age from ID card birthday
+                                  let calculatedAge = 35;
+                                  const birthYearStr = driverRegIdCard.substring(6, 10);
+                                  const birthYear = parseInt(birthYearStr, 10);
+                                  if (!isNaN(birthYear) && birthYear > 1900 && birthYear < 2026) {
+                                    calculatedAge = 2026 - birthYear;
+                                  }
+
+                                  setIsSubmittingReg(true);
+                                  try {
+                                    await setDoc(doc(db, 'online_applications', registerPhone), {
+                                      id: registerPhone,
+                                      driverPhone: registerPhone,
+                                      driverName: driverRegName.trim(),
+                                      idCardNumber: driverRegIdCard.trim(),
+                                      city: driverRegCompany.trim(),
+                                      driverGender: driverRegGender === 'male' ? '男' : '女',
+                                      driverAge: calculatedAge,
+                                      jobType: driverRegJobType === 'full' ? '全职' : '兼职',
+                                      emergencyContact: driverRegEmergencyContact.trim(),
+                                      emergencyPhone: driverRegEmergencyPhone.trim(),
+                                      idCardFront: driverRegIdPhoto,
+                                      idCardBack: driverRegIdPhotoBack,
+                                      driverLicenseFront: driverRegLicensePhoto,
+                                      driverLicenseBack: driverRegLicensePhoto, // duplicate
+                                      drivingYears: calculatedDrivingYears,
+                                      licenseType: driverRegLicenseType,
+                                      licenseIssueDate: driverRegIssueDate,
+                                      status: 'pending',
+                                      updatedAt: new Date().toISOString()
+                                    });
+
+                                    setIsSubmittingReg(false);
+                                    onTriggerToast(`🎉 提交成功！手机号 ${registerPhone} 的申请已录入，等待平台审批开通听单。`);
+                                    
+                                    // Enter success page state
+                                    setDriverRegStep('success');
+                                  } catch (err: any) {
+                                    setIsSubmittingReg(false);
+                                    onTriggerToast(`❌ 提交失败: ${err.message || '网络连接超时'}`);
+                                  }
+                                }}
+                                disabled={isSubmittingReg}
+                                className="w-full text-white font-bold py-3 rounded-lg text-base shadow-md tracking-wider transform transition-transform active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1 active:opacity-90 bg-[#FF8225]"
+                              >
+                                {isSubmittingReg ? '正在提交申请...' : '下一步'}
+                              </button>
+                            </div>
+
+                          </form>
+                        </div>
+                      </main>
+                    </>
+                  )}
+                  {/* END: RegistrationForm */}
+
+                  {/* BEGIN: FooterBranding */}
+                  <footer className="bg-white pb-4 text-center shrink-0" data-purpose="app-footer">
+                    <div className="flex items-center justify-center gap-2 opacity-40">
+                      <span className="h-px w-6 bg-gray-300"></span>
+                      <span className="text-xs text-gray-500 tracking-widest font-black">黑湾代驾</span>
+                      <span className="h-px w-6 bg-gray-300"></span>
+                    </div>
+                  </footer>
+                  {/* END: FooterBranding */}
                 </div>
               ) : orderStatus === 'about' ? (
                 <div 
@@ -2332,7 +3527,22 @@ Page({
                         <span className="text-[9px] font-bold text-slate-600">相关协议</span>
                       </div>
 
-                      {/* Item 8: 商户中心 */}
+                      {/* Item 8: 隐私政策 */}
+                      <div 
+                        onClick={() => { setPrivacyBackTo('profile'); setOrderStatus('privacy'); }}
+                        className="flex flex-col items-center gap-1 cursor-pointer group"
+                      >
+                        <div className="w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center transition-all group-active:scale-95 border border-slate-100">
+                          <div className="w-6.5 h-6.5 rounded-lg bg-gradient-to-br from-[#80DEEA] to-[#00ACC1] flex items-center justify-center shadow-xs">
+                            <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"></path>
+                            </svg>
+                          </div>
+                        </div>
+                        <span className="text-[9px] font-bold text-slate-600">隐私政策</span>
+                      </div>
+
+                      {/* Item 9: 商户中心 */}
                       <div 
                         onClick={() => onTriggerToast('🏪 商户特约合作通道申请中')}
                         className="flex flex-col items-center gap-1 cursor-pointer group"
