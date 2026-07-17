@@ -183,7 +183,7 @@ export default function AdminPanel({
       const stored = localStorage.getItem('cloudflare_worker_api_url');
       if (stored && stored.trim()) return stored.trim();
     } catch (_) {}
-    return 'https://www.lyheiwandaijiamax.com';
+    return 'http://admin.lyheiwandaijiamax.com';
   });
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'failed'>('idle');

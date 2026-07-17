@@ -62,19 +62,19 @@ export function getBaseApiUrl(): string {
                         window.location.protocol === 'file:';
                         
     if (isCapacitor) {
-      return 'https://www.lyheiwandaijiamax.com';
+      return 'http://admin.lyheiwandaijiamax.com';
     }
     
     // If it's running inside a native mobile webview/webview scheme on localhost with no port
     if (hostname === 'localhost' && !window.location.port) {
-      return 'https://www.lyheiwandaijiamax.com';
+      return 'http://admin.lyheiwandaijiamax.com';
     }
 
     return origin;
   }
 
-  // Default to the active Cloudflare Worker database endpoint to ensure 100% real-time data interconnection across all environments by default.
-  return 'https://www.lyheiwandaijiamax.com';
+  // Default to the active server database endpoint to ensure 100% real-time data interconnection across all environments by default.
+  return 'http://admin.lyheiwandaijiamax.com';
 }
 
 // Mirroring firestore imports

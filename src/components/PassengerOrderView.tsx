@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db, doc, setDoc, getDoc } from '../lib/dbProxy';
+import { db, doc, setDoc, getDoc, getBaseApiUrl } from '../lib/dbProxy';
 import { QrCode, MapPin, Phone, CheckCircle, Navigation, ShieldCheck, Car, Headphones, Smartphone, BellRing, Check, ArrowLeft, Flag } from 'lucide-react';
 import { checkVipActive } from '../types';
 
@@ -232,7 +232,7 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
     } catch (err: any) {
       console.warn('Firebase client SDK failed or timed out. Falling back to Cloudflare Workers server route...', err);
       try {
-        const response = await fetch('https://www.lyheiwandaijiamax.com/api/submit', {
+        const response = await fetch(`${getBaseApiUrl()}/api/submit`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'

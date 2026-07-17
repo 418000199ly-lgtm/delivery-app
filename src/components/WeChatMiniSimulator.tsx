@@ -611,7 +611,7 @@ export default function WeChatMiniSimulator({ currentDriverPhone, onTriggerToast
       console.error('WeChat ordering proxy error:', err);
       // Fallback post
       try {
-        const response = await fetch('https://www.lyheiwandaijiamax.com/api/submit', {
+        const response = await fetch(`${getBaseApiUrl()}/api/submit`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1036,7 +1036,7 @@ Page({
 
     // 微信小程序直接向云端或 Cloudflare 中继网关发起 REST POST 下单
     wx.request({
-      url: 'https://www.lyheiwandaijiamax.com/api/submit',
+      url: '${getBaseApiUrl()}/api/submit',
       method: 'POST',
       header: {
         'content-type': 'application/json'
