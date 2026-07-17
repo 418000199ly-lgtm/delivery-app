@@ -941,7 +941,41 @@ export default function CreateOrderView({
   }, [startLocation, userPhone]);
 
 
-  const passengerScanUrl = `https://daijiajifei.ccwu.cc/?driver=${encodeURIComponent(userPhone || '18609518888')}&name=${encodeURIComponent(settings?.customAppName?.trim() || 'XX代驾')}&startLocation=${encodeURIComponent(startLocation || '')}`;
+  const passengerScanUrl = (() => {
+    if (typeof window === 'undefined') {
+      return `https://www.lyheiwandaijiamax.com/passenger_order.html?driver=${encodeURIComponent(userPhone || '18609518888')}&name=${encodeURIComponent(settings?.customAppName?.trim() || 'XX代驾')}&startLocation=${encodeURIComponent(startLocation || '')}`;
+    }
+    const hostname = window.location.hostname;
+    const origin = window.location.origin;
+    const isLocal = (
+      hostname.includes('localhost') || 
+      hostname.includes('127.0.0.1') || 
+      hostname.includes('webcontainer') || 
+      hostname.includes('gitpod') || 
+      hostname.includes('cloudshell') ||
+      hostname.includes('run.app') ||
+      hostname.includes('aistudio.google')
+    );
+    
+    const customWorkerApiUrl = localStorage.getItem('cloudflare_worker_api_url') || '';
+    let baseOrigin = origin;
+    let basePath = '/passenger_order.html';
+    
+    if (isLocal) {
+      baseOrigin = 'https://www.lyheiwandaijiamax.com';
+    } else {
+      if (customWorkerApiUrl) {
+        try {
+          const urlObj = new URL(customWorkerApiUrl);
+          baseOrigin = urlObj.origin;
+        } catch (e) {
+          // Fallback to origin
+        }
+      }
+    }
+    
+    return `${baseOrigin}${basePath}?driver=${encodeURIComponent(userPhone || '18609518888')}&name=${encodeURIComponent(settings?.customAppName?.trim() || 'XX代驾')}&startLocation=${encodeURIComponent(startLocation || '')}`;
+  })();
 
   const formatCountdown = (seconds: number) => {
     const mins = Math.floor(seconds / 60);

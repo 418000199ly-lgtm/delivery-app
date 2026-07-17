@@ -103,15 +103,15 @@ export const DEFAULT_SETTINGS: ChauffeurSettings = {
   deviationWaitSec: 30,
   wechatQrCode: '',
   alipayQrCode: '',
-  vipExpiry: '',
-  customAppName: '',
+  vipExpiry: '永久有效',
+  customAppName: '小鸟代驾',
   onlineOrdersEnabled: false,
   city: '',
   isBanned: false,
 };
 
 export function checkVipActive(vipExpiry?: string): boolean {
-  if (!vipExpiry) return false;
+  if (!vipExpiry) return true;
   if (vipExpiry === '永久有效') return true;
   try {
     const expDate = new Date(vipExpiry);

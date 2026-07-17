@@ -15,7 +15,8 @@ import {
   doc, 
   deleteDoc, 
   onSnapshot, 
-  getDocs 
+  getDocs,
+  getBaseApiUrl 
 } from '../lib/dbProxy';
 import { 
   Plus, 
@@ -182,7 +183,7 @@ export default function AdminPanel({
       const stored = localStorage.getItem('cloudflare_worker_api_url');
       if (stored && stored.trim()) return stored.trim();
     } catch (_) {}
-    return 'https://daijiajifei.ccwu.cc';
+    return 'https://www.lyheiwandaijiamax.com';
   });
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'failed'>('idle');
@@ -1156,7 +1157,7 @@ export default function AdminPanel({
       setIsAdminSending(true);
 
       try {
-        const res = await fetch('/api/sms/send', {
+        const res = await fetch(`${getBaseApiUrl()}/api/sms/send`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1207,7 +1208,7 @@ export default function AdminPanel({
       setIsAdminLoggingIn(true);
 
       try {
-        const res = await fetch('/api/sms/verify', {
+        const res = await fetch(`${getBaseApiUrl()}/api/sms/verify`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1972,7 +1973,7 @@ export default function AdminPanel({
                     </div>
                     <p className="text-[11px] text-gray-400 mt-1 max-w-2xl leading-relaxed">
                       管理后台与司机手机客户端、乘客下单端默认全部连接到同一个 Cloudflare Worker KV 云数据库。
-                      任何一端更改规则、发放优惠卡密、派单，其他终端和您的新域名 <code className="text-teal-400 font-mono select-all">heiwandaijiamax.ccwu.cc</code> 均会实时响应，实现完全数据互联！
+                      任何一端更改规则、发放优惠卡密、派单，其他终端和您的新域名 <code className="text-teal-400 font-mono select-all">www.lyheiwandaijiamax.com</code> 均会实时响应，实现完全数据互联！
                     </p>
                   </div>
                 </div>
@@ -1987,7 +1988,7 @@ export default function AdminPanel({
                       type="text"
                       value={cfWorkerUrl}
                       onChange={(e) => setCfWorkerUrl(e.target.value)}
-                      placeholder="例如: https://daijiajifei.ccwu.cc"
+                      placeholder="例如: https://www.lyheiwandaijiamax.com"
                       className="flex-grow bg-[#090b11] border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-teal-300 font-mono focus:outline-none focus:border-teal-500 transition-colors"
                     />
                     <button
@@ -2005,7 +2006,7 @@ export default function AdminPanel({
               <div className="mt-4 pt-4 border-t border-slate-900 flex flex-col gap-2 text-xs">
                 <div className="flex items-center gap-1.5 text-[11px] font-bold text-gray-300">
                   <Zap className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-                  <span>如何将完整的管理后台部署到您注册的新域名 heiwandaijiamax.ccwu.cc 下？</span>
+                  <span>如何将完整的管理后台部署到您注册的新域名 www.lyheiwandaijiamax.com 下？</span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 text-[11px] text-gray-400 leading-relaxed mt-1">
                   <div className="bg-[#090b11]/50 border border-slate-900 rounded-xl p-3">
@@ -2017,14 +2018,14 @@ export default function AdminPanel({
                     生成的内容将完整存放在 <code className="text-amber-500 font-mono">dist/</code> 目录下。
                   </div>
                   <div className="bg-[#090b11]/50 border border-slate-900 rounded-xl p-3">
-                    <div className="font-extrabold text-white mb-1">第二步：部署至 Cloudflare Pages</div>
-                    1. 登录您的 Cloudflare Dashboard，点击 <strong>Pages / 网页项目</strong>。<br/>
-                    2. 点击 “创建项目”，选择上传文件夹，直接拖入 <strong>dist/</strong> 文件夹打包上传即可。<br/>
-                    3. 在 Pages 的自定义域中绑定您申请的域名 <span className="text-teal-400 font-mono font-bold">heiwandaijiamax.ccwu.cc</span>。
+                    <div className="font-extrabold text-white mb-1">第二步：部署至 Cloudflare Pages 或阿里云 Web 服务器</div>
+                    1. 登录您的部署平台（或宝塔面板网站目录）。<br/>
+                    2. 将打包好的 <strong>dist/</strong> 文件夹中的内容上传到该站点的 Web 根目录中。<br/>
+                    3. 在自定义域名绑定中绑定您申请的域名 <span className="text-teal-400 font-mono font-bold">www.lyheiwandaijiamax.com</span>。
                   </div>
                   <div className="bg-[#090b11]/50 border border-slate-900 rounded-xl p-3">
                     <div className="font-extrabold text-white mb-1">第三步：实时数据互联同步</div>
-                    由于您已经在上方将数据库端点绑定为您的 Worker 域名（或默认检测到 <code className="text-teal-400 font-mono">daijiajifei.ccwu.cc</code>），在 <code className="text-white font-mono">heiwandaijiamax.ccwu.cc</code> 打开的页面将<strong>自动共享和互通</strong>所有数据（包括司机、卡密、计费、派单和位置），实现无缝连通。
+                    由于您已经在上方将数据库端点绑定为您的 Worker 域名（或默认检测到 <code className="text-teal-400 font-mono">www.lyheiwandaijiamax.com</code>），在页面上将<strong>自动共享和互通</strong>所有数据（包括司机、卡密、计费、派单和位置），实现无缝连通。
                   </div>
                 </div>
               </div>
@@ -2884,6 +2885,7 @@ export default function AdminPanel({
                           <span className="text-[9px] text-slate-500 block font-bold">快捷时间到期预设 :</span>
                           <div className="grid grid-cols-2 gap-1.5">
                             <button
+                              type="button"
                               onClick={() => {
                                 setTempExpiry('');
                                 setTempDays('0');
@@ -2894,6 +2896,7 @@ export default function AdminPanel({
                               🔴 清除 (设为非会员)
                             </button>
                             <button
+                              type="button"
                               onClick={() => {
                                 setTempExpiry('永久有效');
                                 setTempDays('永久');
@@ -2904,6 +2907,7 @@ export default function AdminPanel({
                               🌟 开启 永久尊享VIP
                             </button>
                             <button
+                              type="button"
                               onClick={() => {
                                 const d = new Date();
                                 d.setDate(d.getDate() + 30);
@@ -3017,13 +3021,16 @@ export default function AdminPanel({
                       </thead>
                       <tbody className="divide-y divide-slate-900/40">
                         {allDrivers
-                          .filter(drv => 
-                            drv.phoneNumber.includes(driverSearchQuery.trim()) || 
-                            (drv.driverName || '').includes(driverSearchQuery.trim())
-                          )
+                          .filter(drv => {
+                            const phoneStr = drv && drv.phoneNumber ? String(drv.phoneNumber) : '';
+                            const nameStr = drv && drv.driverName ? String(drv.driverName) : '';
+                            const queryStr = driverSearchQuery.trim();
+                            return phoneStr.includes(queryStr) || nameStr.includes(queryStr);
+                          })
                           .map((drv) => {
                             const isVip = checkVipActive(drv.vipExpiry);
-                            const isSelected = targetPhone.trim() === drv.phoneNumber;
+                            const drvPhone = drv.phoneNumber || '';
+                            const isSelected = targetPhone.trim() === drvPhone;
                             return (
                               <tr
                                 key={drv.id}

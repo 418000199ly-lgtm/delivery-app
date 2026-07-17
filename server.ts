@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import mysql from 'mysql2/promise';
 import { createServer as createViteServer } from 'vite';
 import { initializeApp } from 'firebase/app';
@@ -117,18 +118,18 @@ if (isMySQLEnabled) {
 
 // Initialize server-side Firestore instance to bypass GFW firewalls inside emulator/mobile clients
 const firebaseConfig = {
-  projectId: "autonomous-abbey-nnzsc",
-  appId: "1:270773766200:web:7b3caa1df6822ed079fecd",
-  apiKey: "AIzaSyD1VHQ2AL0NklJCJCjy4EFqIs2HrqMy4RQ",
-  authDomain: "autonomous-abbey-nnzsc.firebaseapp.com",
-  storageBucket: "autonomous-abbey-nnzsc.firebasestorage.app",
-  messagingSenderId: "270773766200"
+  projectId: "my-taxi-app-b76f0",
+  appId: "1:1009592037554:web:89e484fc435b0171bdd9ab",
+  apiKey: "AIzaSyC0frin5v_6TcBEceQGlqyW36A05Rs7S-0",
+  authDomain: "my-taxi-app-b76f0.firebaseapp.com",
+  storageBucket: "my-taxi-app-b76f0.firebasestorage.app",
+  messagingSenderId: "1009592037554"
 };
 
 const fbApp = initializeApp(firebaseConfig);
 const db = initializeFirestore(fbApp, {
   experimentalForceLongPolling: true
-}, "ai-studio-8c2c2304-5251-4eae-b3b7-9bbf375467a5");
+}, "ai-studio-max-8c2c2304-5251-4eae-b3b7-9bbf375467a5");
 
 async function startServer() {
   const app = express();
@@ -884,6 +885,74 @@ async function startServer() {
     }
   });
 
+  // 7. FIREBASE FIRESTORE TO MYSQL AUTOMATED MIGRATION ENDPOINT
+  app.get('/api/db/migrate-from-firestore', async (req, res) => {
+    if (!isMySQLEnabled || !mysqlPool) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'MySQL has not been enabled on this server. Please set MYSQL_HOST in your .env configuration file to use local database mode.' 
+      });
+    }
+
+    try {
+      console.log('[Migration] Starting on-demand data migration from Firestore to MySQL...');
+      const report: any = {};
+      let totalMigrated = 0;
+
+      const collections = [
+        'config',
+        'version_history',
+        'vip_codes',
+        'driver_users',
+        'messages',
+        'online_applications',
+        'team_members',
+        'passenger_links',
+        'squad_members',
+        'city_dispatch_config'
+      ];
+
+      for (const colName of collections) {
+        console.log(`[Migration] Querying remote Firestore for collection "${colName}"...`);
+        const colRef = collection(db, colName);
+        const snapshot = await getDocs(colRef);
+        
+        let count = 0;
+        for (const docSnap of snapshot.docs) {
+          const docId = docSnap.id;
+          const data = docSnap.data();
+          const dataStr = JSON.stringify(data);
+
+          await mysqlPool.query(
+            'INSERT INTO `daijia_documents` (`collection`, `doc_id`, `data`) VALUES (?, ?, ?) ' +
+            'ON DUPLICATE KEY UPDATE `data` = VALUES(`data`)',
+            [colName, docId, dataStr]
+          );
+          count++;
+        }
+        
+        report[colName] = count;
+        totalMigrated += count;
+        console.log(`[Migration] Collection "${colName}" migrated: ${count} documents.`);
+      }
+
+      console.log(`[Migration] All documents successfully synchronized into MySQL! Total: ${totalMigrated}`);
+      res.json({ 
+        success: true, 
+        message: '✓ 恭喜！云端 Firestore 数据已成功同步/迁移至您本地的 MySQL 数据库之中！',
+        total_collections: collections.length,
+        total_documents: totalMigrated,
+        details: report 
+      });
+    } catch (err: any) {
+      console.error('[Migration] Failed to migrate Firestore to MySQL:', err);
+      res.status(500).json({ 
+        success: false, 
+        error: err.message || 'Migration execution failed.' 
+      });
+    }
+  });
+
   // Passenger Order submission redirect (from older config files and direct Cloudflare support endpoint)
   app.post('/api/submit', async (req, res) => {
     try {
@@ -925,8 +994,22 @@ async function startServer() {
     }
   });
 
+  // Explicit routes for passenger order HTML pages
+  app.get('/passenger_order.html', (req, res) => {
+    res.sendFile(path.join(process.cwd(), 'passenger_order.html'));
+  });
+  app.get('/aliyun_passenger_deploy.html', (req, res) => {
+    res.sendFile(path.join(process.cwd(), 'aliyun_passenger_deploy.html'));
+  });
+  app.get('/daijia_deploy.zip', (req, res) => {
+    res.download(path.join(process.cwd(), 'daijia_deploy.zip'), 'daijia_deploy.zip');
+  });
+
   // Integration with Vite development server middleware OR static assets serving for production
-  if (process.env.NODE_ENV !== "production") {
+  const distPath = path.join(process.cwd(), 'dist');
+  const hasDist = fs.existsSync(path.join(distPath, 'index.html'));
+
+  if (process.env.NODE_ENV !== "production" && !hasDist) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -934,7 +1017,6 @@ async function startServer() {
     app.use(vite.middlewares);
     console.log("Vite development server middleware loaded.");
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));

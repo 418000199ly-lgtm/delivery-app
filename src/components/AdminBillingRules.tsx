@@ -751,7 +751,7 @@ function FenceDrawingMap({
 
 export default function AdminBillingRules({ onShowToast }: AdminBillingRulesProps) {
   // Global Firestore State
-  const [activeTemplateName, setActiveTemplateName] = useState<string>('系统默认线上计费模版');
+  const [activeTemplateName, setActiveTemplateName] = useState<string>('线上二维码开单');
   const [templates, setTemplates] = useState<BillingRules[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -825,7 +825,7 @@ export default function AdminBillingRules({ onShowToast }: AdminBillingRulesProp
     const unsubscribe = onSnapshot(configDocRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
-        setActiveTemplateName(data.activeTemplateName || '系统默认线上计费模版');
+        setActiveTemplateName(data.activeTemplateName || '线上二维码开单');
         setTemplates(data.templates || []);
         setActiveBillingMode(data.activeBillingMode || 'system_default');
         if (data.timeBasedConfig) {
@@ -854,7 +854,7 @@ export default function AdminBillingRules({ onShowToast }: AdminBillingRulesProp
         // Populate default template in database if not set
         const defaultTemplates = [
           {
-            templateName: '系统默认线上计费模版',
+            templateName: '线上二维码开单',
             slots: [
               { id: '1', startTime: '06:00', endTime: '18:59', startingPrice: 38, includedDistance: 7, unitPricePerKm: 5, distanceInterval: 1, priceIncrease: 5 },
               { id: '2', startTime: '19:00', endTime: '23:59', startingPrice: 42, includedDistance: 7, unitPricePerKm: 5, distanceInterval: 1, priceIncrease: 5 },
@@ -907,12 +907,12 @@ export default function AdminBillingRules({ onShowToast }: AdminBillingRulesProp
           outOfBoundsPrice: 5
         };
         setTemplates(defaultTemplates);
-        setActiveTemplateName('系统默认线上计费模版');
+        setActiveTemplateName('线上二维码开单');
         setActiveBillingMode('system_default');
         setTimeBasedConfig(defaultTimeBased);
         
         setDoc(configDocRef, {
-          activeTemplateName: '系统默认线上计费模版',
+          activeTemplateName: '线上二维码开单',
           templates: defaultTemplates,
           activeBillingMode: 'system_default',
           timeBasedConfig: defaultTimeBased

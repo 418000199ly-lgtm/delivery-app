@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { getBaseApiUrl } from '../lib/dbProxy';
 import { 
   Smartphone, 
   ShieldCheck, 
@@ -53,7 +54,7 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
     setIsSending(true);
 
     try {
-      const res = await fetch('/api/sms/send', {
+      const res = await fetch(`${getBaseApiUrl()}/api/sms/send`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -104,7 +105,7 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
     setIsLoggingIn(true);
 
     try {
-      const res = await fetch('/api/sms/verify', {
+      const res = await fetch(`${getBaseApiUrl()}/api/sms/verify`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

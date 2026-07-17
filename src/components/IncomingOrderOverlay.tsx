@@ -64,11 +64,13 @@ export const IncomingOrderOverlay: React.FC<IncomingOrderOverlayProps> = ({
 
   // Parse details with fallbacks
   const startLocation = order.startLocation || '太阳神大酒店';
-  const destination = order.destination || '汽车大世界广场';
+  const isDestinationEmpty = !order.destination || order.destination.trim() === '';
+  const destination = isDestinationEmpty ? '未知' : order.destination;
   const passengerPhone = order.passengerPhone || '系统分配乘客';
   
   // Dynamic random price if not specified
   const [approxPrice] = useState<any>(() => {
+    if (isDestinationEmpty) return '未知';
     if (order.approxPrice !== undefined) return order.approxPrice;
     
     if (onlineBillingRules && onlineBillingRules.slots && onlineBillingRules.slots.length > 0) {
@@ -259,7 +261,7 @@ export const IncomingOrderOverlay: React.FC<IncomingOrderOverlayProps> = ({
       <header className="bg-[#e61a1a] text-white px-4 flex flex-col items-center relative py-6 pb-20 shrink-0">
         <div className="w-full flex justify-between items-center mb-3">
           <span className="text-white/80 font-semibold text-xs tracking-wider">
-            {order.isValetOrder || order.isPlatformDispatch ? '⚠️ 商户代叫订单' : '⚡ 线上派单机制'}
+            {order.isValetOrder || order.isPlatformDispatch ? '⚠️ 商户代叫订单' : '⚡ 二维码开单'}
           </span>
           <button 
             onClick={onDecline}

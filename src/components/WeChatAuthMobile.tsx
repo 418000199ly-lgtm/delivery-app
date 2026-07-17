@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getBaseApiUrl } from '../lib/dbProxy';
 import { MessageSquare, CheckCircle2, Smartphone, Loader2, ShieldAlert, Check } from 'lucide-react';
 
 export default function WeChatAuthMobile() {
@@ -35,7 +36,7 @@ export default function WeChatAuthMobile() {
     setStatus('submitting');
 
     try {
-      const response = await fetch('/api/wechat/authorize', {
+      const response = await fetch(`${getBaseApiUrl()}/api/wechat/authorize`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

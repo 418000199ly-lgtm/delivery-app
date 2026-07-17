@@ -3,7 +3,7 @@ import { X, ChevronRight, ChevronLeft, HelpCircle, RotateCcw, PlusSquare, Bookma
 import jsQR from 'jsqr';
 import QRCode from 'qrcode';
 import { ChauffeurSettings, checkVipActive } from '../types';
-import { db, doc, getDoc, updateDoc } from '../lib/dbProxy';
+import { db, doc, getDoc, updateDoc, getBaseApiUrl } from '../lib/dbProxy';
 import { MOCK_ALBUM_PHOTOS } from '../utils/mockImages';
 
 export function regenerateQRCode(dataUrl: string, type: 'wechat' | 'alipay'): Promise<string> {
@@ -488,7 +488,7 @@ export default function SettingsView({
     if (!cloudflareUrl.trim()) {
       setTestingConnection(true);
       try {
-        const res = await fetch('/api/health');
+        const res = await fetch(`${getBaseApiUrl()}/api/health`);
         if (res.ok) {
           const data = await res.json();
           alert(`✅ 系统内置 Express 极速中继服务连接成功！\n- 状态：${data.status}\n- 连线延迟：延迟极低，处于专线连通状态。\n- 适用性：国内扫码免VPN直连，秒级报单！`);
@@ -1002,7 +1002,7 @@ export default function SettingsView({
                     type="text"
                     value={cloudflareUrl}
                     onChange={(e) => saveCloudflareUrl(e.target.value)}
-                    placeholder="例如: daijiajifei.ccwu.cc"
+                    placeholder="例如: www.lyheiwandaijiamax.com"
                     className="w-full bg-transparent border-none text-xs font-bold text-gray-800 placeholder-slate-400 outline-none focus:ring-0"
                     style={{ outline: 'none', border: 'none', background: 'none' }}
                   />
@@ -1025,7 +1025,7 @@ export default function SettingsView({
               <p className="font-bold text-orange-800">📋 Cloudflare 互通数据链转移指引：</p>
               <p>1. 在您的 Cloudflare 控制台部署根目录下的 <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-orange-200 font-bold">cloudflare_worker.js</span> 脚本。</p>
               <p>2. 在 Worker 变量设置中绑定一个名为 <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-orange-200 font-bold text-amber-700">DB_KV</span> 的 KV 命名空间（实现数据分布式固化持久存储）。</p>
-              <p>3. 将您的域名 <span className="font-mono text-teal-600 font-extrabold bg-teal-50 px-1 rounded border border-teal-100">daijiajifei.ccwu.cc</span> 绑定到该 Cloudflare Worker。</p>
+              <p>3. 将您的域名 <span className="font-mono text-teal-600 font-extrabold bg-teal-50 px-1 rounded border border-teal-100">www.lyheiwandaijiamax.com</span> 绑定到该 Cloudflare Worker。</p>
               <p>4. 在上方输入您的域名并点击测试。测试连通后，<b>多端实时互联互通的所有数据（订单匹配、司机派单、团队设定、总控开关等）将实时在 Cloudflare 链条上同步！</b></p>
             </div>
           </div>

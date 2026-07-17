@@ -38,8 +38,8 @@ try {
 
 const app = initializeApp(firebaseConfig);
 
-// If custom project is used, let Firestore use the standard "(default)" database ID instead of the sandbox ID
-const dbId = hasCustomConfig ? undefined : "ai-studio-8c2c2304-5251-4eae-b3b7-9bbf375467a5";
+// Set the correct Firestore database ID for the AI Studio premium sandbox
+const dbId = "ai-studio-max-8c2c2304-5251-4eae-b3b7-9bbf375467a5";
 
 // Initialize Firestore with custom settings to enforce long polling, bypassing iframe WebSocket limits
 const db = initializeFirestore(app, {

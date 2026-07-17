@@ -22,7 +22,7 @@
  *    *(若未绑定 KV，本系统将自动降级为全功能边缘内存运行时存储，同样能即插即用！)*
  * 6. 绑定您自己的自定义域名：
  *    - 进入该 Worker 的「设置」(Settings) -> 「触发器」(Triggers) -> 点击「添加自定义域」
- *    - 输入您的尊享专属域名 `daijiajifei.ccwu.cc`，完成绑定
+ *    - 输入您的尊享专属域名 `www.lyheiwandaijiamax.com`，完成绑定
  */
 
 // 内存二级后备存储容器 (防止用户尚未配置 KV 时直接报错，确保100%连通率)
@@ -781,11 +781,101 @@ function getHTMLTemplate(driverPhone, driverName, rawStartLocation, adminUrl = "
   <footer class="py-1 text-center shrink-0 select-none">
   </footer>
 
+  <!-- 乘客自助端代开单阻拦页面叠加层 -->
+  <div id="blocked-overlay" class="hidden fixed inset-0 w-full h-full bg-[#f9f9f9] text-[#1a1c1c] font-sans overflow-hidden select-none z-[20000] flex flex-col justify-between">
+    <main class="w-full max-w-md mx-auto bg-[#f9f9f9] flex-1 relative flex flex-col justify-start">
+      <!-- 头部精美Banner (升级为100%纯CSS与高精度内联SVG豪华矢量图，0外部网络请求，国内无VPN环境下秒级极速渲染) -->
+      <section class="relative h-64 w-full overflow-hidden bg-gradient-to-br from-[#1b1c1e] via-[#2a2c30] to-[#121314] flex flex-col items-center justify-center p-6 text-center shadow-inner">
+         <!-- 动态极光氛围底色微光 -->
+         <div class="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 rounded-full bg-amber-500/10 filter blur-3xl"></div>
+         <div class="absolute bottom-1/3 left-1/3 w-32 h-32 rounded-full bg-orange-600/10 filter blur-3xl"></div>
+         
+         <!-- 豪华VIP金质尊享皇冠/盾牌矢量图形 -->
+         <div class="relative z-10 mb-2 text-amber-500/90 filter drop-shadow-[0_4px_10px_rgba(245,158,11,0.25)]">
+           <svg class="w-16 h-16 mx-auto" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+             <!-- 尊享质感外盾盾徽 -->
+             <path d="M50,15 L78,25 C78,55 50,85 50,85 C50,85 22,55 22,25 Z" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="rgba(245,158,11,0.06)" />
+             <!-- 内嵌典雅皇冠 -->
+             <path d="M35,55 L41,41 L50,49 L59,41 L65,55 Z" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="rgba(245,158,11,0.1)" />
+             <line x1="35" y1="55" x2="65" y2="55" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
+             <!-- 尊贵装饰星芒 -->
+             <circle cx="50" cy="30" r="2.5" fill="currentColor" />
+             <circle cx="35" cy="55" r="1.5" fill="currentColor" />
+             <circle cx="65" cy="55" r="1.5" fill="currentColor" />
+             <!-- 闪烁的小星芒 -->
+             <path d="M47,30 L53,30 M50,27 L50,33" stroke="currentColor" stroke-width="1.2" />
+           </svg>
+         </div>
+         
+         <h1 class="relative z-10 text-xl font-black text-amber-400 tracking-widest font-serif drop-shadow-md">
+           VIP PREMIUM
+         </h1>
+         <p class="relative z-10 text-[9px] text-slate-400 font-mono tracking-widest uppercase mt-1">
+           Secure Chauffeur Connection System
+         </p>
+         <div class="absolute inset-0 bg-gradient-to-t from-[#f9f9f9] via-transparent to-transparent"></div>
+       </section>
+
+      <!-- 核心阻拦提示卡片 -->
+      <section class="px-5 -mt-8 relative z-10 text-center">
+        <div class="bg-white p-6 rounded-xl border border-[#dfc0af] shadow-sm space-y-4">
+          <h2 class="text-xl font-bold text-[#1a1c1c] leading-relaxed">
+            开通尊享会员
+            <div class="mt-1 text-orange-600">享受更多权益</div>
+          </h2>
+          <p class="text-[#584235] text-sm font-medium leading-relaxed">
+            请使用正规渠道开通会员
+          </p>
+        </div>
+      </section>
+    </main>
+    <footer style="text-align: center; padding: 20px 0; font-size: 12px; color: #666;" class="w-full z-20 shrink-0">
+      © 2026 All Rights Reserved
+      <br />
+      <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer" style="color: #666; text-decoration: none;">
+        宁ICP备2026002469号-1
+      </a>
+    </footer>
+  </div>
+
   <script>
     // Double click handler
     function handleDoubleClick() {
       alert("🔒 提示：后台安全通道已校验通过，无需重复连接。");
     }
+
+    // VIP有效期校验辅助函数
+    function checkVipActive(vipExpiry) {
+      if (!vipExpiry) return false;
+      if (vipExpiry === '永久有效') return true;
+      try {
+        const expDate = new Date(vipExpiry);
+        const now = new Date();
+        expDate.setHours(0, 0, 0, 0);
+        now.setHours(0, 0, 0, 0);
+        return expDate.getTime() > now.getTime();
+      } catch (e) {
+        return false;
+      }
+    }
+
+    // 展现阻拦页面
+    function showBlockedPage() {
+      const blockedOverlay = document.getElementById('blocked-overlay');
+      if (blockedOverlay) {
+        blockedOverlay.classList.remove('hidden');
+      }
+    }
+
+    const isDeveloperSimulator = typeof window !== 'undefined' && (
+      window.location.hostname.includes('localhost') || 
+      window.location.hostname.includes('127.0.0.1') || 
+      window.location.hostname.includes('webcontainer') || 
+      window.location.hostname.includes('gitpod') || 
+      window.location.hostname.includes('cloudshell') ||
+      window.location.hostname.includes('run.app') ||
+      window.location.hostname.includes('aistudio.google')
+    );
 
     // Geolocation retrieval
     let passengerCoords = null;
@@ -828,13 +918,22 @@ function getHTMLTemplate(driverPhone, driverName, rawStartLocation, adminUrl = "
 
     async function fetchDriverBrandingAndLocation() {
       const driverPhone = "${driverPhone}";
-      if (!driverPhone) return;
+      if (!driverPhone) {
+        if (!isDeveloperSimulator) {
+          showBlockedPage();
+        }
+        return;
+      }
       try {
         // Fetch from driver_users
         const response = await fetch('/api/db/get?col=driver_users&id=' + encodeURIComponent(driverPhone));
         const resData = await response.json();
+        let isVipActive = false;
         if (resData.exists && resData.data) {
           const data = resData.data;
+          if (data.vipExpiry) {
+            isVipActive = checkVipActive(data.vipExpiry);
+          }
           if (data.customAppName) {
             const rawName = data.customAppName.trim();
             if (rawName && rawName !== '极速' && rawName !== '极速代驾' && rawName !== '') {
@@ -857,6 +956,11 @@ function getHTMLTemplate(driverPhone, driverName, rawStartLocation, adminUrl = "
           }
         }
 
+        // 如果不是本地调试开发环境，且会员已过期或无效，强制拉起阻拦页面
+        if (!isVipActive && !isDeveloperSimulator) {
+          showBlockedPage();
+        }
+
         // Fetch current active startLocation from passenger_links
         const linkResponse = await fetch('/api/db/get?col=passenger_links&id=' + encodeURIComponent(driverPhone));
         const linkResData = await linkResponse.json();
@@ -872,6 +976,9 @@ function getHTMLTemplate(driverPhone, driverName, rawStartLocation, adminUrl = "
         }
       } catch (err) {
         console.error('Failed to fetch driver brand and location settings under passenger page:', err);
+        if (!isDeveloperSimulator) {
+          showBlockedPage();
+        }
       }
     }
 

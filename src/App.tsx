@@ -254,7 +254,11 @@ export default function App() {
     if (typeof window === 'undefined') return false;
     const hostname = window.location.hostname;
     const params = new URLSearchParams(window.location.search);
-    return hostname === 'heiwandaijiamax.ccwu.cc' || params.get('admin') === 'true';
+    // If a driver phone or passenger self-service flag is provided via URL, it is NOT standalone admin!
+    if (params.get('passenger') === 'true' || params.has('driver')) {
+      return false;
+    }
+    return hostname === 'admin.lyheiwandaijiamax.com' || params.get('admin') === 'true';
   };
 
   // --- 1. Persistent State Management ---
@@ -328,8 +332,15 @@ export default function App() {
     if (typeof window !== 'undefined') {
       const hostname = window.location.hostname;
       const params = new URLSearchParams(window.location.search);
-      if (hostname === 'heiwandaijiamax.ccwu.cc' || params.get('admin') === 'true') {
+      // Prioritize passenger view for QR code scans
+      if (params.get('passenger') === 'true' || params.has('driver')) {
+        return 'passenger';
+      }
+      if (hostname === 'admin.lyheiwandaijiamax.com' || params.get('admin') === 'true') {
         return 'admin';
+      }
+      if (params.get('wechat_mini') === 'true') {
+        return 'wechat_mini';
       }
     }
     return 'app';
@@ -497,29 +508,34 @@ export default function App() {
 
       const fallbackToBrowserGeolocation = () => {
         if (navigator.geolocation) {
-          navigator.geolocation.getCurrentPosition(
-            (pos) => {
-              const latitude = pos.coords.latitude;
-              const longitude = pos.coords.longitude;
-              updateCoords(latitude, longitude, "HTML5 Geolocation Fallback");
-            },
-            (err) => {
-              console.warn("Driver browser location blocked or unavailable, applying city center fallback:", err.message);
-              setDriverCoords(fallbackGrid);
+          try {
+            navigator.geolocation.getCurrentPosition(
+              (pos) => {
+                const latitude = pos.coords.latitude;
+                const longitude = pos.coords.longitude;
+                updateCoords(latitude, longitude, "HTML5 Geolocation Fallback");
+              },
+              (err) => {
+                console.warn("Driver browser location blocked or unavailable, applying city center fallback:", err.message);
+                setDriverCoords(fallbackGrid);
 
-              if (userPhone && isOnline) {
-                const uRef = doc(db, 'driver_users', userPhone);
-                setDoc(uRef, { 
-                  ...fallbackGrid, 
-                  lastUpdatedBy: "City Center Fallback", 
-                  lastUpdatedTime: new Date().toISOString() 
-                }, { merge: true }).catch((e) => {
-                  console.error("Failed to sync driver fallback coordinates to Firestore:", e);
-                });
-              }
-            },
-            { enableHighAccuracy: true, timeout: 6000 }
-          );
+                if (userPhone && isOnline) {
+                  const uRef = doc(db, 'driver_users', userPhone);
+                  setDoc(uRef, { 
+                    ...fallbackGrid, 
+                    lastUpdatedBy: "City Center Fallback", 
+                    lastUpdatedTime: new Date().toISOString() 
+                  }, { merge: true }).catch((e) => {
+                    console.error("Failed to sync driver fallback coordinates to Firestore:", e);
+                  });
+                }
+              },
+              { enableHighAccuracy: true, timeout: 6000 }
+            );
+          } catch (geoErr) {
+            console.warn("Synchronous geolocation error caught inside iframe fallback:", geoErr);
+            setDriverCoords(fallbackGrid);
+          }
         } else {
           setDriverCoords(fallbackGrid);
           if (userPhone && isOnline) {
@@ -588,7 +604,7 @@ export default function App() {
     const unsubscribe = onSnapshot(configDocRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
-        const activeName = data.activeTemplateName || '系统默认线上计费模版';
+        const activeName = data.activeTemplateName || '线上二维码开单';
         const templatesList = data.templates || [];
         const found = templatesList.find((t: any) => t.templateName === activeName);
         if (found) {
@@ -1331,6 +1347,58 @@ export default function App() {
         );
     }
   };
+
+  // Determine if we should render the clean single-screen view without any of the debug desktop workspace wrappers (header, watermark footer, etc.)
+  const isMobileOrStandalone = () => {
+    if (typeof window === 'undefined') return false;
+    
+    const params = new URLSearchParams(window.location.search);
+    const hasPassengerOrDriver = params.has('driver') || params.get('passenger') === 'true';
+    
+    // 1. Native Capacitor packaged app
+    if (!!(window as any).Capacitor || window.location.protocol === 'capacitor:' || window.location.protocol === 'file:') {
+      return true;
+    }
+    
+    // 2. Query parameters indicating standalone / native mode
+    if (params.get('native') === 'true' || params.get('standalone') === 'true') {
+      return true;
+    }
+    
+    // 3. Under a mobile phone screen width OR mobile user agent (e.g. when passenger scans the QR code on their phone, or driver opens it on phone)
+    if (window.innerWidth < 768) {
+      return true;
+    }
+    
+    // 4. If we are on the passenger self-service page, and it's loaded as a result of a QR scan, and not explicitly being debugged on wide screen
+    if (hasPassengerOrDriver && window.innerWidth < 1024) {
+      return true;
+    }
+    
+    return false;
+  };
+
+  if (isMobileOrStandalone()) {
+    return (
+      <div className="h-screen w-screen bg-[#f8fafc] flex flex-col overflow-hidden text-[#333333]">
+        <div className="flex-1 flex flex-col relative overflow-hidden">
+          {renderView()}
+          
+          {/* Floating toasts for nice user experience */}
+          {showToast && (
+            <div className="absolute top-16 left-4 right-4 bg-teal-600/95 border border-teal-400/20 text-white p-3 rounded-2xl shadow-2xl z-50 animate-in fade-in slide-in-from-top-4 duration-300 flex items-start space-x-2.5">
+              <div className="w-5 h-5 rounded-full bg-emerald-400/20 text-emerald-300 flex items-center justify-center shrink-0 mt-0.5">
+                <CheckCircle className="w-3.5 h-3.5 fill-current" />
+              </div>
+              <span className="text-xs font-semibold leading-relaxed tracking-wide font-sans">
+                {toastMessage}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (isStandaloneAdmin()) {
     return (

@@ -52,17 +52,29 @@ export function getBaseApiUrl(): string {
     }
   } catch (_) {}
   
-  // If we are visiting via heiwandaijiamax.ccwu.cc or any other custom admin domain,
-  // we default to the active database worker node to keep all data 100% interconnected in real-time.
-  if (typeof window !== 'undefined' && (
-    window.location.hostname === 'heiwandaijiamax.ccwu.cc' || 
-    window.location.hostname === 'daijiajifei.ccwu.cc'
-  )) {
-    return 'https://daijiajifei.ccwu.cc';
+  if (typeof window !== 'undefined') {
+    const origin = window.location.origin;
+    const hostname = window.location.hostname;
+    
+    // Check if running as a native Capacitor app
+    const isCapacitor = !!(window as any).Capacitor || 
+                        window.location.protocol === 'capacitor:' || 
+                        window.location.protocol === 'file:';
+                        
+    if (isCapacitor) {
+      return 'https://www.lyheiwandaijiamax.com';
+    }
+    
+    // If it's running inside a native mobile webview/webview scheme on localhost with no port
+    if (hostname === 'localhost' && !window.location.port) {
+      return 'https://www.lyheiwandaijiamax.com';
+    }
+
+    return origin;
   }
 
   // Default to the active Cloudflare Worker database endpoint to ensure 100% real-time data interconnection across all environments by default.
-  return 'https://daijiajifei.ccwu.cc';
+  return 'https://www.lyheiwandaijiamax.com';
 }
 
 // Mirroring firestore imports
