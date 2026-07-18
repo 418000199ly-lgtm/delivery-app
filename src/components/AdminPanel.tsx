@@ -54,7 +54,8 @@ import {
   ShieldCheck,
   KeyRound,
   AlertCircle,
-  Power
+  Power,
+  Database
 } from 'lucide-react';
 import DispatchValetOrder from './DispatchValetOrder';
 import AdminBillingRules from './AdminBillingRules';
@@ -183,7 +184,7 @@ export default function AdminPanel({
       const stored = localStorage.getItem('cloudflare_worker_api_url');
       if (stored && stored.trim()) return stored.trim();
     } catch (_) {}
-    return 'http://admin.lyheiwandaijiamax.com';
+    return 'https://api.lyheiwandaijiamax.com';
   });
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'failed'>('idle');
@@ -304,6 +305,11 @@ export default function AdminPanel({
   const [versionSyncStatus, setVersionSyncStatus] = useState<string>('');
   const [versionHistory, setVersionHistory] = useState<any[]>([]);
 
+  // Database migration states
+  const [migrationLoading, setMigrationLoading] = useState<boolean>(false);
+  const [migrationResult, setMigrationResult] = useState<any>(null);
+  const [migrationError, setMigrationError] = useState<string>('');
+
   // Master switches state variables
   const [masterSwitches, setMasterSwitches] = useState<{
     online_app_enabled: boolean;
@@ -350,6 +356,30 @@ export default function AdminPanel({
     } catch (err: any) {
       console.error("Error updating master switch:", err);
       alert(`操作失败：${err.message}`);
+    }
+  };
+
+  const handleMigrateDatabase = async () => {
+    setMigrationLoading(true);
+    setMigrationResult(null);
+    setMigrationError('');
+    try {
+      const res = await fetch(`${getBaseApiUrl()}/api/db/migrate-from-firestore`);
+      const data = await res.json();
+      if (data.success) {
+        setMigrationResult(data);
+        triggerToast('✓ 数据库一键迁移同步完成！');
+      } else {
+        setMigrationError(data.error || '迁移接口返回失败，请确认您已在 .env 文件中正确配置了 MYSQL_HOST 且成功启动。');
+      }
+    } catch (err: any) {
+      console.error("Migration error:", err);
+      setMigrationError(`网络连接或接口异常: ${err.message || err}。
+💡 异常排查说明：
+1. 如果是跨域错误，或者接口返回HTML（形如 "Unexpected token '<'..."），这代表您宝塔面板中的 Nginx 没有配置对 /api/ 路径的反向代理，静态站点把 API 请求直接当成了静态 HTML 页面处理。
+2. 或者是您的宝塔 MySQL 配置（MYSQL_HOST、MYSQL_USER、MYSQL_PASSWORD）不正确或无法建立外部连接。请确保您已配置并重启了代驾服务器服务。`);
+    } finally {
+      setMigrationLoading(false);
     }
   };
 
@@ -4540,6 +4570,120 @@ export default function AdminPanel({
                       一键开启
                     </button>
                   </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Database Migration & Aliyun MySQL Configuration Panel */}
+            <div className="max-w-4xl bg-[#12141F] rounded-2xl border border-slate-900 p-6 space-y-6 mt-6">
+              <div className="flex items-center space-x-2 border-b border-indigo-950/20 pb-4">
+                <div className="p-2 rounded-xl bg-teal-500/10 text-teal-400">
+                  <Database className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-sans font-black text-sm text-slate-200">自建数据库管理与一键数据迁移</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">将 Firebase Firestore 上的生产数据一键备份并迁移同步到您的自建阿里云宝塔 MySQL</p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="bg-[#090B11] p-4 rounded-xl border border-slate-900 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">当前对接的后端接口地址 (API)</div>
+                    <div className="text-sm font-mono text-teal-400">{getBaseApiUrl()}</div>
+                  </div>
+                  <div className="text-left md:text-right space-y-1">
+                    <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">数据库迁移目标库</div>
+                    <div className="text-sm font-black text-slate-300">阿里云 MySQL (表名: <span className="text-teal-400 font-mono">daijia_documents</span>)</div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    💡 <b>功能原理</b>：当您在代驾服务端的 <span className="text-teal-400 font-mono">.env</span> 文件中配置了 <span className="text-teal-400 font-mono">MYSQL_HOST</span> 连接后，服务端不仅会连接您阿里云宝塔的自建 MySQL 并自动建立存储表，而且本系统会自动接管所有司机、VIP卡密、订单、系统设置等核心读写操作，完全摆脱 Firebase 云数据库。
+                  </p>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    下方按钮能让服务端实时访问目前运行中的 Firebase，拉取目前已存在的全套数据，并高内聚、完整、去重地写入您阿里云宝塔的 <span className="text-teal-400 font-mono">daijia_documents</span> 数据表，实现一键平滑无损迁移！
+                  </p>
+                </div>
+
+                {/* Actions */}
+                <div className="pt-2 flex flex-col gap-3">
+                  <button
+                    onClick={handleMigrateDatabase}
+                    disabled={migrationLoading}
+                    className={`w-full py-3.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                      migrationLoading
+                        ? 'bg-teal-600/50 text-teal-200 cursor-not-allowed'
+                        : 'bg-teal-600 hover:bg-teal-500 active:scale-[0.99] text-white shadow-lg shadow-teal-600/10 cursor-pointer'
+                    }`}
+                  >
+                    {migrationLoading ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        正在极速读取云端 Firebase 并同步写入您的阿里云 MySQL 数据库，请稍候...
+                      </>
+                    ) : (
+                      <>
+                        <Database className="w-4 h-4" />
+                        🚀 立即执行：一键迁移/同步 Firebase 数据到我自己的阿里云 MySQL 数据库
+                      </>
+                    )}
+                  </button>
+
+                  {/* Results report */}
+                  {migrationResult && (
+                    <div className="bg-emerald-950/20 border border-emerald-900/40 rounded-xl p-4 space-y-3 animate-in fade-in duration-200 text-left">
+                      <div className="flex items-center gap-2 text-emerald-400 text-xs font-black">
+                        <CheckCircle className="w-4 h-4 animate-spin" />
+                        {migrationResult.message}
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        一键同步总记录数: <b className="text-emerald-400 font-mono text-sm">{migrationResult.total_documents}</b> 条 (分发在 {migrationResult.total_collections} 个核心数据集中)：
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-[#090B11]/80 p-3 rounded-lg border border-slate-900 font-mono text-[11px]">
+                        {Object.entries(migrationResult.details || {}).map(([col, count]: [string, any]) => (
+                          <div key={col} className="flex justify-between border-b border-slate-900/60 pb-1">
+                            <span className="text-slate-500">{col}:</span>
+                            <span className="text-teal-400 font-bold">{count}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Errors & diagnostics */}
+                  {migrationError && (
+                    <div className="bg-[#1c1214] border border-rose-950/40 rounded-xl p-4 space-y-3 animate-in fade-in duration-200 text-left">
+                      <div className="flex items-start gap-2 text-rose-400 text-xs font-black">
+                        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                        <span>迁移/同步执行失败：</span>
+                      </div>
+                      <pre className="text-xs text-rose-300 font-sans whitespace-pre-wrap leading-relaxed pl-6">
+                        {migrationError}
+                      </pre>
+                      
+                      <div className="border-t border-rose-950/40 pt-3 mt-2 pl-6 space-y-2">
+                        <div className="text-xs text-slate-300 font-black">📝 阿里云宝塔自建数据库及接口部署排查建议：</div>
+                        <ol className="list-decimal pl-4 text-xs text-slate-400 space-y-1.5 leading-relaxed">
+                          <li>
+                            <b>检查宝塔站点 Nginx 反向代理配置</b>：由于您的域名是 <code className="text-slate-300 font-mono bg-slate-950 px-1 py-0.5 rounded">admin.lyheiwandaijiamax.com</code>，如果您直接请求 <code className="text-slate-300 font-mono bg-slate-950 px-1 py-0.5 rounded">/api/*</code> 时报错，请务必在宝塔面板该域名的「设置」-「反向代理」中，添加一条配置：
+                            <div className="bg-[#090B11] p-2 rounded border border-slate-900 my-1 text-[11px] font-mono leading-normal text-teal-400">
+                              代理名称：api_proxy<br/>
+                              代理地址：http://127.0.0.1:3000
+                            </div>
+                            这能确保所有的 API 数据库操作能安全跨过防火墙，顺利由运行在 3000 端口的代驾服务端承接，而不会被 Nginx 当作普通静态页面。
+                          </li>
+                          <li>
+                            <b>确认端口连通性及防火墙</b>：请确保阿里云控制台安全组以及宝塔面板的「系统防火墙」已开放 <code className="text-slate-300 font-mono bg-slate-950 px-1 py-0.5 rounded">3000</code> 端口。
+                          </li>
+                          <li>
+                            <b>在 .env 中正确声明 MySQL 配置</b>：请检查自建服务器上的部署环境变量中已填入真实的 <code className="text-slate-300 font-mono bg-slate-950 px-1 py-0.5 rounded">MYSQL_HOST</code>、<code className="text-slate-300 font-mono bg-slate-950 px-1 py-0.5 rounded">MYSQL_USER</code> 等，并顺利执行了重启启动指令。
+                          </li>
+                        </ol>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

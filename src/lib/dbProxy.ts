@@ -53,28 +53,28 @@ export function getBaseApiUrl(): string {
   } catch (_) {}
   
   if (typeof window !== 'undefined') {
-    const origin = window.location.origin;
-    const hostname = window.location.hostname;
-    
-    // Check if running as a native Capacitor app
-    const isCapacitor = !!(window as any).Capacitor || 
+    // Detect Capacitor or mobile webview environment
+    const isCapacitor = (window as any).Capacitor || 
                         window.location.protocol === 'capacitor:' || 
                         window.location.protocol === 'file:';
-                        
-    if (isCapacitor) {
-      return 'http://admin.lyheiwandaijiamax.com';
-    }
+    const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     
-    // If it's running inside a native mobile webview/webview scheme on localhost with no port
-    if (hostname === 'localhost' && !window.location.port) {
-      return 'http://admin.lyheiwandaijiamax.com';
+    // If running in Capacitor or on a mobile device where localhost points to the device itself,
+    // we must force routing to the production cloud backend API.
+    if (isCapacitor || isMobileDevice) {
+      return 'https://api.lyheiwandaijiamax.com';
     }
 
-    return origin;
+    const hostname = window.location.hostname;
+    if (hostname.includes('run.app') || hostname.includes('localhost') || hostname.includes('127.0.0.1')) {
+      return window.location.origin;
+    }
+    if (hostname.includes('lyheiwandaijiamax.com')) {
+      return 'https://api.lyheiwandaijiamax.com';
+    }
   }
-
-  // Default to the active server database endpoint to ensure 100% real-time data interconnection across all environments by default.
-  return 'http://admin.lyheiwandaijiamax.com';
+  
+  return 'https://api.lyheiwandaijiamax.com';
 }
 
 // Mirroring firestore imports

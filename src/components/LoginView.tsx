@@ -203,20 +203,6 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
       {/* Mock Phone System Bar Spacer */}
       <div className="h-6 bg-black shrink-0"></div>
 
-      {/* Settings Gear Button for API Config */}
-      <button
-        type="button"
-        onClick={() => {
-          setShowApiModal(true);
-          setTestStatus('idle');
-          setTestMessage('');
-        }}
-        className="absolute right-4 top-8 p-1.5 rounded-full bg-slate-900/80 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-[#189F95] cursor-pointer transition-all z-20"
-        title="配置服务器端点"
-      >
-        <Settings className="w-4 h-4" />
-      </button>
-
       {/* Brand Header */}
       <div className="px-6 pt-6 shrink-0 text-center">
         <h1 className="text-xl font-black text-slate-100 tracking-tight">黑湾代驾计费MAX</h1>

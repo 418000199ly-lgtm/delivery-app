@@ -943,7 +943,7 @@ export default function CreateOrderView({
 
   const passengerScanUrl = (() => {
     if (typeof window === 'undefined') {
-      return `http://admin.lyheiwandaijiamax.com/passenger_order.html?driver=${encodeURIComponent(userPhone || '18609518888')}&name=${encodeURIComponent(settings?.customAppName?.trim() || 'XX代驾')}&startLocation=${encodeURIComponent(startLocation || '')}`;
+      return `https://lyheiwandaijiamax.com/passenger_order.html?driver=${encodeURIComponent(userPhone || '18609518888')}&name=${encodeURIComponent(settings?.customAppName?.trim() || 'XX代驾')}&startLocation=${encodeURIComponent(startLocation || '')}`;
     }
     const hostname = window.location.hostname;
     const origin = window.location.origin;
@@ -962,7 +962,7 @@ export default function CreateOrderView({
     let basePath = '/passenger_order.html';
     
     if (isLocal) {
-      baseOrigin = 'http://admin.lyheiwandaijiamax.com';
+      baseOrigin = 'https://lyheiwandaijiamax.com';
     } else {
       if (customWorkerApiUrl) {
         try {

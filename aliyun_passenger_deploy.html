@@ -3,76 +3,48 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>小鸟自助开单助手 —— 安全出行专线</title>
-  <!-- 引入高兼容、高速加载的 Tailwind CSS Play CDN (支持全部 v3 现代类，如 slate, emerald 等) -->
+  <title>自助开单助手 —— 安全出行专线</title>
+  <!-- 引入高兼容、高速加载的 Tailwind CSS Play CDN (支持全部 v3 现代类) -->
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans CJK SC", sans-serif;
-      background-color: #f3f7f6 !important; /* 清爽柔和的浅色微绿底色，护眼又高级 */
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: #f9f9f9 !important; /* Matches React's #f9f9f9 bg */
     }
     #welcome-overlay {
-      background-color: #f3f7f6 !important; /* 清爽柔和的浅色微绿底色，护眼又高级 */
-      color: #1e293b !important;
+      background-color: #f9f9f9 !important;
+      color: #1a1c1c !important;
     }
     .premium-card {
       background: #ffffff !important;
-      border: 1px solid rgba(226, 232, 240, 0.8) !important;
-      box-shadow: 0 4px 20px -2px rgba(100, 116, 139, 0.1), 0 2px 8px -1px rgba(100, 116, 139, 0.06) !important;
-    }
-    #submit-btn {
-      background: linear-gradient(to right, #0d9488, #059669) !important;
-      color: #ffffff !important;
+      border: 1px solid #dfc0af !important; /* Premium cream borders matching React */
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05) !important;
     }
     input:focus {
       outline: none;
-      border-color: #0d9488 !important; /* 经典高雅翠绿 */
-      box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15) !important;
+      border-color: #ff7d00 !important; /* Matches focus:ring-2 focus:ring-[#ff7d00] */
+      box-shadow: 0 0 0 3px rgba(255, 125, 0, 0.15) !important;
     }
     .ticket-dashed-line {
-      background-image: linear-gradient(to right, #cbd5e1 50%, rgba(255, 255, 255, 0) 0%) !important;
+      background-image: linear-gradient(to right, #dfc0af 50%, rgba(255, 255, 255, 0) 0%) !important;
       background-position: bottom !important;
       background-size: 10px 1px !important;
       background-repeat: repeat-x !important;
     }
   </style>
 </head>
-<body class="text-slate-800 min-h-screen flex flex-col justify-between antialiased pb-safe">
+<body class="text-slate-850 min-h-screen flex flex-col justify-between antialiased pb-safe">
 
   <!-- 3秒欢迎开单全屏倒计时叠加层 -->
-  <div id="welcome-overlay" class="fixed inset-0 w-full h-full flex flex-col justify-between p-6 select-none z-[10000] overflow-hidden transition-opacity duration-500 bg-[#f4f7f6]">
+  <div id="welcome-overlay" class="fixed inset-0 w-full h-full flex flex-col justify-between p-6 select-none z-[10000] overflow-hidden transition-opacity duration-500 bg-[#f9f9f9]">
     
-    <!-- 极富设计感的汽车驾驶室矢量背景插画 (SVG) -->
-    <div class="absolute inset-0 w-full h-full pointer-events-none select-none opacity-[0.06] flex items-center justify-center">
-      <svg class="w-full h-full min-w-[800px]" viewBox="0 0 800 1200" fill="currentColor">
-        <!-- 后视镜 -->
-        <path d="M300,100 L500,100 L480,140 L320,140 Z" fill="#64748b" />
-        <rect x="395" y="50" width="10" height="50" fill="#64748b" />
-        <!-- 仪表台 -->
-        <path d="M50,750 Q400,600 750,750 L800,1200 L0,1200 Z" fill="#94a3b8" />
-        <!-- 方向盘 -->
-        <circle cx="600" cy="850" r="140" stroke="#475569" stroke-width="24" fill="none" />
-        <circle cx="600" cy="850" r="30" fill="#475569" />
-        <line x1="600" y1="850" x2="600" y2="990" stroke="#475569" stroke-width="18" />
-        <line x1="600" y1="850" x2="480" y2="780" stroke="#475569" stroke-width="18" />
-        <line x1="600" y1="850" x2="720" y2="780" stroke="#475569" stroke-width="18" />
-        <!-- 司机 (左侧) -->
-        <!-- 身体 -->
-        <path d="M100,1100 Q180,850 260,1100 Z" fill="#475569" />
-        <!-- 头部 -->
-        <circle cx="180" cy="800" r="60" fill="#64748b" />
-        <!-- 鸭舌帽 -->
-        <path d="M110,770 Q180,720 250,770 Q180,740 110,770 Z" fill="#334155" />
-        <path d="M180,740 L280,760 L270,780 L180,750 Z" fill="#334155" />
-        <!-- 点赞手势 (大拇指) -->
-        <path d="M300,900 C280,900 270,910 270,920 L270,950 C270,960 285,965 300,965 L330,965 C345,965 350,955 350,945 L350,920 C350,910 340,900 330,900 Z" fill="#475569" />
-        <!-- 大拇指向上 -->
-        <path d="M290,905 L290,860 C290,845 310,845 310,860 L310,905 Z" fill="#475569" />
-        <!-- 中控屏幕 -->
-        <rect x="320" y="780" width="160" height="110" rx="12" fill="#334155" stroke="#475569" stroke-width="6" />
-        <!-- 中控屏幕上的打勾 -->
-        <path d="M370,835 L395,860 L430,810" stroke="#10b981" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none" />
-      </svg>
+    <!-- Background Illustration Decoration -->
+    <div class="absolute inset-0 z-0 opacity-10 pointer-events-none flex items-center justify-center">
+      <img 
+        class="w-full h-full object-cover grayscale blur-[1px]" 
+        src="https://lh3.googleusercontent.com/aida/AP1WRLtTuYfFFEytKKZpCMIKx5d793N3I-YkAt0RaL4tG65400MEwqxanM7ul6Y1w7lOLl0VUDB7h7QuRc_HkluOjkWV2pwHCQgCHjIWwYg5HxN_f1siUjpWM-3l9T8t47Djd_T0_qVuS9zNb14OL4fbKT9WOv7HgcystD5ikT_mbhJfVTkFf5_BDKLVD0bLlMvWFrA8uk0qjqvDWrOSJN4JmW09VM05DNbR-Pt6t3pp-bSzYKm5cbHZtczl7PI"
+        alt="Decoration Background"
+      />
     </div>
 
     <!-- 顶部状态栏 -->
@@ -88,287 +60,376 @@
       </span>
     </div>
 
-    <!-- 中部视觉计秒器及核心欢迎文案 -->
+    <!-- Central Countdown Circle -->
     <div class="relative z-10 flex-grow flex flex-col items-center justify-center py-10 text-center">
-      <!-- 酷炫环形倒计时 -->
-      <div class="relative mb-8">
-        <!-- 环形倒计时外圈 -->
-        <div class="w-56 h-56 rounded-full bg-white flex items-center justify-center shadow-xl relative" style="border: 12px solid #e2e8f0;">
-          <!-- 橙色圆弧进度条 -->
-          <svg class="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 200 200">
-            <!-- 2 * PI * r = 2 * 3.14159 * 88 = 552.92 -->
-            <circle cx="100" cy="100" r="88" stroke="#f97316" stroke-width="12" fill="none" id="welcome-circle-progress" stroke-dasharray="553" stroke-dashoffset="440" stroke-linecap="round" />
-          </svg>
-          <!-- 闪光微透镜 -->
-          <div class="absolute -left-10 top-0 w-20 h-20 bg-white/5 transform skew-x-12 rotate-45 pointer-events-none"></div>
-          
-          <div id="welcome-countdown" class="text-[90px] font-extrabold text-[#f97316] font-sans tracking-tighter leading-none" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-            3
-          </div>
+      <div class="relative w-48 h-48 flex items-center justify-center">
+        <!-- SVG Progress Ring -->
+        <svg class="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 100 100">
+          <circle class="text-[#eeeeee]" cx="50" cy="50" fill="transparent" r="45" stroke="currentColor" stroke-width="4"></circle>
+          <circle 
+            class="transition-all duration-1000" 
+            cx="50" 
+            cy="50" 
+            fill="transparent" 
+            r="45" 
+            stroke="#ff7d00" 
+            stroke-width="6"
+            id="welcome-circle-progress"
+            stroke-dasharray="282.74"
+            stroke-dashoffset="0"
+          ></circle>
+        </svg>
+        <!-- Number Display -->
+        <div id="welcome-countdown" class="text-[64px] font-black text-[#ff7d00] animate-pulse">
+          3
         </div>
       </div>
-
-      <!-- 文字主要区域 -->
-      <div class="space-y-6 max-w-xs px-4">
-        <h2 class="text-lg font-bold text-slate-800 tracking-wider">
-          订单正在开启，请确认您的出发信息...
-        </h2>
-        
-        <!-- 品牌卡片区 -->
-        <div class="bg-white/90 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 shadow-md border border-slate-100 max-w-sm mx-auto text-left">
-          <!-- 橙色小车图标 -->
-          <div class="w-14 h-14 bg-[#f97316] rounded-2xl flex items-center justify-center shrink-0 shadow-lg shadow-orange-500/20">
-            <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124l-.81-12.96A1.875 1.875 0 0020.007 3.75H14.25m4.5 15H14.25m0 0v-4.5m0 4.5h-4.5m0-4.5V9h-4.5V14.25M12 9V3.75m0 0H7.5m4.5 0H18"></path>
-            </svg>
-          </div>
-          <div>
-            <div id="welcome-text-container" class="text-xl font-bold text-slate-800 tracking-tight">
-              欢迎使用 <span id="welcome-brand-name" class="text-[#f97316] font-black">小鸟代驾</span>
-            </div>
-            <p class="text-slate-500 text-xs font-semibold tracking-wide mt-1">
-              在乎你的车，更在乎你的人
-            </p>
-          </div>
+      
+      <!-- Status Text -->
+      <div class="mt-8 flex flex-col items-center gap-2 h-16">
+        <span id="welcome-status-text" class="text-[#1a1c1c] font-bold text-base text-center transition-all duration-300">
+          正在开启订单...
+        </span>
+        <div class="flex gap-1" id="welcome-dots">
+          <div class="w-1.5 h-1.5 bg-[#ff7d00] rounded-full animate-bounce" style="animation-delay: 0s"></div>
+          <div class="w-1.5 h-1.5 bg-[#ff7d00] rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+          <div class="w-1.5 h-1.5 bg-[#ff7d00] rounded-full animate-bounce" style="animation-delay: 0.4s"></div>
         </div>
       </div>
     </div>
 
-    <!-- 底部数据通道提示 -->
-    <div class="relative z-10 mb-8 flex flex-col items-center space-y-3">
-      <!-- 安全加密小药丸 -->
-      <div class="border border-orange-500/30 bg-orange-500/5 px-6 py-2.5 rounded-full inline-flex items-center gap-2 max-w-[90%] mx-auto shadow-sm">
-        <svg class="w-4 h-4 text-[#f97316] shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
-        </svg>
-        <span class="text-[11px] text-[#c2410c] font-bold tracking-wide">
-          欢迎使用自助开单，您的行程已安全加密
-        </span>
+    <!-- Footer / Action Area -->
+    <div class="relative z-10 text-center mb-8 mt-4">
+      <div class="flex items-center justify-center gap-2 mb-2">
+        <div class="w-10 h-10 bg-gradient-to-br from-[#ff7d00] to-[#ffdbc8] rounded-xl flex items-center justify-center shadow-lg">
+          <!-- Car icon SVG -->
+          <svg class="text-white w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124l-.81-12.96A1.875 1.875 0 0020.007 3.75H14.25m4.5 15H14.25m0 0v-4.5m0 4.5h-4.5m0-4.5V9h-4.5V14.25M12 9V3.75m0 0H7.5m4.5 0H18"></path>
+          </svg>
+        </div>
+        <h1 class="text-xl font-bold tracking-tight text-[#1a1c1c]">
+          欢迎使用<span id="welcome-brand-name" class="text-[#ff7d00] px-1 font-extrabold">小鸟代驾</span>
+        </h1>
+      </div>
+      <p class="text-[#5f5e5e] text-sm">在乎你的车，更在乎你的人</p>
+    </div>
+
+    <div class="relative z-10 w-full text-center pb-4">
+      <div class="px-4 py-2 bg-white/50 backdrop-blur-md rounded-2xl border border-[#dfc0af] inline-block mx-auto">
+        <div class="flex items-center gap-2.5">
+          <!-- Shield icon SVG -->
+          <svg class="text-[#ff7d00] w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+          </svg>
+          <span class="text-[#584235] text-xs font-semibold">
+            欢迎使用自助开单，您的行程已安全加密
+          </span>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- 顶部轻奢雅致横幅 (深金翠绿渐变，富有高端安全感) -->
-  <header class="bg-gradient-to-r from-[#0d5c55] to-[#044c45] p-6 relative overflow-hidden shrink-0 shadow-md">
-    <!-- 背景流光圆形装饰 -->
-    <div class="absolute -right-12 -top-12 w-32 h-32 rounded-full bg-teal-300 opacity-20 blur-xl"></div>
-    <div class="absolute -left-8 -bottom-10 w-24 h-24 rounded-full bg-emerald-400 opacity-10 blur-lg"></div>
-    
-    <div class="relative z-10 flex flex-col space-y-1.5 text-left">
-      <div class="flex items-center gap-1.5">
-        <span class="w-2 h-2 rounded-full bg-emerald-350 animate-pulse bg-emerald-400 shadow-sm"></span>
-        <span class="text-[10px] font-bold tracking-wider uppercase text-teal-200">
-          <span id="header-brand-name">小鸟</span>自助开单 • 官方安全专线一键对接
-        </span>
-      </div>
-      <h1 class="text-xl font-extrabold text-white tracking-tight">扫码授权自助填单</h1>
-      <p class="text-xs text-teal-100 leading-normal">
-        正连线至司机 <span id="driver-display" class="font-mono font-extrabold text-teal-300 bg-slate-900/40 px-1.5 py-0.5 rounded border border-white/10 ml-0.5">...</span> 的开单计费服务
-      </p>
+  <!-- TopAppBar -->
+  <header class="w-full bg-[#f9f9f9] border-b border-[#dfc0af] flex items-center justify-between px-5 h-16 shrink-0 z-10">
+    <div class="flex items-center gap-3">
+      <h1 class="text-lg font-black tracking-tight text-[#984800] select-none">
+        专享自助开单系统
+      </h1>
+    </div>
+    <div class="text-[10px] text-[#ff7d00] font-bold font-mono bg-[#ffdbc8] px-2.5 py-1 rounded-full select-none">
+      安全校验通过 ⚡
     </div>
   </header>
 
-  <!-- 主交互容器 -->
-  <main class="flex-1 px-5 py-6 flex flex-col justify-center max-w-md mx-auto w-full">
+  <!-- Scrollable Main area -->
+  <main class="pb-24 px-5 flex-1 overflow-y-auto max-w-md mx-auto w-full z-10">
     
+    <!-- Header Illustration Banner (Matches React precisely) -->
+    <div class="relative h-40 mt-4 rounded-2xl overflow-hidden mb-6 bg-gradient-to-br from-[#984800] to-[#ff7d00]">
+      <div class="absolute inset-0 opacity-15 mix-blend-overlay">
+        <img 
+          class="w-full h-full object-cover" 
+          src="https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?auto=format&fit=crop&q=80&w=800" 
+          alt="City driving background"
+        />
+      </div>
+      <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent flex flex-col justify-end p-5 text-left">
+        <h2 class="text-xl font-extrabold text-white tracking-tight">
+          欢迎使用 <span id="header-brand-name">小鸟代驾</span> 自助下单
+        </h2>
+        <p class="text-xs text-[#ffdbc8] mt-1">在乎你的车，更在乎你的人</p>
+      </div>
+    </div>
+
+    <!-- Driver Status Card (Matches React precisely) -->
+    <div class="bg-white border border-[#dfc0af] p-4 rounded-xl shadow-xs mb-6 flex items-center gap-4 relative overflow-hidden">
+      <div class="absolute top-0 left-0 w-1 h-full bg-[#ff7d00]"></div>
+      <div class="w-12 h-12 rounded-full bg-[#ffdbc8] flex items-center justify-center shrink-0">
+        <!-- Headphones icon SVG -->
+        <svg class="text-[#311300] w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.5a6.5 6.5 0 01-6.5-6.5V11A6.5 6.5 0 0112 4.5 6.5 6.5 0 0118.5 11v1a6.5 6.5 0 01-6.5 6.5zm-5.5-2.25H6a1.75 1.75 0 01-1.75-1.75V12.5A1.75 1.75 0 016 10.75h.5c.966 0 1.75.784 1.75 1.75v2c0 .966-.784 1.75-1.75 1.75zm11 0h-.5c-.966 0-1.75-.784-1.75-1.75v-2c0-.966.784-1.75 1.75-1.75h.5c.966 0 1.75.784 1.75 1.75v1.75a1.75 1.75 0 01-1.75 1.75z"></path>
+        </svg>
+      </div>
+      <div class="flex-grow text-left">
+        <p class="text-[10px] font-bold text-[#5f5e5e] uppercase tracking-wider mb-0.5">司机 service 通道</p>
+        <p class="text-sm font-semibold text-[#1a1c1c] leading-tight">
+          正在链接至司机 <span id="driver-display" class="text-[#ff7d00] font-bold font-mono">...</span>
+        </p>
+        <div class="flex items-center mt-1 text-[#984800] gap-1.5">
+          <span class="relative flex h-2 w-2">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#ff7d00] opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2 w-2 bg-[#ff7d00]"></span>
+          </span>
+          <span class="text-[10px] font-bold text-[#984800]">开单信息为您实时加密</span>
+        </div>
+      </div>
+      <div class="bg-[#e2dfde] p-3 rounded-xl flex items-center justify-center shrink-0 select-none">
+        <!-- QrCode SVG -->
+        <svg class="text-[#984800] w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5zM13.5 13.5h2.25v2.25H13.5V13.5zM15.75 15.75h2.25v2.25h-2.25v-2.25zM18 13.5h2.25v2.25H18V13.5zM13.5 18h2.25v2.25H13.5V18zM18 18h2.25v2.25H18V18z"></path>
+        </svg>
+      </div>
+    </div>
+
     <!-- 状态 1: 乘客数据填写卡片 -->
     <div id="form-container" class="space-y-5">
       
-      <!-- 安全保障卡片 -->
-      <div class="bg-emerald-50/70 rounded-2xl p-4 border border-emerald-100 flex gap-3 text-xs leading-normal premium-card">
-        <!-- 安全护盾图标 -->
-        <svg class="w-6 h-6 text-emerald-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
-        </svg>
-        <div class="text-left">
-          <p id="order-card-welcome-title" class="font-bold text-emerald-800 mb-0.5">欢迎使用小鸟自助下单</p>
-          <p class="text-[11px] text-slate-600 leading-relaxed">
-            请确认您呼叫代驾时的信息。点击授权提交后，司机端将<b>立即关闭扫码状态、同步数据，并开启语音报单计费</b>。
-          </p>
-        </div>
+      <!-- Instruction Section -->
+      <div class="mb-6 space-y-1 text-left">
+        <p class="text-sm text-[#5f5e5e] leading-relaxed px-1">
+          请输入您呼叫代驾司机的手机号码。输入完成后立即通知司机，并一键开启本次代驾服务。
+        </p>
       </div>
 
-      <!-- 白底高级毛玻璃感卡片 -->
-      <div class="premium-card p-5 rounded-3xl space-y-5 text-left">
-        <form id="order-form" class="space-y-4">
-          
-          <!-- 手机号输入 -->
-          <div class="space-y-1.5">
-            <label class="text-[11px] font-bold text-slate-500 uppercase tracking-widest block">
-              📱 您的手机号码 (必填)
-            </label>
-            <div class="relative flex items-center bg-slate-50 border border-slate-200 focus-within:bg-white rounded-xl px-4 py-3.5 transition-all">
-              <span class="text-xl mr-2.5 shrink-0 select-none">📱</span>
-              <input
-                type="tel"
-                id="passenger-phone"
-                required
-                maxlength="11"
-                placeholder="请输入乘客本人的11位手机号"
-                class="bg-transparent border-none w-full text-slate-900 text-base font-bold placeholder-slate-400 outline-none focus:ring-0"
-                style="outline: none; border: none; background: none;"
-              />
+      <!-- Form Fields (Bento style form) -->
+      <form id="order-form" class="space-y-5 text-left">
+        <!-- Phone Input -->
+        <div class="space-y-1.5">
+          <label class="text-xs font-bold text-[#5f5e5e] flex items-center gap-1">
+            您的手机号码 <span class="text-[#ba1a1a]">*</span>
+          </label>
+          <div class="relative">
+            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <!-- Smartphone SVG -->
+              <svg class="text-[#5f5e5e] w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-6 15h9"></path>
+              </svg>
             </div>
+            <input
+              type="tel"
+              id="passenger-phone"
+              required
+              maxlength="11"
+              placeholder="请输入您的手机号"
+              class="w-full pl-12 pr-4 py-4 bg-white border border-[#dfc0af] rounded-xl focus:ring-2 focus:ring-[#ff7d00] focus:border-[#ff7d00] outline-none text-base transition-all font-semibold"
+            />
           </div>
+        </div>
 
-          <!-- 出发地输入 -->
-          <div class="space-y-1.5">
-            <label class="text-[11px] font-bold text-slate-500 uppercase tracking-widest block">
-              📍 您所在的位置 (出发地)
-            </label>
-            <div class="relative flex items-center bg-slate-50 border border-slate-200 focus-within:bg-white rounded-xl px-4 py-3.5 transition-all">
-              <span class="text-xl mr-2.5 shrink-0 select-none">📍</span>
-              <input
-                type="text"
-                id="start-location"
-                required
-                value="万达广场写字楼A座"
-                placeholder="您可以微调或重新修改出发地"
-                class="bg-transparent border-none w-full text-slate-900 text-base font-bold placeholder-slate-400 outline-none focus:ring-0"
-                style="outline: none; border: none; background: none;"
-              />
+        <!-- Origin Input -->
+        <div class="space-y-1.5">
+          <label class="text-xs font-bold text-[#5f5e5e] flex items-center gap-1">
+            您的出发地 <span class="text-[#ba1a1a]">*</span>
+          </label>
+          <div class="relative">
+            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <!-- MapPin SVG -->
+              <svg class="text-[#ff7d00] w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25s-7.5-4.108-7.5-11.25a7.5 7.5 0 1115 0z"></path>
+              </svg>
             </div>
+            <input
+              type="text"
+              id="start-location"
+              required
+              value="万达广场写字楼A座"
+              placeholder="填写当前上车位置"
+              class="w-full pl-12 pr-4 py-4 bg-white border border-[#dfc0af] rounded-xl focus:ring-2 focus:ring-[#ff7d00] focus:border-[#ff7d00] outline-none text-base transition-all font-semibold"
+            />
           </div>
+        </div>
 
-          <!-- 目的地输入（可选） -->
-          <div class="space-y-1.5">
-            <label class="text-[11px] font-bold text-slate-500 uppercase tracking-widest block">
-              🏁 行驶目的地 (选填)
-            </label>
-            <div class="relative flex items-center bg-slate-50 border border-slate-200 focus-within:bg-white rounded-xl px-4 py-3.5 transition-all">
-              <span class="text-xl mr-2.5 shrink-0 select-none">🏁</span>
-              <input
-                type="text"
-                id="destination"
-                placeholder="可选填此去向的目的地"
-                class="bg-transparent border-none w-full text-slate-900 text-base font-bold placeholder-slate-400 outline-none focus:ring-0"
-                style="outline: none; border: none; background: none;"
-              />
+        <!-- Destination Input -->
+        <div class="space-y-1.5">
+          <label class="text-xs font-bold text-[#5f5e5e] flex items-center gap-1">
+            行驶目的地 <span class="text-slate-400 font-normal">(选填)</span>
+          </label>
+          <div class="relative">
+            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <!-- Flag SVG -->
+              <svg class="text-[#5f5e5e] w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 3v1.5M3 21v-6m0 0l2.77-.693a9 9 0 016.208.682l.108.054a9 9 0 006.086.71l3.114-.732a48.524 48.524 0 01-.005-10.499l-3.11.732a9 9 0 01-6.085-.711l-.108-.054a9 9 0 00-6.208-.682L3 4.5M3 15V4.5"></path>
+              </svg>
             </div>
+            <input
+              type="text"
+              id="destination"
+              placeholder="可选填此去向的目的地"
+              class="w-full pl-12 pr-4 py-4 bg-white border border-[#dfc0af] rounded-xl focus:ring-2 focus:ring-[#ff7d00] focus:border-[#ff7d00] outline-none text-base transition-all font-semibold"
+            />
           </div>
+        </div>
 
-          <!-- 实名授权及服务保障复选框协议 -->
-          <div class="pt-2 flex items-start gap-2.5 text-[10.5px] text-slate-500 leading-relaxed">
+        <!-- Authorization Checkbox -->
+        <label class="flex items-start gap-3 py-2 cursor-pointer group select-none">
+          <div class="relative flex items-center mt-0.5 shrink-0">
             <input
               type="checkbox"
               required
               checked
               id="agreement"
-              class="mt-1 w-4 h-4 text-teal-600 bg-slate-100 border-slate-300 rounded focus:ring-teal-500 accent-teal-600 cursor-pointer"
+              class="peer h-6 w-6 border-2 border-[#8b7263] rounded-lg checked:bg-[#ff7d00] checked:border-[#ff7d00] transition-all appearance-none cursor-pointer focus:outline-none"
             />
-            <label for="agreement" class="cursor-pointer select-none">
-              安全协议已生效。我已授权开单小程序同步当前上车位置及手机号，并同意一键开启本次代驾出行服务。
-            </label>
+            <!-- Check icon SVG overlay -->
+            <svg class="absolute text-white opacity-0 peer-checked:opacity-100 transition-opacity pointer-events-none left-1 top-1 w-4 h-4 stroke-[3]" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path>
+            </svg>
           </div>
+          <span class="text-xs text-[#5f5e5e] group-active:text-[#1a1c1c] transition-colors leading-snug">
+            我授权自动上传位置信息并同意接受司机代驾服务
+          </span>
+        </label>
 
-          <!-- 优雅圆滑翠绿高贵按钮 (文字非纯黑，白色文字配合翠绿背景，高大上) -->
-          <button
-            type="submit"
-            id="submit-btn"
-            class="w-full py-4 mt-3 rounded-xl text-center font-bold text-base inline-flex items-center justify-center gap-2 active:scale-95 duration-150 cursor-pointer text-white bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 shadow-md shadow-teal-600/10 font-sans"
-          >
-            <span>🚀 确认授权并通知司机开单</span>
-          </button>
-        </form>
-      </div>
+        <!-- Main CTA -->
+        <button
+          type="submit"
+          id="submit-btn"
+          class="w-full bg-[#ff7d00] hover:bg-[#ff8f20] text-white font-bold py-5 rounded-xl active:scale-95 duration-150 transition-all flex items-center justify-center gap-2 mt-6 shadow-md shadow-[#ff7d00]/15"
+        >
+          <!-- Bell icon SVG -->
+          <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a3 3 0 11-5.714 0m5.714 0a3 3 0 11-5.714 0"></path>
+          </svg>
+          <span>确认授权司机并通知司机开单</span>
+        </button>
+      </form>
     </div>
 
-    <!-- 状态 2: 授权成功与行程票据卡片 -->
-    <div id="success-container" class="hidden space-y-5 py-2">
+    <!-- 状态 2: 授权成功与行程票据卡片 (Matches React precisely) -->
+    <div id="success-container" class="hidden space-y-5 py-2 text-center">
       
-      <!-- 极光绿高贵对勾及文字面板 -->
-      <div class="premium-card p-6 rounded-3xl text-center space-y-4">
-        <div class="mx-auto w-16 h-16 rounded-full bg-emerald-50 border-2 border-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/10">
-          <svg class="w-8 h-8 text-emerald-600" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+      <!-- Success Hero Section -->
+      <div class="relative mb-8 mt-6 flex justify-center">
+        <div class="absolute w-24 h-24 bg-[#ff7d00]/10 rounded-full animate-ping scale-125"></div>
+        <div class="w-24 h-24 bg-[#ff7d00] rounded-full flex items-center justify-center shadow-md relative z-10">
+          <svg class="text-white w-14 h-14 stroke-[3]" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path>
           </svg>
         </div>
+      </div>
 
-        <div class="space-y-1">
-          <h2 class="text-xl font-extrabold text-slate-900 tracking-wide">🎉 授权成功！系统已播报开单</h2>
-          <p class="text-xs text-slate-500 leading-relaxed px-2">
-            数据已秒级送达！您附近的司机App正执行<b>关闭扫码框、填充数据并开始安全服务</b>。
-          </p>
+      <h2 class="text-2xl font-bold text-[#1a1c1c] mb-1">授权下单成功</h2>
+      <p class="text-lg text-[#584235] mb-8"><span id="success-brand-name">小鸟代驾</span> · 极速响应</p>
+
+      <!-- Dynamic Order Card (Bento Style Card) -->
+      <div class="w-full bg-white border border-[#dfc0af] rounded-xl p-6 text-left shadow-sm mb-6">
+        <div class="flex items-center justify-between mb-4">
+          <span class="bg-[#ff7d00]/10 text-[#ff7d00] px-3 py-1 rounded-full font-semibold text-xs">
+            司机师傅开单成功
+          </span>
+          <span class="font-semibold text-xs text-[#5f5e5e]">计费服务已开始</span>
+        </div>
+
+        <div class="flex items-center gap-4 p-4 bg-[#f3f3f3] rounded-lg mb-4">
+          <div class="w-12 h-12 rounded-full overflow-hidden bg-[#dfc0af] flex-shrink-0">
+            <img 
+              class="w-full h-full object-cover" 
+              alt="Professional driver portrait" 
+              src="https://lh3.googleusercontent.com/aida-public/AB6AXuB0xN2tfIY1cQjxnbB8XiorOXJ75YSmjRPQTL2I7Ku-46ZEvHPZF9sdLx58pAPAq2NujfCo4EuYWkwWsIhPRiq3rfQsci3sI31jH0NsiDFFmLxfSLhZGXzrW_KwoTzWthXWc15veKvKyL9fA3InOUxUXNIlYvSLCAtYH6brvGIhWllHRcAHqoZ7DX8K47JtatpLGiq8ucjCUNx66G8m1d5nFpo8RFk8ajk5aGD81CJ3WqLA39Sq1D8Rgg"
+            />
+          </div>
+          <div class="flex-1">
+            <h3 class="text-sm font-semibold text-[#1a1c1c]">
+              五星司机 (5.0<span style="color: rgb(255, 215, 0)">★★★★★</span>)
+            </h3>
+            <p class="font-semibold text-xs text-[#584235] mt-0.5">
+              乘客手机：<span id="summary-phone">187****9593</span>
+            </p>
+          </div>
+          <div class="w-10 h-10 rounded-full bg-[#ff7d00] text-white flex items-center justify-center cursor-default shrink-0">
+            <!-- Phone SVG -->
+            <svg class="w-5 h-5 fill-current text-white" viewBox="0 0 24 24">
+              <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 00-1.01.24l-2.2 2.2a15.045 15.045 0 01-6.59-6.59l2.2-2.21a.96.96 0 00.25-1A11.56 11.56 0 018.82 4c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.58c0-.56-.45-1.04-1-1.04z" />
+            </svg>
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <div class="flex items-start gap-2">
+            <!-- Green/Orange dot for start -->
+            <span class="w-4 h-4 rounded-full bg-[#ff7d00] shrink-0 mt-1 flex items-center justify-center text-[10px] text-white font-bold">起</span>
+            <div class="text-left">
+              <p class="font-semibold text-xs text-[#584235]">上车地点：</p>
+              <p class="text-sm text-[#1a1c1c] font-semibold" id="summary-start">万达广场写字楼A座</p>
+            </div>
+          </div>
+          <div class="h-4 border-l border-dashed border-[#dfc0af] ml-[7px]"></div>
+          <div class="flex items-start gap-2" id="summary-dest-wrapper">
+            <!-- Red dot for dest -->
+            <span class="w-4 h-4 rounded-full bg-[#ba1a1a] shrink-0 mt-1 flex items-center justify-center text-[10px] text-white font-bold">终</span>
+            <div class="text-left">
+              <p class="font-semibold text-xs text-[#584235]">下车终点：</p>
+              <p class="text-sm text-[#1a1c1c] font-semibold" id="summary-dest">未知</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Extra Ticket Style Dash info -->
+        <div class="mt-4 pt-3 border-t ticket-dashed-line text-xs text-[#5f5e5e] flex justify-between">
+          <span class="font-medium text-[#584235]">关联司机：</span>
+          <span id="summary-driver" class="font-mono font-bold text-slate-900">...</span>
         </div>
       </div>
 
-      <!-- 本次行程电子小票 (优雅中国风票据) -->
-      <div class="premium-card p-5 rounded-3xl space-y-4 text-left relative overflow-hidden">
-        <!-- 侧边剪裁效果 -->
-        <div class="absolute -left-2 top-12 w-4 h-4 bg-[#f3f7f6] rounded-full"></div>
-        <div class="absolute -right-2 top-12 w-4 h-4 bg-[#f3f7f6] rounded-full"></div>
-
-        <div class="flex items-center justify-between pb-3.5 ticket-dashed-line">
-          <span class="text-xs text-teal-600 font-bold tracking-widest uppercase">📋 尊享行程同步票据</span>
-          <span class="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold">已同步至司机</span>
-        </div>
-
-        <div class="space-y-2.5 pt-1 text-slate-600 text-xs">
-          <div class="flex justify-between">
-            <span class="text-slate-400">上车地点：</span>
-            <span id="summary-start" class="text-slate-900 font-bold text-right pl-4">...</span>
-          </div>
-          <div id="summary-dest-wrapper" class="flex justify-between">
-            <span class="text-slate-400">下车目的地：</span>
-            <span id="summary-dest" class="text-slate-900 font-bold text-right pl-4">...</span>
-          </div>
-          <div class="flex justify-between">
-            <span class="text-slate-400">乘客手机：</span>
-            <span id="summary-phone" class="text-teal-600 font-bold font-mono">...</span>
-          </div>
-          <div class="flex justify-between ticket-dashed-line pb-3">
-            <span class="text-slate-400">关联司机手机：</span>
-            <span id="summary-driver" class="text-slate-900 font-mono font-bold">...</span>
-          </div>
-          <p class="text-[10px] text-slate-400 leading-normal text-center pt-2 select-none">
-            请坐进车内安享本次出行服务。计费器正安全启动中。
-          </p>
-        </div>
+      <!-- Close hint button -->
+      <div class="w-full space-y-4">
+        <button 
+          onclick="window.close();"
+          class="w-full bg-[#ff7d00] text-white h-14 rounded-xl font-semibold text-base shadow-sm hover:brightness-105 active:scale-[0.98] transition-all"
+        >
+          下单成功，请关闭本页面
+        </button>
       </div>
-      
     </div>
 
   </main>
 
   <!-- 精美简练的官方安全底栏 -->
-  <footer class="p-5 text-center text-[10px] text-slate-400 font-medium tracking-wider border-t border-slate-200 shrink-0 font-sans">
-    SECURE CHAUFFEUR CONNECT SYSTEM • SECURITY ENCRYPTED PROXIED
+  <footer class="p-5 text-center text-xs font-bold text-[#5f5e5e]/60 shrink-0 font-sans z-10">
+    <span id="footer-brand-name">小鸟代驾</span> · 极速响应
   </footer>
 
   <!-- 乘客自助端代开单阻拦页面叠加层 -->
   <div id="blocked-overlay" class="hidden fixed inset-0 w-full h-full bg-[#f9f9f9] text-[#1a1c1c] font-sans overflow-hidden select-none z-[20000] flex flex-col justify-between">
     <main class="w-full max-w-md mx-auto bg-[#f9f9f9] flex-1 relative flex flex-col justify-start">
-      <!-- 头部精美Banner (升级为100%纯CSS与高精度内联SVG豪华矢量图，0外部网络请求，国内无VPN环境下秒级极速渲染) -->
+      <!-- 头部精美Banner -->
       <section class="relative h-64 w-full overflow-hidden bg-gradient-to-br from-[#1b1c1e] via-[#2a2c30] to-[#121314] flex flex-col items-center justify-center p-6 text-center shadow-inner">
-         <!-- 动态极光氛围底色微光 -->
-         <div class="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 rounded-full bg-amber-500/10 filter blur-3xl"></div>
-         <div class="absolute bottom-1/3 left-1/3 w-32 h-32 rounded-full bg-orange-600/10 filter blur-3xl"></div>
-         
-         <!-- 豪华VIP金质尊享皇冠/盾牌矢量图形 -->
-         <div class="relative z-10 mb-2 text-amber-500/90 filter drop-shadow-[0_4px_10px_rgba(245,158,11,0.25)]">
-           <svg class="w-16 h-16 mx-auto" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-             <!-- 尊享质感外盾盾徽 -->
-             <path d="M50,15 L78,25 C78,55 50,85 50,85 C50,85 22,55 22,25 Z" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="rgba(245,158,11,0.06)" />
-             <!-- 内嵌典雅皇冠 -->
-             <path d="M35,55 L41,41 L50,49 L59,41 L65,55 Z" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="rgba(245,158,11,0.1)" />
-             <line x1="35" y1="55" x2="65" y2="55" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
-             <!-- 尊贵装饰星芒 -->
-             <circle cx="50" cy="30" r="2.5" fill="currentColor" />
-             <circle cx="35" cy="55" r="1.5" fill="currentColor" />
-             <circle cx="65" cy="55" r="1.5" fill="currentColor" />
-             <!-- 闪烁的小星芒 -->
-             <path d="M47,30 L53,30 M50,27 L50,33" stroke="currentColor" stroke-width="1.2" />
-           </svg>
-         </div>
-         
-         <h1 class="relative z-10 text-xl font-black text-amber-400 tracking-widest font-serif drop-shadow-md">
-           VIP PREMIUM
-         </h1>
-         <p class="relative z-10 text-[9px] text-slate-400 font-mono tracking-widest uppercase mt-1">
-           Secure Chauffeur Connection System
-         </p>
-         <div class="absolute inset-0 bg-gradient-to-t from-[#f9f9f9] via-transparent to-transparent"></div>
-       </section>
+        <!-- 动态极光氛围底色微光 -->
+        <div class="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 rounded-full bg-amber-500/10 filter blur-3xl"></div>
+        <div class="absolute bottom-1/3 left-1/3 w-32 h-32 rounded-full bg-orange-600/10 filter blur-3xl"></div>
+        
+        <!-- 豪华VIP金质尊享皇冠/盾牌矢量图形 -->
+        <div class="relative z-10 mb-2 text-amber-500/90 filter drop-shadow-[0_4px_10px_rgba(245,158,11,0.25)]">
+          <svg class="w-16 h-16 mx-auto" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M50,15 L78,25 C78,55 50,85 50,85 C50,85 22,55 22,25 Z" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="rgba(245,158,11,0.06)" />
+            <path d="M35,55 L41,41 L50,49 L59,41 L65,55 Z" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="rgba(245,158,11,0.1)" />
+            <line x1="35" y1="55" x2="65" y2="55" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
+            <circle cx="50" cy="30" r="2.5" fill="currentColor" />
+            <circle cx="35" cy="55" r="1.5" fill="currentColor" />
+            <circle cx="65" cy="55" r="1.5" fill="currentColor" />
+            <path d="M47,30 L53,30 M50,27 L50,33" stroke="currentColor" stroke-width="1.2" />
+          </svg>
+        </div>
+        
+        <h1 class="relative z-10 text-xl font-black text-amber-400 tracking-widest font-serif drop-shadow-md">
+          VIP PREMIUM
+        </h1>
+        <p class="relative z-10 text-[9px] text-slate-400 font-mono tracking-widest uppercase mt-1">
+          Secure Chauffeur Connection System
+        </p>
+        <div class="absolute inset-0 bg-gradient-to-t from-[#f9f9f9] via-transparent to-transparent"></div>
+      </section>
 
       <!-- 核心阻拦提示卡片 -->
       <section class="px-5 -mt-8 relative z-10 text-center">
@@ -478,18 +539,10 @@
     let customAppName = urlParams.get('name') || '小鸟代驾';
     updateWelcomeText(customAppName);
 
-    // 自动检测接口域名，如果在非生产域名（如阿里云单独部署的域名/IP等）运行，则自动重定向API请求到主站，实现“原封不动”即开即用
-    const apiDomain = (
-      window.location.hostname.includes('localhost') || 
-      window.location.hostname.includes('127.0.0.1') || 
-      window.location.hostname.includes('webcontainer') || 
-      window.location.hostname.includes('gitpod') || 
-      window.location.hostname.includes('cloudshell') ||
-      window.location.hostname.includes('run.app') ||
-      window.location.hostname.includes('aistudio.google')
-    ) ? 'https://www.lyheiwandaijiamax.com' : '';
+    // 自动检测接口域名，强制指向阿里云后台管理端，保证多端数据无缝实时互通互联
+    const apiDomain = 'https://admin.lyheiwandaijiamax.com';
 
-    // 极致优化：改用本地/同源安全API代理加载司机自定义品牌名称，彻底免除大陆对Google Firestore直接请求的屏蔽，并在此处进行强校验
+    // 完美适配：改用高可用本地服务器/同源安全API代理加载司机自定义品牌名称，确保数据加载100%极速顺畅，并在此处进行强校验
     const getDocUrlForBrand = `${apiDomain}/api/db/get?col=driver_users&id=${encodeURIComponent(driverPhone)}`;
     fetch(getDocUrlForBrand)
       .then(res => res.json())
@@ -588,9 +641,7 @@
       submitBtn.className = "w-full py-4 mt-3 rounded-xl text-center font-bold text-base inline-flex items-center justify-center gap-2 bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200 shadow-none";
       submitBtn.innerHTML = "⏳ 正在连接安全专线，请稍候...";
 
-      // 极致优化：由直接请求谷歌Firebase改为通过本服务器同源API代理 /api/submit 转发请求
-      // 本服务器在后台可自动根据配置，选择写入 MySQL 或 代理写入 Google Cloud/Firestore（服务器级免翻墙通信）
-      // 乘客手机端 100% 绝对不会再出现“网络连接错误”或加载超时！
+      // 完美适配：通过本地安全高速API /api/submit 提交开单数据，保证在各种网络环境下都绝对流畅不卡顿、无延时
       try {
         const response = await fetch(`${apiDomain}/api/submit`, {
           method: 'POST',

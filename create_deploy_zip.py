@@ -1,60 +1,93 @@
-import zipfile
 import os
+import zipfile
 import shutil
+import tarfile
 
-zip_filename = 'daijia_deploy.zip'
+# Files and folders to include
 files_to_add = [
     'package.json',
     'package-lock.json',
+    '.env',
     '.env.example',
+    'ALIYUN_DEPLOY_GUIDE.md',
     'aliyun_passenger_deploy.html',
     'passenger_order.html'
 ]
 
-# Ensure the passenger HTML files are also copied into dist so they are served correctly as static files
-dist_dir = 'dist'
-if os.path.exists(dist_dir):
-    for f in ['passenger_order.html', 'aliyun_passenger_deploy.html']:
-        if os.path.exists(f):
-            shutil.copy(f, os.path.join(dist_dir, f))
-            print(f'Copied {f} to {dist_dir}/')
+dist_folder = 'dist'
+zip_filename = 'daijia_deploy.zip'
+tar_filename = 'daijia_deploy.tar.gz'
 
-folders_to_add = [
-    'dist'
-]
+def main():
+    # 1. Ensure files exist or copy them to dist
+    print("Preparing deployment files...")
+    
+    # Copy template HTMLs into dist just in case
+    if os.path.exists('passenger_order.html'):
+        shutil.copy('passenger_order.html', os.path.join(dist_folder, 'passenger_order.html'))
+        print("Copied passenger_order.html to dist/")
+    if os.path.exists('aliyun_passenger_deploy.html'):
+        shutil.copy('aliyun_passenger_deploy.html', os.path.join(dist_folder, 'aliyun_passenger_deploy.html'))
+        print("Copied aliyun_passenger_deploy.html to dist/")
 
-print('Creating zip file...')
-if os.path.exists(zip_filename):
-    os.remove(zip_filename)
+    # 2. Write zip file
+    print("Creating zip file using ZIP_DEFLATED compression...")
+    
+    # Remove existing zip if any
+    if os.path.exists(zip_filename):
+        os.remove(zip_filename)
+        
+    with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        # Add root files
+        for file in files_to_add:
+            if os.path.exists(file):
+                zipf.write(file, file)
+                print(f"Added file to ZIP: {file}")
+            else:
+                print(f"Warning: {file} not found, skipping.")
 
-with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
-    # Add files
-    for f in files_to_add:
-        if os.path.exists(f):
-            zipf.write(f)
-            print(f'Added file: {f}')
-        else:
-            print(f'Warning: File {f} does not exist!')
-            
-    # Add folders
-    for folder in folders_to_add:
-        if os.path.exists(folder):
-            for root, dirs, files in os.walk(folder):
+        # Add dist folder
+        if os.path.exists(dist_folder):
+            for root, dirs, files in os.walk(dist_folder):
                 for file in files:
-                    # Explicitly ignore zip, gz, tar files inside dist/ to avoid circular reference or corruption
                     if file.endswith('.zip') or file.endswith('.gz') or file.endswith('.tar'):
-                        print(f'Skipping archive file: {file}')
                         continue
                     filepath = os.path.join(root, file)
-                    arcname = os.path.relpath(filepath, os.path.dirname(folder))
+                    arcname = os.path.relpath(filepath, os.path.dirname(dist_folder))
                     zipf.write(filepath, arcname)
-            print(f'Added folder: {folder}')
-        else:
-            print(f'Warning: Folder {folder} does not exist!')
+            print("Added dist/ folder contents to ZIP.")
 
-print('Successfully created daijia_deploy.zip!')
+    # Copy to dist/ to make it downloadable via static server
+    shutil.copy(zip_filename, os.path.join(dist_folder, zip_filename))
+    print(f"Successfully created {zip_filename}!")
 
-# Copy the zip file into dist/ so it can be served as a static asset in the preview
-if os.path.exists(dist_dir):
-    shutil.copy(zip_filename, os.path.join(dist_dir, zip_filename))
-    print(f'Successfully copied {zip_filename} to {dist_dir}/ for static serving.')
+    # 3. Write tar.gz file (100% Native Linux compatibility for Baota Panel)
+    print("Creating tar.gz file for native Baota Panel support...")
+    if os.path.exists(tar_filename):
+        os.remove(tar_filename)
+        
+    with tarfile.open(tar_filename, "w:gz") as tar:
+        # Add root files
+        for file in files_to_add:
+            if os.path.exists(file):
+                tar.add(file, arcname=file)
+                print(f"Added file to TAR: {file}")
+                
+        # Add dist folder
+        if os.path.exists(dist_folder):
+            for root, dirs, files in os.walk(dist_folder):
+                for file in files:
+                    if file.endswith('.zip') or file.endswith('.gz') or file.endswith('.tar'):
+                        continue
+                    filepath = os.path.join(root, file)
+                    # We want the inside files to be archived as dist/...
+                    arcname = os.path.relpath(filepath, os.path.dirname(dist_folder))
+                    tar.add(filepath, arcname=arcname)
+            print("Added dist/ folder contents to TAR.")
+
+    # Copy to dist/
+    shutil.copy(tar_filename, os.path.join(dist_folder, tar_filename))
+    print(f"Successfully created {tar_filename} and copied to dist/!")
+
+if __name__ == '__main__':
+    main()
