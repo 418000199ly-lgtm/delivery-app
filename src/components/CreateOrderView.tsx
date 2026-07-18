@@ -211,6 +211,46 @@ const getHighPrecisionLocationName = (
   return poiName || fallbackAddress;
 };
 
+const getRobustLocation = (
+  onSuccess: (lng: number, lat: number) => void,
+  onFailure: (err: any) => void
+) => {
+  if (typeof window === 'undefined' || !navigator.geolocation) {
+    onFailure(new Error('Geolocation not supported'));
+    return;
+  }
+
+  // Phase 1: Try high accuracy first, utilizing cached coordinates up to 5 minutes old for instant response
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      onSuccess(pos.coords.longitude, pos.coords.latitude);
+    },
+    (err) => {
+      console.warn('⚡ [GPS] High-accuracy geolocation failed, falling back to standard accuracy:', err);
+      // Phase 2: Fallback to lower accuracy (cell/Wi-Fi positioning), which works beautifully indoors and doesn't time out easily
+      navigator.geolocation.getCurrentPosition(
+        (pos2) => {
+          onSuccess(pos2.coords.longitude, pos2.coords.latitude);
+        },
+        (err2) => {
+          console.error('⚡ [GPS] All geolocation attempts failed:', err2);
+          onFailure(err2);
+        },
+        {
+          enableHighAccuracy: false,
+          timeout: 10000,
+          maximumAge: 600000 // 10 minutes cache
+        }
+      );
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 300000 // 5 minutes cache
+    }
+  );
+};
+
 interface CreateOrderViewProps {
   billingRules: BillingRules;
   settings: ChauffeurSettings;
@@ -374,8 +414,8 @@ export default function CreateOrderView({
         },
         {
           enableHighAccuracy: true,
-          timeout: 2500,     // fast 2.5 seconds timeout
-          maximumAge: 120000 // use cached position up to 2 minutes old for ultra-instant lookup!
+          timeout: 10000,     // Increase timeout to 10 seconds to allow standard satellite acquisition
+          maximumAge: 300000 // use cached position up to 5 minutes old for ultra-instant lookup!
         }
       );
     }
@@ -506,58 +546,26 @@ export default function CreateOrderView({
               return;
             }
 
-            try {
-              // Create Geolocation instance with high accuracy enabled for real mobile GPS tracking but with short timeout fallback
-              const geolocation = new AMap.Geolocation({
-                enableHighAccuracy: true,  // enable real GPS for actual phone users
-                timeout: 3000,             // 3s timeout for fast response
-                zoomToAccuracy: false,     // Disable auto-zoom to keep user's preferred zoom
-                buttonPosition: 'RB',
-                needAddress: true
-              });
-
-              map.addControl(geolocation);
-
-              // Auto-locate user on open and sync name
-              isMapMovingProgrammaticallyRef.current = true;
-              geolocation.getCurrentPosition((status: string, result: any) => {
-                isMapMovingProgrammaticallyRef.current = false;
-                if (status === 'complete' && result.position) {
-                  const coords = [result.position.lng, result.position.lat];
-                  map.setCenter(coords);
+            setStartLocation('正在获取当前位置...');
+            isMapMovingProgrammaticallyRef.current = true;
+            getRobustLocation(
+              (rawLng, rawLat) => {
+                AMap.convertFrom([rawLng, rawLat], 'gps', (convertStatus: string, convertResult: any) => {
+                  const finalLng = (convertStatus === 'complete' && convertResult.locations) ? convertResult.locations[0].lng : rawLng;
+                  const finalLat = (convertStatus === 'complete' && convertResult.locations) ? convertResult.locations[0].lat : rawLat;
                   
-                  // Always reverse geocode to get high-precision POIs/AOIs
-                  geocoder.getAddress(coords, (geoStatus: string, geoResult: any) => {
-                    if (geoStatus === 'complete' && geoResult.regeocode) {
-                      const cleanLabel = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress, coords[0], coords[1]);
-                      setStartLocation(cleanLabel);
-                    } else if (result.formattedAddress) {
-                      const formattedAddress = result.formattedAddress;
-                      const addressComp = result.addressComponent || {};
-                      let cleanLabel = formattedAddress;
-                      if (addressComp.province) cleanLabel = cleanLabel.replace(addressComp.province, '');
-                      if (addressComp.city) cleanLabel = cleanLabel.replace(addressComp.city, '');
-                      if (addressComp.district) cleanLabel = cleanLabel.replace(addressComp.district, '');
-                      if (!cleanLabel.trim()) cleanLabel = formattedAddress;
-                      setStartLocation(cleanLabel);
-                    } else {
-                      setStartLocation('未定位起点');
-                    }
-                  });
-                } else {
-                  // If the map has loaded but geolocation failed, let's try prefetch coords one last check, or fallback to IP city
-                  if (!tryUsePrefetched()) {
-                    fallbackGeolocation();
-                  }
+                  console.log('⚡ [GPS] Successfully got and converted coordinates on load:', finalLng, finalLat);
+                  reverseGeocodeCenter(finalLng, finalLat);
+                });
+              },
+              (err) => {
+                console.warn('⚡ [GPS] Robust GPS on load failed, using fallback:', err);
+                isMapMovingProgrammaticallyRef.current = false;
+                if (!tryUsePrefetched()) {
+                  fallbackGeolocation();
                 }
-              });
-            } catch (err) {
-              console.warn('Geolocation was blocked or failed, using city fallback:', err);
-              isMapMovingProgrammaticallyRef.current = false;
-              if (!tryUsePrefetched()) {
-                fallbackGeolocation();
               }
-            }
+            );
           }
 
           const updateAddressFromMapCenter = () => {
@@ -706,69 +714,19 @@ export default function CreateOrderView({
       });
     };
 
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const rawLat = position.coords.latitude;
-          const rawLng = position.coords.longitude;
-          runGeocoding(rawLng, rawLat);
-        },
-        (err) => {
-          console.warn('Native geolocation failed, trying AMap Geolocation directly:', err);
-          AMap.plugin('AMap.Geolocation', () => {
-            try {
-              const geolocation = new AMap.Geolocation({
-                enableHighAccuracy: true,
-                timeout: 3000,
-                zoomToAccuracy: false // Disable auto-zoom to keep user's preferred zoom
-              });
-              geolocation.getCurrentPosition((status: string, result: any) => {
-                if (status === 'complete' && result.position) {
-                  const finalLng = result.position.lng;
-                  const finalLat = result.position.lat;
-                  isMapMovingProgrammaticallyRef.current = true;
-                  map.setCenter([finalLng, finalLat]);
-                  
-                  AMap.plugin('AMap.Geocoder', () => {
-                    const geocoder = new AMap.Geocoder({
-                      city: registeredCity || '银川市',
-                      extensions: 'all'
-                    });
-                    geocoder.getAddress([finalLng, finalLat], (geoStatus: string, geoResult: any) => {
-                      isMapMovingProgrammaticallyRef.current = false;
-                      if (geoStatus === 'complete' && geoResult.regeocode) {
-                        setStartLocation(getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress));
-                      } else {
-                        setStartLocation(result.formattedAddress || '未定位起点');
-                      }
-                    });
-                  });
-                } else {
-                  if (driverCoords && !isDefaultYinchuanCoords(driverCoords)) {
-                    runGeocoding(driverCoords.lng, driverCoords.lat);
-                  } else {
-                    setStartLocation('未定位起点');
-                  }
-                }
-              });
-            } catch (e) {
-              if (driverCoords && !isDefaultYinchuanCoords(driverCoords)) {
-                runGeocoding(driverCoords.lng, driverCoords.lat);
-              } else {
-                setStartLocation('未定位起点');
-              }
-            }
-          });
-        },
-        { enableHighAccuracy: true, timeout: 3000 }
-      );
-    } else {
-      if (driverCoords && !isDefaultYinchuanCoords(driverCoords)) {
-        runGeocoding(driverCoords.lng, driverCoords.lat);
-      } else {
-        setStartLocation('未定位起点');
+    getRobustLocation(
+      (rawLng, rawLat) => {
+        runGeocoding(rawLng, rawLat);
+      },
+      (err) => {
+        console.warn('⚡ [GPS] Robust GPS locating failed, using fallbacks:', err);
+        if (driverCoords && !isDefaultYinchuanCoords(driverCoords)) {
+          runGeocoding(driverCoords.lng, driverCoords.lat);
+        } else {
+          setStartLocation('未定位起点');
+        }
       }
-    }
+    );
   };
 
   // AMap Driving/Riding Route planning for distance calculation and map display

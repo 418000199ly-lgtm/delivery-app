@@ -522,24 +522,35 @@ export default function App() {
               (pos) => {
                 const latitude = pos.coords.latitude;
                 const longitude = pos.coords.longitude;
-                updateCoords(latitude, longitude, "HTML5 Geolocation Fallback");
+                updateCoords(latitude, longitude, "HTML5 Geolocation (High Accuracy)");
               },
               (err) => {
-                console.warn("Driver browser location blocked or unavailable, applying city center fallback:", err.message);
-                setDriverCoords(fallbackGrid);
+                console.warn("⚡ [App GPS] High-accuracy tracking failed, trying lower accuracy fallback:", err.message);
+                navigator.geolocation.getCurrentPosition(
+                  (pos2) => {
+                    const latitude2 = pos2.coords.latitude;
+                    const longitude2 = pos2.coords.longitude;
+                    updateCoords(latitude2, longitude2, "HTML5 Geolocation (Standard Accuracy)");
+                  },
+                  (err2) => {
+                    console.warn("⚡ [App GPS] All tracking attempts failed, using city center fallback:", err2.message);
+                    setDriverCoords(fallbackGrid);
 
-                if (userPhone && isOnline) {
-                  const uRef = doc(db, 'driver_users', userPhone);
-                  setDoc(uRef, { 
-                    ...fallbackGrid, 
-                    lastUpdatedBy: "City Center Fallback", 
-                    lastUpdatedTime: new Date().toISOString() 
-                  }, { merge: true }).catch((e) => {
-                    console.error("Failed to sync driver fallback coordinates to Firestore:", e);
-                  });
-                }
+                    if (userPhone && isOnline) {
+                      const uRef = doc(db, 'driver_users', userPhone);
+                      setDoc(uRef, { 
+                        ...fallbackGrid, 
+                        lastUpdatedBy: "City Center Fallback", 
+                        lastUpdatedTime: new Date().toISOString() 
+                      }, { merge: true }).catch((e) => {
+                        console.error("Failed to sync driver fallback coordinates to Firestore:", e);
+                      });
+                    }
+                  },
+                  { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 }
+                );
               },
-              { enableHighAccuracy: true, timeout: 6000 }
+              { enableHighAccuracy: true, timeout: 8000, maximumAge: 300000 }
             );
           } catch (geoErr) {
             console.warn("Synchronous geolocation error caught inside iframe fallback:", geoErr);
@@ -566,7 +577,7 @@ export default function App() {
           try {
             const geolocation = new AMap.Geolocation({
               enableHighAccuracy: true,  // Use GPS/high accuracy
-              timeout: 4000,             // 4s timeout
+              timeout: 8000,             // 8s timeout to allow satellite lock
               noIpLocate: 0,             // Support IP fallback if GPS fails
               noGeoLocation: 0,
             });
