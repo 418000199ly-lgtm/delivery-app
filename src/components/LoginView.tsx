@@ -8,11 +8,6 @@ import {
   MessageSquare, 
   AlertCircle,
   HelpCircle,
-  Settings,
-  Globe,
-  Wifi,
-  WifiOff,
-  CheckCircle,
   X
 } from 'lucide-react';
 
@@ -32,12 +27,6 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
   const [simulatedCode, setSimulatedCode] = useState('');
   const [loginMode, setLoginMode] = useState<'real' | 'sandbox'>('real');
 
-  // --- API / Worker Settings State ---
-  const [showApiModal, setShowApiModal] = useState(false);
-  const [customApiUrl, setCustomApiUrl] = useState('');
-  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
-  const [testMessage, setTestMessage] = useState('');
-
   // Countdown timer handler for SMS backoff
   useEffect(() => {
     if (timer > 0) {
@@ -47,58 +36,6 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
       return () => clearInterval(interval);
     }
   }, [timer]);
-
-  // Read initial custom API / Worker URL on mount
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('cloudflare_worker_api_url') || '';
-      setCustomApiUrl(saved);
-    } catch (_) {}
-  }, []);
-
-  const handleTestConnection = async () => {
-    setTestStatus('testing');
-    setTestMessage('正在测试连接...');
-    
-    let targetUrl = customApiUrl.trim();
-    if (!targetUrl) {
-      targetUrl = 'https://www.lyheiwandaijiamax.com';
-    } else {
-      if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
-        targetUrl = 'https://' + targetUrl;
-      }
-    }
-    // Remove trailing slash
-    targetUrl = targetUrl.replace(/\/$/, '');
-
-    try {
-      const res = await fetch(`${targetUrl}/api/health`, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setTestStatus('success');
-        setTestMessage('连接成功！服务器状态正常 ✓');
-      } else {
-        setTestStatus('error');
-        setTestMessage(`连接失败: HTTP ${res.status}`);
-      }
-    } catch (err: any) {
-      setTestStatus('error');
-      setTestMessage(`无法连接到该端点: ${err.message || '网络不通，或服务器未启动'}`);
-    }
-  };
-
-  const handleSaveApiUrl = () => {
-    try {
-      localStorage.setItem('cloudflare_worker_api_url', customApiUrl.trim());
-      setInfoMsg(`✓ 服务器配置已更新！当前API端点：${customApiUrl.trim() || '默认生产域名'}`);
-      setShowApiModal(false);
-    } catch (err) {
-      setErrorMsg('保存配置失败，请检查浏览器/设备存储限制');
-    }
-  };
 
   // Handle Send SMS Click via backend Express Proxy (Alibaba Cloud SMS / Sandbox fallback)
   const handleGetSMSCode = async () => {
@@ -360,131 +297,6 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
         </div>
 
       </div>
-
-      {/* API Connection Settings Modal Overlay */}
-      {showApiModal && (
-        <div className="absolute inset-0 bg-black/80 backdrop-blur-md z-50 flex flex-col justify-end animate-in fade-in slide-in-from-bottom-10 duration-300">
-          <div className="bg-[#0e111a] border-t border-slate-900 rounded-t-3xl p-6 space-y-4 max-h-[85%] overflow-y-auto flex flex-col">
-            
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-slate-900 pb-3">
-              <div className="flex items-center space-x-2">
-                <Globe className="w-4 h-4 text-[#189F95]" />
-                <h3 className="text-sm font-black text-slate-100">API 服务器连接配置</h3>
-              </div>
-              <button 
-                type="button" 
-                onClick={() => setShowApiModal(false)}
-                className="p-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Explanatory text */}
-            <div className="text-[10.5px] text-slate-400 leading-relaxed space-y-1.5 bg-slate-950/60 p-3 rounded-2xl border border-slate-900">
-              <p>
-                ⚠️ <strong>为什么提示 "Failed to fetch"？</strong><br />
-                打包的手机 APK 默认会通过 API 服务器获取验证码、同步计费。如果您的默认域名 <code className="text-teal-400">www.lyheiwandaijiamax.com</code> 尚未配置或绑定对应的 Cloudflare Worker 后台服务，点击发送短信时，手机本地会因域名解析失败或无法连接而报错。
-              </p>
-              <p>
-                💡 <strong>如何进行测试与配置？</strong><br />
-                您可以在下方将服务器端点替换为<strong>您当前 AI Studio 预览端的真实地址</strong>进行即时联调测试，或填入您已部署的 Cloudflare Worker 网址。
-              </p>
-            </div>
-
-            {/* Input field */}
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black tracking-wider text-slate-500 uppercase block">
-                API 服务器端点 URL
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={customApiUrl}
-                  onChange={(e) => {
-                    setCustomApiUrl(e.target.value);
-                    setTestStatus('idle');
-                    setTestMessage('');
-                  }}
-                  placeholder="例如: https://ais-pre-nstmvaox4sb7kditx7suvv-11329907111.asia-east1.run.app"
-                  className="w-full px-4 py-3 bg-slate-950 border border-slate-900 rounded-2xl text-xs font-semibold focus:outline-hidden focus:border-[#189F95] text-slate-200 placeholder:text-slate-700 font-mono tracking-wide"
-                />
-              </div>
-            </div>
-
-            {/* Quick Presets */}
-            <div className="space-y-1.5">
-              <span className="text-[9.5px] font-black text-slate-500 uppercase tracking-wider block">
-                常用服务器地址预设
-              </span>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCustomApiUrl('https://www.lyheiwandaijiamax.com');
-                    setTestStatus('idle');
-                    setTestMessage('');
-                  }}
-                  className="py-2.5 bg-slate-900/60 hover:bg-slate-900 border border-slate-800 rounded-xl text-[10px] text-slate-300 font-semibold transition-all cursor-pointer text-center"
-                >
-                  🌐 默认生产域名
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (typeof window !== 'undefined') {
-                      setCustomApiUrl(window.location.origin);
-                    }
-                    setTestStatus('idle');
-                    setTestMessage('');
-                  }}
-                  className="py-2.5 bg-slate-900/60 hover:bg-slate-900 border border-slate-800 rounded-xl text-[10px] text-teal-400 font-semibold transition-all cursor-pointer text-center"
-                >
-                  🚀 使用当前预览端点
-                </button>
-              </div>
-            </div>
-
-            {/* Test connection output */}
-            {testStatus !== 'idle' && (
-              <div className={`p-3 rounded-xl border text-[10.5px] text-left leading-relaxed ${
-                testStatus === 'testing' ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' :
-                testStatus === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' :
-                'bg-rose-500/10 border-rose-500/20 text-rose-400'
-              }`}>
-                <div className="flex items-center space-x-1.5 font-bold mb-1">
-                  {testStatus === 'testing' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  {testStatus === 'success' && <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />}
-                  {testStatus === 'error' && <WifiOff className="w-3.5 h-3.5 text-rose-400" />}
-                  <span>{testStatus === 'testing' ? '正在测试...' : testStatus === 'success' ? '测试通过' : '测试失败'}</span>
-                </div>
-                <p className="font-mono text-[9.5px] break-all">{testMessage}</p>
-              </div>
-            )}
-
-            {/* Actions */}
-            <div className="flex gap-2 pt-2 border-t border-slate-900">
-              <button
-                type="button"
-                onClick={handleTestConnection}
-                disabled={testStatus === 'testing'}
-                className="flex-1 py-3 bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 font-bold text-xs rounded-2xl transition-colors cursor-pointer text-center"
-              >
-                测试连接
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveApiUrl}
-                className="flex-1 py-3 bg-[#189F95] hover:bg-[#20b3a8] text-slate-950 font-black text-xs rounded-2xl transition-colors cursor-pointer text-center"
-              >
-                保存并生效
-              </button>
-            </div>
-
-          </div>
-        </div>
-      )}
 
     </div>
   );

@@ -272,6 +272,15 @@ export default function CreateOrderView({
   const [searchText, setSearchText] = useState('');
   const [suggestions, setSuggestions] = useState<any[]>([]);
 
+  const isDefaultYinchuanCoords = (coords: { lat: number; lng: number } | null | undefined) => {
+    if (!coords) return true;
+    return Math.abs(coords.lat - 38.487193) < 0.0001 && Math.abs(coords.lng - 106.230912) < 0.0001;
+  };
+
+  const [showPermissionPrompt, setShowPermissionPrompt] = useState(() => {
+    return !localStorage.getItem('dd_location_permission_prompt_shown');
+  });
+
   // AMap AutoComplete suggestions
   useEffect(() => {
     const AMap = (window as any).AMap;
@@ -314,14 +323,15 @@ export default function CreateOrderView({
   const prefetchedGeocodedRef = useRef<boolean>(false);
 
   useEffect(() => {
-    if (driverCoords) {
+    if (driverCoords && !isDefaultYinchuanCoords(driverCoords)) {
       prefetchedCoordsRef.current = { lng: driverCoords.lng, lat: driverCoords.lat };
     }
   }, [driverCoords]);
 
   useEffect(() => {
     // 0. Start high-accuracy native geolocation pre-fetching in parallel immediately on page open
-    if (typeof window !== 'undefined' && navigator.geolocation) {
+    const isFirstTime = !localStorage.getItem('dd_location_permission_prompt_shown');
+    if (typeof window !== 'undefined' && navigator.geolocation && !isFirstTime) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const rawLat = position.coords.latitude;
@@ -351,6 +361,8 @@ export default function CreateOrderView({
                   if (geoStatus === 'complete' && geoResult.regeocode) {
                     const cleanLabel = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress, finalLng, finalLat);
                     setStartLocation(cleanLabel);
+                  } else {
+                    setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
                   }
                 });
               });
@@ -387,7 +399,7 @@ export default function CreateOrderView({
         const cachedZoom = localStorage.getItem('dd_map_zoom');
         const initialZoom = cachedZoom ? Number(cachedZoom) : 17; // Default to 17 for highly detailed shop/street level view as in user screenshot
 
-        const initialCenter = driverCoords 
+        const initialCenter = driverCoords && !isDefaultYinchuanCoords(driverCoords)
           ? [driverCoords.lng, driverCoords.lat]
           : (hasCached ? [Number(cachedLng), Number(cachedLat)] : (prefetchedCoordsRef.current ? [prefetchedCoordsRef.current.lng, prefetchedCoordsRef.current.lat] : [106.230912, 38.487193]));
 
@@ -425,6 +437,8 @@ export default function CreateOrderView({
               if (geoStatus === 'complete' && geoResult.regeocode) {
                 const cleanLabel = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress, lng, lat);
                 setStartLocation(cleanLabel);
+              } else {
+                setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
               }
             });
           };
@@ -434,6 +448,7 @@ export default function CreateOrderView({
             const queryAddr = startLocation === '正在获取当前位置...' 
               ? (registeredCity ? `${registeredCity}万达广场` : '银川市') 
               : startLocation;
+            setStartLocation(queryAddr);
             geocoder.getLocation(queryAddr, (locStatus: string, locResult: any) => {
               isMapMovingProgrammaticallyRef.current = false;
               if (locStatus === 'complete' && locResult && locResult.geocodes && locResult.geocodes.length) {
@@ -459,7 +474,7 @@ export default function CreateOrderView({
 
           // Try using our fast pre-fetched native coordinates first
           const tryUsePrefetched = () => {
-            if (prefetchedCoordsRef.current && !prefetchedGeocodedRef.current) {
+            if (prefetchedCoordsRef.current && !prefetchedGeocodedRef.current && !isDefaultYinchuanCoords({ lat: prefetchedCoordsRef.current.lat, lng: prefetchedCoordsRef.current.lng })) {
               prefetchedGeocodedRef.current = true;
               const { lng, lat } = prefetchedCoordsRef.current;
               console.log('⚡ Speeding up using pre-fetched native GPS coordinates:', lng, lat);
@@ -475,11 +490,18 @@ export default function CreateOrderView({
           };
 
           // If we have driverCoords or cached background coordinates, use them immediately!
-          if (driverCoords) {
+          if (driverCoords && !isDefaultYinchuanCoords(driverCoords)) {
             reverseGeocodeCenter(driverCoords.lng, driverCoords.lat);
           } else if (hasCached) {
             reverseGeocodeCenter(Number(cachedLng), Number(cachedLat));
           } else {
+            const isFirstTime = !localStorage.getItem('dd_location_permission_prompt_shown');
+            if (isFirstTime) {
+              console.log('Skipping automatic geolocation on load because permission prompt is active');
+              setStartLocation('请授权开启定位权限');
+              return;
+            }
+
             if (tryUsePrefetched()) {
               return;
             }
@@ -545,6 +567,8 @@ export default function CreateOrderView({
               if (geocodestatus === 'complete' && geocoderesult.regeocode) {
                 const cleanLabel = getHighPrecisionLocationName(geocoderesult.regeocode, geocoderesult.regeocode.formattedAddress, center.lng, center.lat);
                 setStartLocation(cleanLabel);
+              } else {
+                setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
               }
             });
           };
@@ -635,6 +659,20 @@ export default function CreateOrderView({
     }
   }, [isEditingStart, startLocation]);
 
+  const handleAcceptPermission = () => {
+    localStorage.setItem('dd_location_permission_prompt_shown', 'true');
+    setShowPermissionPrompt(false);
+    // Let state commit, then run the locate function immediately
+    setTimeout(() => {
+      handleRecenterAndLocate();
+    }, 150);
+  };
+
+  const handleDenyPermission = () => {
+    setShowPermissionPrompt(false);
+    setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
+  };
+
   const handleRecenterAndLocate = () => {
     const AMap = (window as any).AMap;
     const map = mapInstanceRef.current;
@@ -706,7 +744,7 @@ export default function CreateOrderView({
                     });
                   });
                 } else {
-                  if (driverCoords) {
+                  if (driverCoords && !isDefaultYinchuanCoords(driverCoords)) {
                     runGeocoding(driverCoords.lng, driverCoords.lat);
                   } else {
                     setStartLocation('未定位起点');
@@ -714,7 +752,7 @@ export default function CreateOrderView({
                 }
               });
             } catch (e) {
-              if (driverCoords) {
+              if (driverCoords && !isDefaultYinchuanCoords(driverCoords)) {
                 runGeocoding(driverCoords.lng, driverCoords.lat);
               } else {
                 setStartLocation('未定位起点');
@@ -725,7 +763,7 @@ export default function CreateOrderView({
         { enableHighAccuracy: true, timeout: 3000 }
       );
     } else {
-      if (driverCoords) {
+      if (driverCoords && !isDefaultYinchuanCoords(driverCoords)) {
         runGeocoding(driverCoords.lng, driverCoords.lat);
       } else {
         setStartLocation('未定位起点');
@@ -1140,6 +1178,48 @@ export default function CreateOrderView({
 
   return (
     <div className="relative flex-grow flex flex-col justify-between w-full h-full select-none overflow-hidden text-gray-900 bg-gray-100 font-sans">
+      
+      {/* Location Permission Prompt Dialog */}
+      {showPermissionPrompt && (
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-6 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl w-full max-w-xs p-6 shadow-2xl flex flex-col items-center text-center space-y-4 animate-in zoom-in-95 duration-200">
+            {/* Pulsing MapPin Icon */}
+            <div className="relative flex items-center justify-center mt-2">
+              <div className="absolute w-14 h-14 bg-teal-100 rounded-full animate-ping opacity-50" />
+              <div className="relative w-12 h-12 bg-teal-500 rounded-full flex items-center justify-center shadow-md">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"></path>
+                  <path d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"></path>
+                </svg>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="space-y-1.5">
+              <h3 className="text-sm font-black text-gray-900 tracking-tight">授权地理位置服务</h3>
+              <p className="text-[11px] text-gray-500 leading-relaxed">
+                为了能够自动获取您当前的位置、精准推荐出发地并开启代驾计费服务，「黑湾代驾」申请获取您的手机定位权限。
+              </p>
+            </div>
+
+            {/* Buttons */}
+            <div className="w-full flex flex-col space-y-1.5 pt-1">
+              <button
+                onClick={handleAcceptPermission}
+                className="w-full py-2.5 bg-teal-600 hover:bg-teal-500 active:scale-98 text-white text-[11px] font-bold rounded-xl shadow-xs transition-all cursor-pointer"
+              >
+                允许并开启定位
+              </button>
+              <button
+                onClick={handleDenyPermission}
+                className="w-full py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-400 text-[11px] font-bold rounded-xl transition-all cursor-pointer"
+              >
+                暂不授权
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* BEGIN: MapBackground (Real Dynamic Gaode AMap Integration) */}
       <div className="absolute inset-0 z-0 bg-[#e4eae4] overflow-hidden">

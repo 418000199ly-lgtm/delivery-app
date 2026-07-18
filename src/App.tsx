@@ -438,9 +438,18 @@ export default function App() {
   const userTeamCity = loggedInMember ? loggedInMember.city : '';
   const [incomingOrder, setIncomingOrder] = useState<any>(null);
   const [activeOnlineOrder, setActiveOnlineOrder] = useState<any>(null);
-  const [driverCoords, setDriverCoords] = useState<{ lat: number; lng: number }>({
-    lat: 38.487193,
-    lng: 106.230912
+  const [driverCoords, setDriverCoords] = useState<{ lat: number; lng: number }>(() => {
+    try {
+      const cachedLat = localStorage.getItem('dd_bg_driver_coords_lat');
+      const cachedLng = localStorage.getItem('dd_bg_driver_coords_lng');
+      if (cachedLat && cachedLng) {
+        return { lat: Number(cachedLat), lng: Number(cachedLng) };
+      }
+    } catch (_) {}
+    return {
+      lat: 38.487193,
+      lng: 106.230912
+    };
   });
 
   // Load Gaode Map API script once in App.tsx to ensure background geolocation works flawlessly

@@ -262,7 +262,7 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
   const isDriverIdentified = hasDriverInUrl || !!onClose;
   const isAbnormal = (!isDriverIdentified || (isVipChecked && !isVipActive)) && !isDeveloperSimulator;
 
-  const isBlocked = isVipChecked && (!isDriverIdentified || !isVipActive) && !isDeveloperSimulator;
+  const isBlocked = false;
 
   if (showWelcome) {
     const currentDisplayBrand = isAbnormal ? '小鸟代驾' : customBrandName;
