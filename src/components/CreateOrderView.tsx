@@ -212,43 +212,88 @@ const getHighPrecisionLocationName = (
 };
 
 const getRobustLocation = (
-  onSuccess: (lng: number, lat: number) => void,
+  AMap: any,
+  onSuccess: (gcjLng: number, gcjLat: number, isHighAccuracy: boolean, addressName?: string) => void,
   onFailure: (err: any) => void
 ) => {
-  if (typeof window === 'undefined' || !navigator.geolocation) {
-    onFailure(new Error('Geolocation not supported'));
+  if (!AMap) {
+    onFailure(new Error('AMap is not loaded'));
     return;
   }
 
-  // Phase 1: Try high accuracy first, utilizing cached coordinates up to 5 minutes old for instant response
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      onSuccess(pos.coords.longitude, pos.coords.latitude);
-    },
-    (err) => {
-      console.warn('⚡ [GPS] High-accuracy geolocation failed, falling back to standard accuracy:', err);
-      // Phase 2: Fallback to lower accuracy (cell/Wi-Fi positioning), which works beautifully indoors and doesn't time out easily
-      navigator.geolocation.getCurrentPosition(
-        (pos2) => {
-          onSuccess(pos2.coords.longitude, pos2.coords.latitude);
-        },
-        (err2) => {
-          console.error('⚡ [GPS] All geolocation attempts failed:', err2);
-          onFailure(err2);
-        },
-        {
-          enableHighAccuracy: false,
-          timeout: 10000,
-          maximumAge: 600000 // 10 minutes cache
+  // Phase 1: Try Gaode's native Geolocation plugin first (highly optimized, has built-in IP fallback, returns GCJ-02)
+  AMap.plugin('AMap.Geolocation', () => {
+    try {
+      const geolocation = new AMap.Geolocation({
+        enableHighAccuracy: true, // Use high accuracy GPS if available
+        timeout: 10000,            // 10 seconds timeout
+        zoomToAccuracy: false,
+        noIpLocate: 0,            // Allow IP fallback if GPS fails
+        noGeoLocation: 0          // Allow browser geolocation
+      });
+
+      geolocation.getCurrentPosition((status: string, result: any) => {
+        if (status === 'complete' && result.position) {
+          console.log('⚡ [AMap Geolocation] Succeeded:', result.position.lng, result.position.lat, result);
+          const isHighAcc = result.location_type === 'gps' || result.location_type === 'html5';
+          onSuccess(result.position.lng, result.position.lat, isHighAcc, result.formattedAddress);
+        } else {
+          console.warn('⚡ [AMap Geolocation] Failed, trying native HTML5 geolocation as fallback...', status, result);
+          fallbackToNative();
         }
-      );
-    },
-    {
-      enableHighAccuracy: true,
-      timeout: 10000,
-      maximumAge: 300000 // 5 minutes cache
+      });
+    } catch (e) {
+      console.warn('⚡ [AMap Geolocation] Exception, trying native HTML5:', e);
+      fallbackToNative();
     }
-  );
+  });
+
+  const fallbackToNative = () => {
+    if (typeof window !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const rawLng = pos.coords.longitude;
+          const rawLat = pos.coords.latitude;
+          console.log('⚡ [Native Geolocation] Succeeded, converting coordinates:', rawLng, rawLat);
+          
+          // Convert from WGS-84 (GPS) to GCJ-02 (Gaode)
+          AMap.convertFrom([rawLng, rawLat], 'gps', (convertStatus: string, convertResult: any) => {
+            const finalLng = (convertStatus === 'complete' && convertResult.locations) ? convertResult.locations[0].lng : rawLng;
+            const finalLat = (convertStatus === 'complete' && convertResult.locations) ? convertResult.locations[0].lat : rawLat;
+            onSuccess(finalLng, finalLat, true);
+          });
+        },
+        (err) => {
+          console.warn('⚡ [Native Geolocation] Failed, trying IP City Search:', err);
+          fallbackToCitySearch();
+        },
+        { enableHighAccuracy: false, timeout: 6000, maximumAge: 300000 }
+      );
+    } else {
+      fallbackToCitySearch();
+    }
+  };
+
+  const fallbackToCitySearch = () => {
+    AMap.plugin('AMap.CitySearch', () => {
+      try {
+        const citySearch = new AMap.CitySearch();
+        citySearch.getLocalCity((cityStatus: string, cityResult: any) => {
+          if (cityStatus === 'complete' && cityResult.bounds) {
+            const bounds = cityResult.bounds;
+            const finalLng = (bounds.southWest.lng + bounds.northEast.lng) / 2;
+            const finalLat = (bounds.southWest.lat + bounds.northEast.lat) / 2;
+            console.log('⚡ [City Search] Succeeded (IP fallback):', finalLng, finalLat, cityResult.city);
+            onSuccess(finalLng, finalLat, false, cityResult.city ? `${cityResult.city}中心` : undefined);
+          } else {
+            onFailure(new Error('All geolocation and IP fallbacks failed'));
+          }
+        });
+      } catch (e) {
+        onFailure(e);
+      }
+    });
+  };
 };
 
 interface CreateOrderViewProps {
@@ -485,15 +530,20 @@ export default function CreateOrderView({
 
           const fallbackGeolocation = () => {
             isMapMovingProgrammaticallyRef.current = true;
-            const queryAddr = startLocation === '正在获取当前位置...' 
-              ? (registeredCity ? `${registeredCity}万达广场` : '银川市') 
+            
+            // If the current text is generic/unlocated, let's default to a friendly city location
+            const isGeneric = startLocation === '正在获取当前位置...' || startLocation === '未定位起点' || !startLocation;
+            const queryAddr = isGeneric 
+              ? (registeredCity ? `${registeredCity}万达广场` : '银川市人民政府') 
               : startLocation;
+            
             setStartLocation(queryAddr);
             geocoder.getLocation(queryAddr, (locStatus: string, locResult: any) => {
               isMapMovingProgrammaticallyRef.current = false;
               if (locStatus === 'complete' && locResult && locResult.geocodes && locResult.geocodes.length) {
                 const loc = locResult.geocodes[0].location;
                 map.setCenter([loc.lng, loc.lat]);
+                reverseGeocodeCenter(loc.lng, loc.lat);
               } else {
                 // IP fallback for virtual sandbox environments
                 AMap.plugin('AMap.CitySearch', () => {
@@ -502,10 +552,18 @@ export default function CreateOrderView({
                     citySearch.getLocalCity((cityStatus: string, cityResult: any) => {
                       if (cityStatus === 'complete' && cityResult.bounds) {
                         map.setBounds(cityResult.bounds);
+                        // Center of the bounds
+                        const bounds = cityResult.bounds;
+                        const cLng = (bounds.southWest.lng + bounds.northEast.lng) / 2;
+                        const cLat = (bounds.southWest.lat + bounds.northEast.lat) / 2;
+                        reverseGeocodeCenter(cLng, cLat);
+                      } else {
+                        setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
                       }
                     });
                   } catch (e) {
                     console.warn('CitySearch failed:', e);
+                    setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
                   }
                 });
               }
@@ -549,14 +607,10 @@ export default function CreateOrderView({
             setStartLocation('正在获取当前位置...');
             isMapMovingProgrammaticallyRef.current = true;
             getRobustLocation(
-              (rawLng, rawLat) => {
-                AMap.convertFrom([rawLng, rawLat], 'gps', (convertStatus: string, convertResult: any) => {
-                  const finalLng = (convertStatus === 'complete' && convertResult.locations) ? convertResult.locations[0].lng : rawLng;
-                  const finalLat = (convertStatus === 'complete' && convertResult.locations) ? convertResult.locations[0].lat : rawLat;
-                  
-                  console.log('⚡ [GPS] Successfully got and converted coordinates on load:', finalLng, finalLat);
-                  reverseGeocodeCenter(finalLng, finalLat);
-                });
+              AMap,
+              (finalLng, finalLat) => {
+                console.log('⚡ [GPS] Successfully got coordinates on load:', finalLng, finalLat);
+                reverseGeocodeCenter(finalLng, finalLat);
               },
               (err) => {
                 console.warn('⚡ [GPS] Robust GPS on load failed, using fallback:', err);
@@ -688,42 +742,55 @@ export default function CreateOrderView({
 
     setStartLocation('正在获取当前位置...');
 
-    const runGeocoding = (lng: number, lat: number) => {
-      AMap.convertFrom([lng, lat], 'gps', (convertStatus: string, convertResult: any) => {
-        const finalLng = (convertStatus === 'complete' && convertResult.locations) ? convertResult.locations[0].lng : lng;
-        const finalLat = (convertStatus === 'complete' && convertResult.locations) ? convertResult.locations[0].lat : lat;
-        
-        isMapMovingProgrammaticallyRef.current = true;
-        map.setCenter([finalLng, finalLat]);
-        
-        AMap.plugin('AMap.Geocoder', () => {
-          const geocoder = new AMap.Geocoder({
-            city: registeredCity || '银川市',
-            extensions: 'all'
-          });
-          geocoder.getAddress([finalLng, finalLat], (geoStatus: string, geoResult: any) => {
-            isMapMovingProgrammaticallyRef.current = false;
-            if (geoStatus === 'complete' && geoResult.regeocode) {
-              const highPrecisionName = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress);
-              setStartLocation(highPrecisionName);
-            } else {
-              setStartLocation('未定位起点');
-            }
-          });
+    const runReverseGeocoding = (finalLng: number, finalLat: number) => {
+      isMapMovingProgrammaticallyRef.current = true;
+      map.setCenter([finalLng, finalLat]);
+      
+      AMap.plugin('AMap.Geocoder', () => {
+        const geocoder = new AMap.Geocoder({
+          city: registeredCity || '银川市',
+          extensions: 'all'
+        });
+        geocoder.getAddress([finalLng, finalLat], (geoStatus: string, geoResult: any) => {
+          isMapMovingProgrammaticallyRef.current = false;
+          if (geoStatus === 'complete' && geoResult.regeocode) {
+            const highPrecisionName = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress, finalLng, finalLat);
+            setStartLocation(highPrecisionName);
+          } else {
+            setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
+          }
         });
       });
     };
 
     getRobustLocation(
-      (rawLng, rawLat) => {
-        runGeocoding(rawLng, rawLat);
+      AMap,
+      (finalLng, finalLat) => {
+        runReverseGeocoding(finalLng, finalLat);
       },
       (err) => {
         console.warn('⚡ [GPS] Robust GPS locating failed, using fallbacks:', err);
         if (driverCoords && !isDefaultYinchuanCoords(driverCoords)) {
-          runGeocoding(driverCoords.lng, driverCoords.lat);
+          runReverseGeocoding(driverCoords.lng, driverCoords.lat);
         } else {
-          setStartLocation('未定位起点');
+          // Fall back to city search bounds center as a clean backup city-center coordinate
+          AMap.plugin('AMap.CitySearch', () => {
+            try {
+              const citySearch = new AMap.CitySearch();
+              citySearch.getLocalCity((cityStatus: string, cityResult: any) => {
+                if (cityStatus === 'complete' && cityResult.bounds) {
+                  const bounds = cityResult.bounds;
+                  const cLng = (bounds.southWest.lng + bounds.northEast.lng) / 2;
+                  const cLat = (bounds.southWest.lat + bounds.northEast.lat) / 2;
+                  runReverseGeocoding(cLng, cLat);
+                } else {
+                  setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
+                }
+              });
+            } catch (e) {
+              setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
+            }
+          });
         }
       }
     );
