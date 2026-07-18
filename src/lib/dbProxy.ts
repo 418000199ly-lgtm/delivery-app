@@ -60,7 +60,7 @@ export function getBaseApiUrl(): string {
     const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     
     // If running in Capacitor or on a mobile device where localhost points to the device itself,
-    // we must force routing to the production cloud backend API.
+    // we must force routing to the production cloud backend API (Cloud Run).
     if (isCapacitor || isMobileDevice) {
       return 'https://api.lyheiwandaijiamax.com';
     }
