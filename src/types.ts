@@ -111,14 +111,18 @@ export const DEFAULT_SETTINGS: ChauffeurSettings = {
 };
 
 export function checkVipActive(vipExpiry?: string): boolean {
-  if (!vipExpiry) return true;
-  if (vipExpiry === '永久有效') return true;
+  if (!vipExpiry) return false;
+  const s = vipExpiry.trim();
+  if (s === '0' || s === '0天' || s === '未激活' || s === '待激活' || s === '未激活待激活' || s === '') {
+    return false;
+  }
+  if (s === '永久有效') return true;
   try {
     const expDate = new Date(vipExpiry);
     const now = new Date();
-    expDate.setHours(0, 0, 0, 0);
+    expDate.setHours(23, 59, 59, 999);
     now.setHours(0, 0, 0, 0);
-    return expDate.getTime() > now.getTime();
+    return expDate.getTime() >= now.getTime();
   } catch {
     return false;
   }

@@ -17,6 +17,7 @@ files_to_add = [
 dist_folder = 'dist'
 zip_filename = 'daijia_deploy.zip'
 tar_filename = 'daijia_deploy.tar.gz'
+tar_plain_filename = 'daijia_deploy.tar'
 
 def main():
     # 1. Ensure files exist or copy them to dist
@@ -80,7 +81,6 @@ def main():
                     if file.endswith('.zip') or file.endswith('.gz') or file.endswith('.tar'):
                         continue
                     filepath = os.path.join(root, file)
-                    # We want the inside files to be archived as dist/...
                     arcname = os.path.relpath(filepath, os.path.dirname(dist_folder))
                     tar.add(filepath, arcname=arcname)
             print("Added dist/ folder contents to TAR.")
@@ -88,6 +88,33 @@ def main():
     # Copy to dist/
     shutil.copy(tar_filename, os.path.join(dist_folder, tar_filename))
     print(f"Successfully created {tar_filename} and copied to dist/!")
+
+    # 4. Write plain .tar file (uncompressed)
+    print("Creating plain .tar file...")
+    if os.path.exists(tar_plain_filename):
+        os.remove(tar_plain_filename)
+        
+    with tarfile.open(tar_plain_filename, "w") as tar:
+        # Add root files
+        for file in files_to_add:
+            if os.path.exists(file):
+                tar.add(file, arcname=file)
+                print(f"Added file to plain TAR: {file}")
+                
+        # Add dist folder
+        if os.path.exists(dist_folder):
+            for root, dirs, files in os.walk(dist_folder):
+                for file in files:
+                    if file.endswith('.zip') or file.endswith('.gz') or file.endswith('.tar'):
+                        continue
+                    filepath = os.path.join(root, file)
+                    arcname = os.path.relpath(filepath, os.path.dirname(dist_folder))
+                    tar.add(filepath, arcname=arcname)
+            print("Added dist/ folder contents to plain TAR.")
+
+    # Copy to dist/
+    shutil.copy(tar_plain_filename, os.path.join(dist_folder, tar_plain_filename))
+    print(f"Successfully created {tar_plain_filename} and copied to dist/!")
 
 if __name__ == '__main__':
     main()

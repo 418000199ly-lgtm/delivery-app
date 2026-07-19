@@ -71,7 +71,7 @@ const wechatSessions = new Map<string, { authorized: boolean; phone: string | nu
 
 // Configure self-hosted MySQL option
 let mysqlPool: mysql.Pool | null = null;
-const isMySQLEnabled = !!process.env.MYSQL_HOST;
+let isMySQLEnabled = !!process.env.MYSQL_HOST;
 
 if (isMySQLEnabled) {
   console.log(`[Database] MySQL configuration detected. Connecting to ${process.env.MYSQL_HOST}:${process.env.MYSQL_PORT || 3306}, Database: ${process.env.MYSQL_DATABASE}`);
@@ -87,7 +87,7 @@ if (isMySQLEnabled) {
     charset: 'utf8mb4'
   });
 
-  // Automatically execute schema verification on boot
+  // Automatically execute schema verification on boot with smart local fallback
   (async () => {
     try {
       const conn = await mysqlPool!.getConnection();
@@ -110,6 +110,51 @@ if (isMySQLEnabled) {
       console.log('✓ [Database] MySQL table structures "daijia_documents" verified successfully.');
     } catch (err: any) {
       console.error('❌ [Database] Failed to verify or connect to MySQL database:', err.message || err);
+      
+      const currentHost = process.env.MYSQL_HOST || '';
+      if (currentHost !== '127.0.0.1' && currentHost !== 'localhost' && currentHost !== '::1') {
+        console.warn(`⚠️ [Database] Connection to external host "${currentHost}" failed. Attempting smart fallback to local "127.0.0.1" (standard for Aliyun ECS localhost setups)...`);
+        try {
+          const fallbackPool = mysql.createPool({
+            host: '127.0.0.1',
+            port: Number(process.env.MYSQL_PORT || 3306),
+            user: process.env.MYSQL_USER,
+            password: process.env.MYSQL_PASSWORD,
+            database: process.env.MYSQL_DATABASE,
+            waitForConnections: true,
+            connectionLimit: 15,
+            queueLimit: 0,
+            charset: 'utf8mb4'
+          });
+          
+          const conn = await fallbackPool.getConnection();
+          console.log('✓ [Database] Connected to local MySQL fallback "127.0.0.1" successfully!');
+          
+          await conn.query(`
+            CREATE TABLE IF NOT EXISTS \`daijia_documents\` (
+              \`collection\` VARCHAR(64) NOT NULL,
+              \`doc_id\` VARCHAR(128) NOT NULL,
+              \`data\` LONGTEXT NOT NULL,
+              \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              PRIMARY KEY (\`collection\`, \`doc_id\`),
+              INDEX \`idx_collection\` (\`collection\`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+          `);
+          conn.release();
+          
+          mysqlPool = fallbackPool;
+          isMySQLEnabled = true;
+          console.log('✓ [Database] MySQL table structures verified on local fallback. Continuing in local MySQL mode.');
+          return;
+        } catch (fallbackErr: any) {
+          console.error('❌ [Database] Local fallback "127.0.0.1" also failed:', fallbackErr.message || fallbackErr);
+        }
+      }
+      
+      console.warn('⚠️ [Database] Falling back to Firebase Cloud Database mode for high availability (sandbox or network isolation safe).');
+      isMySQLEnabled = false;
+      mysqlPool = null;
     }
   })();
 } else {
@@ -1015,10 +1060,81 @@ async function startServer() {
     res.sendFile(path.join(process.cwd(), 'aliyun_passenger_deploy.html'));
   });
   app.get('/daijia_deploy.zip', (req, res) => {
-    res.download(path.join(process.cwd(), 'daijia_deploy.zip'), 'daijia_deploy.zip');
+    const filePath = path.join(process.cwd(), 'daijia_deploy.zip');
+    const altPath = path.join(process.cwd(), 'dist', 'daijia_deploy.zip');
+    
+    // 自愈机制：如果物理包由于环境原因缺失，实时在后台调用Python脚本动态生成
+    if (!fs.existsSync(filePath) && !fs.existsSync(altPath)) {
+      try {
+        console.log('[自愈机制] 部署压缩包未找到，正在动态生成 daijia_deploy.zip ...');
+        const { execSync } = require('child_process');
+        execSync('python3 create_deploy_zip.py', { cwd: process.cwd() });
+      } catch (e: any) {
+        console.error('动态生成部署包失败:', e);
+      }
+    }
+
+    if (fs.existsSync(filePath)) {
+      res.setHeader('Content-Type', 'application/zip');
+      res.download(filePath, 'daijia_deploy.zip');
+    } else if (fs.existsSync(altPath)) {
+      res.setHeader('Content-Type', 'application/zip');
+      res.download(altPath, 'daijia_deploy.zip');
+    } else {
+      res.status(404).send('部署包正在打包编译中，请在5秒后刷新页面重试！');
+    }
   });
+
   app.get('/daijia_deploy.tar.gz', (req, res) => {
-    res.download(path.join(process.cwd(), 'daijia_deploy.tar.gz'), 'daijia_deploy.tar.gz');
+    const filePath = path.join(process.cwd(), 'daijia_deploy.tar.gz');
+    const altPath = path.join(process.cwd(), 'dist', 'daijia_deploy.tar.gz');
+
+    // 自愈机制：如果物理包由于环境原因缺失，实时在后台调用Python脚本动态生成
+    if (!fs.existsSync(filePath) && !fs.existsSync(altPath)) {
+      try {
+        console.log('[自愈机制] 部署压缩包未找到，正在动态生成 daijia_deploy.tar.gz ...');
+        const { execSync } = require('child_process');
+        execSync('python3 create_deploy_zip.py', { cwd: process.cwd() });
+      } catch (e: any) {
+        console.error('动态生成部署包失败:', e);
+      }
+    }
+
+    if (fs.existsSync(filePath)) {
+      res.setHeader('Content-Type', 'application/x-gzip');
+      res.download(filePath, 'daijia_deploy.tar.gz');
+    } else if (fs.existsSync(altPath)) {
+      res.setHeader('Content-Type', 'application/x-gzip');
+      res.download(altPath, 'daijia_deploy.tar.gz');
+    } else {
+      res.status(404).send('部署包正在打包编译中，请在5秒后刷新页面重试！');
+    }
+  });
+
+  app.get('/daijia_deploy.tar', (req, res) => {
+    const filePath = path.join(process.cwd(), 'daijia_deploy.tar');
+    const altPath = path.join(process.cwd(), 'dist', 'daijia_deploy.tar');
+
+    // 自愈机制：如果物理包由于环境原因缺失，实时在后台调用Python脚本动态生成
+    if (!fs.existsSync(filePath) && !fs.existsSync(altPath)) {
+      try {
+        console.log('[自愈机制] 部署压缩包未找到，正在动态生成 daijia_deploy.tar ...');
+        const { execSync } = require('child_process');
+        execSync('python3 create_deploy_zip.py', { cwd: process.cwd() });
+      } catch (e: any) {
+        console.error('动态生成部署包失败:', e);
+      }
+    }
+
+    if (fs.existsSync(filePath)) {
+      res.setHeader('Content-Type', 'application/x-tar');
+      res.download(filePath, 'daijia_deploy.tar');
+    } else if (fs.existsSync(altPath)) {
+      res.setHeader('Content-Type', 'application/x-tar');
+      res.download(altPath, 'daijia_deploy.tar');
+    } else {
+      res.status(404).send('部署包正在打包编译中，请在5秒后刷新页面重试！');
+    }
   });
 
   // Integration with Vite development server middleware OR static assets serving for production

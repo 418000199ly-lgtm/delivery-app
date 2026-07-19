@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { QrCode, Clock, RotateCw, CheckCircle2, Plus, Minus } from 'lucide-react';
-import { BillingRules, TripState, ChauffeurSettings, checkVipActive } from '../types';
+import { BillingRules, TripState, ChauffeurSettings, checkVipActive, DriverStats } from '../types';
 import { db, doc, onSnapshot, deleteDoc, setDoc } from '../lib/dbProxy';
+import { speakText } from '../utils/speech';
 import PassengerOrderView from './PassengerOrderView';
+import QRCode from 'qrcode';
 
 const MULTIPLIER_OPTIONS = Array.from({ length: 11 }, (_, i) => Number((1.0 + i * 0.1).toFixed(1))); // [1.0, 1.1, ..., 2.0]
 
@@ -16,18 +18,43 @@ const SUGGESTED_DESTINATIONS = [
   '阅海湾中央商务区',
 ];
 
-// Beautiful dynamically generated QR code SVG based on seed/counter
+// Beautiful dynamically generated QR code using pure local offline qrcode library
 const SvgQrCode = ({ seed, url }: { seed: number; url?: string }) => {
-  // If we have a real url, use the public secure API to render a 100% scannable image!
+  const [localQrUrl, setLocalQrUrl] = useState<string>('');
+
+  useEffect(() => {
+    if (url) {
+      QRCode.toDataURL(url, {
+        width: 300,
+        margin: 1,
+        color: {
+          dark: '#0d9488', // Emerald teal
+          light: '#ffffff'
+        }
+      })
+      .then(dataUrl => {
+        setLocalQrUrl(dataUrl);
+      })
+      .catch(err => {
+        console.error('Error generating QR code locally:', err);
+      });
+    }
+  }, [url, seed]);
+
+  // If we have a real url, use the local generated base64 dataUrl
   if (url) {
     return (
       <div className="w-40 h-40 bg-white p-2 rounded-2xl border border-gray-100 shadow-xs overflow-hidden flex items-center justify-center">
-        <img 
-          src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(url)}&color=0d9488&qzone=1`} 
-          alt="扫码呼车二维码"
-          referrerPolicy="no-referrer"
-          className="w-full h-full object-contain"
-        />
+        {localQrUrl ? (
+          <img 
+            src={localQrUrl} 
+            alt="扫码呼车二维码"
+            referrerPolicy="no-referrer"
+            className="w-full h-full object-contain"
+          />
+        ) : (
+          <div className="w-8 h-8 rounded-full border-2 border-teal-600 border-t-transparent animate-spin" />
+        )}
       </div>
     );
   }
@@ -237,24 +264,26 @@ const getRobustLocation = (
     onFailure(err);
   };
 
-  // Watchdog timer: If GPS/native geolocation hangs or permissions are blocked silently for > 3.5s,
+  // Watchdog timer: If GPS/native geolocation hangs or permissions are blocked silently for > 12s,
   // we bypass them and instantly trigger the IP-based CitySearch fallback.
   const watchdog = setTimeout(() => {
     if (!resolved) {
-      console.warn('⚡ [GPS Watchdog] Positioning took too long (>3.5s) or got stuck in WebView, triggering IP/City fallback!');
+      console.warn('⚡ [GPS Watchdog] Positioning took too long (>12s) or got stuck in WebView, triggering IP/City fallback!');
       fallbackToCitySearch();
     }
-  }, 3500);
+  }, 12000);
 
   // Phase 1: Try Gaode's native Geolocation plugin first (highly optimized, has built-in IP fallback, returns GCJ-02)
   AMap.plugin('AMap.Geolocation', () => {
     try {
       const geolocation = new AMap.Geolocation({
         enableHighAccuracy: true, // Use high accuracy GPS if available
-        timeout: 8000,            // plugin timeout
+        timeout: 10000,           // plugin timeout (increased for hardware GPS stabilization)
         zoomToAccuracy: false,
         noIpLocate: 0,            // Allow IP fallback if GPS fails
-        noGeoLocation: 0          // Allow browser geolocation
+        noGeoLocation: 0,         // Allow browser geolocation
+        maximumAge: 0,            // Force fresh location coordinates
+        convert: true             // Automatically convert coordinates to GCJ-02
       });
 
       geolocation.getCurrentPosition((status: string, result: any) => {
@@ -296,7 +325,7 @@ const getRobustLocation = (
           console.warn('⚡ [Native Geolocation] Failed, trying IP City Search:', err);
           fallbackToCitySearch();
         },
-        { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
       );
     } else {
       fallbackToCitySearch();
@@ -330,6 +359,7 @@ const getRobustLocation = (
 interface CreateOrderViewProps {
   billingRules: BillingRules;
   settings: ChauffeurSettings;
+  stats?: DriverStats;
   userPhone: string | null;
   onStartTrip: (trip: TripState) => void;
   onNavigateBack: () => void;
@@ -341,6 +371,7 @@ interface CreateOrderViewProps {
 export default function CreateOrderView({
   billingRules,
   settings,
+  stats,
   userPhone,
   onStartTrip,
   onNavigateBack,
@@ -1002,13 +1033,7 @@ export default function CreateOrderView({
           setShowQrModal(false);
 
           // Audio vocal broadcast announcement
-          if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-            try {
-              const utter = new SpeechSynthesisUtterance('系统提示：乘客已扫码授权，填单内容自动同步成功。');
-              utter.lang = 'zh-CN';
-              window.speechSynthesis.speak(utter);
-            } catch (e) {}
-          }
+          speakText('系统提示：乘客已扫码授权，填单内容自动同步成功。');
           if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
             try { navigator.vibrate([100, 50, 100]); } catch(e){}
           }
@@ -1041,21 +1066,20 @@ export default function CreateOrderView({
     }
     const hostname = window.location.hostname;
     const origin = window.location.origin;
-    const isLocal = (
+    
+    // Only force production domain fallback for non-accessible private local hosts.
+    // Public container/cloud preview environments (like Cloud Run or AI Studio) are globally accessible by phones, 
+    // so they should generate native preview scan URLs for accurate live testing.
+    const isPrivateLocal = (
       hostname.includes('localhost') || 
-      hostname.includes('127.0.0.1') || 
-      hostname.includes('webcontainer') || 
-      hostname.includes('gitpod') || 
-      hostname.includes('cloudshell') ||
-      hostname.includes('run.app') ||
-      hostname.includes('aistudio.google')
+      hostname.includes('127.0.0.1')
     );
     
     const customWorkerApiUrl = localStorage.getItem('cloudflare_worker_api_url') || '';
     let baseOrigin = origin;
     let basePath = '/passenger_order.html';
     
-    if (isLocal) {
+    if (isPrivateLocal) {
       baseOrigin = 'https://lyheiwandaijiamax.com';
     } else {
       if (customWorkerApiUrl) {

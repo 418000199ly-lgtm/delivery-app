@@ -12,6 +12,27 @@ const SUGGESTED_DESTINATIONS = [
   '阅海湾中央商务区',
 ];
 
+// High-accuracy distance helper (uses AMap.GeometryUtil first, falls back to Haversine)
+function getDistance(lng1: number, lat1: number, lng2: number, lat2: number): number {
+  const AMap = (window as any).AMap;
+  if (AMap && AMap.GeometryUtil && typeof AMap.GeometryUtil.distance === 'function') {
+    try {
+      return AMap.GeometryUtil.distance([lng1, lat1], [lng2, lat2]); // returns meters
+    } catch (e) {
+      console.warn('[Distance helper] AMap.GeometryUtil.distance failed:', e);
+    }
+  }
+  // Haversine formula fallback (returns meters)
+  const R = 6371000; // Earth's radius in meters
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 interface ActiveTripViewProps {
   trip: TripState;
   settings: ChauffeurSettings;
@@ -183,10 +204,133 @@ export default function ActiveTripView({
     return () => clearInterval(interval);
   }, [isWaiting]);
 
-  // Handle driving ticks (Simulated real-time driving mileage accumulation and fee increments are disabled as requested)
+  // Real-time GPS high-precision tracking & AMap mileage calculation
+  const lastCoordsRef = useRef<{ lng: number, lat: number } | null>(null);
+  const preciseDistanceRef = useRef<number>(trip.currentDistance);
+
+  // Synchronize precise distance ref if trip currentDistance is adjusted from outside/manually (e.g., manual corrections)
   useEffect(() => {
-    // Disabled to prevent automatic 0.1km / 0.5元 fee increments on timer
-  }, [drivingSeconds]);
+    // If external/manual distance changes significantly from our internal tracker, synchronize it
+    if (Math.abs(preciseDistanceRef.current - trip.currentDistance) > 0.05) {
+      preciseDistanceRef.current = trip.currentDistance;
+    }
+  }, [trip.currentDistance]);
+
+  useEffect(() => {
+    let watchId: number | null = null;
+
+    const handlePositionUpdate = (lng: number, lat: number, accuracy: number) => {
+      // 1. Filter out poor accuracy positioning (WiFi / coarse cell tower backup) to prevent jumps
+      if (accuracy > 80) {
+        console.log(`⚠️ [GPS Tracker] Coarse position filtered out due to poor accuracy: ${accuracy}m`);
+        return;
+      }
+
+      if (!lastCoordsRef.current) {
+        // Set initial point
+        lastCoordsRef.current = { lng, lat };
+        console.log('⚡ [GPS Tracker] Initialized reference GPS position:', lastCoordsRef.current);
+        return;
+      }
+
+      // Calculate the physical distance from last known point
+      const distanceInMeters = getDistance(
+        lastCoordsRef.current.lng,
+        lastCoordsRef.current.lat,
+        lng,
+        lat
+      );
+
+      console.log(`⚡ [GPS Tracker] Calculated step distance: ${distanceInMeters.toFixed(2)}m (Accuracy: ${accuracy}m)`);
+
+      // 2. GPS Stationary Jitter & Static Drift Suppression
+      // - If distance is < 3.5 meters, count as static drift / red light wait, ignore it.
+      // - If distance is > 1000 meters in a single update (~120km/h for typical update intervals), count as a bad GPS jump, ignore it.
+      if (distanceInMeters < 3.5) {
+        console.log('⚡ [GPS Tracker] Static GPS drift filtered out (< 3.5m)');
+        return;
+      }
+      if (distanceInMeters > 1000) {
+        console.warn('⚠️ [GPS Tracker] Anomalous GPS jump filtered out (> 1000m)');
+        return;
+      }
+
+      // 3. Accumulate distance in kilometers
+      const addedKm = distanceInMeters / 1000;
+      preciseDistanceRef.current += addedKm;
+
+      // Keep exact to 0.01 km
+      const nextDist = Math.max(0, Number(preciseDistanceRef.current.toFixed(2)));
+
+      console.log(`⚡ [GPS Tracker] Calculated cumulative mileage: ${nextDist} km (Precise float: ${preciseDistanceRef.current.toFixed(4)} km)`);
+
+      const currentTripValue = tripRef.current;
+      if (nextDist !== currentTripValue.currentDistance) {
+        // Calculate the new cost in real-time based on updated mileage and waiting duration
+        const cost = calculateCost(nextDist, currentTripValue.currentWaitingTime, billingRulesRef.current);
+        
+        onUpdateTripRef.current({
+          ...currentTripValue,
+          currentDistance: nextDist,
+          calculatedBaseFee: cost.base,
+          calculatedTotalFee: cost.total
+        });
+      }
+
+      // Advance last coordinate ref
+      lastCoordsRef.current = { lng, lat };
+    };
+
+    if (typeof window !== 'undefined' && navigator.geolocation) {
+      console.log('⚡ [GPS Tracker] Starting active real-time route path distance calculator...');
+      
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const rawLng = pos.coords.longitude;
+          const rawLat = pos.coords.latitude;
+          const accuracy = pos.coords.accuracy || 10;
+
+          // Convert coordinates from WGS-84 (GPS) to GCJ-02 (Gaode GCJ02) for consistent mapping and routing
+          const AMap = (window as any).AMap;
+          if (AMap) {
+            try {
+              AMap.convertFrom([rawLng, rawLat], 'gps', (convertStatus: string, convertResult: any) => {
+                if (convertStatus === 'complete' && convertResult.locations && convertResult.locations[0]) {
+                  const finalLng = convertResult.locations[0].lng;
+                  const finalLat = convertResult.locations[0].lat;
+                  handlePositionUpdate(finalLng, finalLat, accuracy);
+                } else {
+                  handlePositionUpdate(rawLng, rawLat, accuracy);
+                }
+              });
+            } catch (err) {
+              console.warn('⚠️ [GPS Tracker] Coordinate GCJ02 conversion error, fallback to raw WGS84:', err);
+              handlePositionUpdate(rawLng, rawLat, accuracy);
+            }
+          } else {
+            handlePositionUpdate(rawLng, rawLat, accuracy);
+          }
+        },
+        (err) => {
+          console.error('❌ [GPS Tracker] watchPosition error:', err);
+        },
+        {
+          enableHighAccuracy: true, // Forces phone's high-precision hardware GPS chip
+          timeout: 10000,           // 10 seconds timeout to prevent freeze
+          maximumAge: 0             // Never use cached coordinates, demand fresh satellite positioning
+        }
+      );
+    } else {
+      console.warn('❌ [GPS Tracker] Geolocation API not supported in this client browser.');
+    }
+
+    return () => {
+      if (watchId !== null && typeof window !== 'undefined' && navigator.geolocation) {
+        console.log('⚡ [GPS Tracker] Cleaning up real-time route calculator');
+        navigator.geolocation.clearWatch(watchId);
+      }
+    };
+  }, []);
 
   // Toast notifier helper
   const triggerToast = (text: string) => {

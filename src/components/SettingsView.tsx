@@ -927,10 +927,11 @@ export default function SettingsView({
               <div className="text-sm font-semibold text-gray-700">纠偏功能</div>
               <div className="text-[10px] text-gray-400 leading-normal">双击行驶中行程界面任意区域可极速纠偏公里和等候耗时</div>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
+            <label className={`relative inline-flex items-center ${!checkVipActive(settings.vipExpiry) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
               <input 
                 type="checkbox" 
-                checked={settings.deviationMitigation && checkVipActive(settings.vipExpiry)}
+                disabled={!checkVipActive(settings.vipExpiry)}
+                checked={!!(checkVipActive(settings.vipExpiry) && settings.deviationMitigation)}
                 onChange={(e) => {
                   if (!checkVipActive(settings.vipExpiry)) {
                     alert('🔒 提示：纠偏功能为VIP会员专属特权！请先激活VIP。');
@@ -940,7 +941,7 @@ export default function SettingsView({
                 }}
                 className="sr-only peer" 
               />
-              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#1da39b]"></div>
+              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#1da39b] peer-disabled:bg-slate-300"></div>
             </label>
           </div>
 

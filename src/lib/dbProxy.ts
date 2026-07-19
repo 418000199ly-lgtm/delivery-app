@@ -53,15 +53,22 @@ export function getBaseApiUrl(): string {
   } catch (_) {}
   
   if (typeof window !== 'undefined') {
-    // Detect Capacitor or mobile webview environment
+    // Detect Capacitor protocol
     const isCapacitor = (window as any).Capacitor || 
                         window.location.protocol === 'capacitor:' || 
                         window.location.protocol === 'file:';
+    
+    // If it's loaded as a standard Web page (even on mobile), ALWAYS use the current origin!
+    // This allows deploying on ANY Aliyun server/domain/IP and having it work directly,
+    // without any hardcoded routing to external Cloud Run / Cloudflare domains.
+    if (!isCapacitor && window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      return window.location.origin;
+    }
+    
     const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     
-    // If running in Capacitor or on a mobile device where localhost points to the device itself,
-    // we must force routing to the production cloud backend API (Cloud Run).
-    if (isCapacitor || isMobileDevice) {
+    // If running in Capacitor native shell on a mobile device, fallback to api.lyheiwandaijiamax.com
+    if (isCapacitor) {
       return 'https://api.lyheiwandaijiamax.com';
     }
 

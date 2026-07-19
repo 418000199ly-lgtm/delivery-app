@@ -45,6 +45,7 @@ import DispatchValetOrder from './DispatchValetOrder';
 import { db, doc, getDoc, updateDoc, collection, onSnapshot, setDoc, getDocs, deleteDoc } from '../lib/dbProxy';
 import { CITY_GROUPS, ALL_CITIES_FLAT } from '../constants/cities';
 import { resolveAndSyncDuplicateNames } from '../utils/nameResolver';
+import { speakText } from '../utils/speech';
 import vipPaymentMockupImg from '../assets/images/vip_payment_mockup_1782906470780.jpg';
 import wechatPayQrImg from '../assets/images/wechat_pay_qr_1782906451645.jpg';
 
@@ -697,12 +698,8 @@ export default function HomeView({
       const latestMessage = userMessages[0];
       if (latestMessage && !viewedMessageIds.includes(latestMessage.id)) {
         // Trigger speech voice announcement if enabled
-        if (typeof window !== 'undefined' && 'speechSynthesis' in window && settings.voiceBroadcast === '开单语音播报') {
-          try {
-            const utter = new SpeechSynthesisUtterance(`收到系统最新通知公告：${latestMessage.title}`);
-            utter.lang = 'zh-CN';
-            window.speechSynthesis.speak(utter);
-          } catch(e){}
+        if (settings.voiceBroadcast === '开单语音播报') {
+          speakText(`收到系统最新通知公告：${latestMessage.title}`);
         }
       }
     }
@@ -1189,13 +1186,9 @@ export default function HomeView({
         // Trigger Toggle Online
         onToggleOnline(!isOnline);
         // Play notification
-        if (typeof window !== 'undefined' && 'speechSynthesis' in window && settings.voiceBroadcast === '开单语音播报') {
-          try {
-            const text = !isOnline ? '您已上线，点击报单创建订单' : '您已下线，期待为您下一次服务';
-            const utter = new SpeechSynthesisUtterance(text);
-            utter.lang = 'zh-CN';
-            window.speechSynthesis.speak(utter);
-          } catch(e){}
+        if (settings.voiceBroadcast === '开单语音播报') {
+          const text = !isOnline ? '您已上线，点击报单创建订单' : '您已下线，期待为您下一次服务';
+          speakText(text);
         }
       }
     }
@@ -1247,13 +1240,9 @@ export default function HomeView({
           // Trigger Toggle Online
           onToggleOnline(!isOnline);
           // Play notification
-          if (typeof window !== 'undefined' && 'speechSynthesis' in window && settings.voiceBroadcast === '开单语音播报') {
-            try {
-              const text = !isOnline ? '您已上线，点击报单创建订单' : '您已下线，期待为您下一次服务';
-              const utter = new SpeechSynthesisUtterance(text);
-              utter.lang = 'zh-CN';
-              window.speechSynthesis.speak(utter);
-            } catch(e){}
+          if (settings.voiceBroadcast === '开单语音播报') {
+            const text = !isOnline ? '您已上线，点击报单创建订单' : '您已下线，期待为您下一次服务';
+            speakText(text);
           }
         }
       }
@@ -1504,7 +1493,8 @@ export default function HomeView({
   };
 
   const getVipCountdown = () => {
-    if (!settings.vipExpiry) {
+    const normalized = (settings.vipExpiry || '').trim();
+    if (!settings.vipExpiry || normalized === '未激活' || normalized === '待激活' || normalized === '未激活待激活' || normalized === '') {
       return { 
         text: '未激活', 
         daysText: '未激活', 
@@ -1513,7 +1503,16 @@ export default function HomeView({
         badgeText: '待激活' 
       };
     }
-    if (settings.vipExpiry === '永久有效') {
+    if (normalized === '0' || normalized === '0天') {
+      return { 
+        text: '已到期', 
+        daysText: '0天', 
+        colorClass: 'text-red-500 bg-red-50 border border-red-200 font-bold text-[11px]', 
+        subColor: 'text-slate-400', 
+        badgeText: '已到期' 
+      };
+    }
+    if (normalized === '永久有效') {
       return { 
         text: '永久', 
         daysText: '永久', 

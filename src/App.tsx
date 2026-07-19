@@ -30,6 +30,7 @@ import AdminPanel from './components/AdminPanel';
 import LoginView from './components/LoginView';
 import { db, doc, onSnapshot, setDoc, deleteDoc, collection } from './lib/dbProxy';
 import { IncomingOrderOverlay } from './components/IncomingOrderOverlay';
+import { speakText } from './utils/speech';
 
 const getCityCenterCoords = (cityName: string): { lat: number; lng: number } => {
   const norm = (cityName || '').trim();
@@ -860,6 +861,15 @@ export default function App() {
     }
   }, [settings.onlineOrdersEnabled, isOnline, userRole]);
 
+  // Active VIP Limit Listener: automatically force-offline drivers when daily limits are exhausted
+  useEffect(() => {
+    const isVip = checkVipActive(settings.vipExpiry);
+    if (!isVip && stats.todayOrders >= 2 && isOnline) {
+      setIsOnline(false);
+      alert('🔒 提示：您当前的会员已到期或未激活。今日报单次数已用完（每天限额2次，每天凌晨6点自动刷新），系统已自动强制您下线并无法继续上线。如需无限报单，请开通/激活VIP服务。');
+    }
+  }, [settings.vipExpiry, stats.todayOrders, isOnline]);
+
   // Listen for real-time incoming passenger orders from passenger self-service scans or admin dispatching
   useEffect(() => {
     if (!userPhone) return;
@@ -1040,13 +1050,9 @@ export default function App() {
     }
 
     // Voice announcement overlay completion
-    if (settings.voiceBroadcast === '开单语音播报' && typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      try {
-        const textStr = `收款成功。本次收款金额：${amount}元，已存入代驾指定账户钱包中。感谢您的辛苦劳动！`;
-        const utter = new SpeechSynthesisUtterance(textStr);
-        utter.lang = 'zh-CN';
-        window.speechSynthesis.speak(utter);
-      } catch(e){}
+    if (settings.voiceBroadcast === '开单语音播报') {
+      const textStr = `收款成功。本次收款金额：${amount}元，已存入代驾指定账户钱包中。感谢您的辛苦劳动！`;
+      speakText(textStr);
     }
   };
 
@@ -1273,6 +1279,7 @@ export default function App() {
           <CreateOrderView
             billingRules={billingRules}
             settings={settings}
+            stats={stats}
             userPhone={userPhone}
             onStartTrip={handleStartTrip}
             onNavigateBack={() => {
@@ -1315,6 +1322,7 @@ export default function App() {
         return (
           <TripCostView
             trip={currentTrip}
+            settings={settings}
             billingRules={currentTrip.isOnlineOrder ? onlineBillingRules : billingRules}
             onNavigateBack={() => {
               // Safe fallback back to navigation

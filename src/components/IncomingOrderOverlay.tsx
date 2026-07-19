@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { TripState, BillingRules } from '../types';
+import { speakText, stopSpeaking } from '../utils/speech';
 
 interface IncomingOrderOverlayProps {
   order: {
@@ -181,35 +182,20 @@ export const IncomingOrderOverlay: React.FC<IncomingOrderOverlayProps> = ({
 
     const playSpeech = () => {
       if (!isActive) return;
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        try {
-          window.speechSynthesis.cancel(); // Ready the synthesis queue
-          const effectivePrice = (order.isValetOrder || order.isPlatformDispatch) ? '未知' : approxPrice;
-          const speechText = getTTSBroadcastText(effectivePrice, startLocation, destination, distanceText);
-          const utter = new SpeechSynthesisUtterance(speechText);
-          utter.lang = 'zh-CN';
-          
-          utter.onend = () => {
-            if (isActive) {
-              // Pause 1 second between repeat loops
-              timerId = setTimeout(() => {
-                playSpeech();
-              }, 1000);
-            }
-          };
-
-          utter.onerror = (e) => {
-            if (isActive && e.error !== 'interrupted') {
-              timerId = setTimeout(() => {
-                playSpeech();
-              }, 2000);
-            }
-          };
-
-          window.speechSynthesis.speak(utter);
-        } catch (e) {
-          console.error('TTS execution failed:', e);
-        }
+      try {
+        const effectivePrice = (order.isValetOrder || order.isPlatformDispatch) ? '未知' : approxPrice;
+        const speechText = getTTSBroadcastText(effectivePrice, startLocation, destination, distanceText);
+        
+        speakText(speechText, () => {
+          if (isActive) {
+            // Pause 1 second between repeat loops
+            timerId = setTimeout(() => {
+              playSpeech();
+            }, 1000);
+          }
+        });
+      } catch (e) {
+        console.error('Speech synthesis loop failed:', e);
       }
     };
 
@@ -224,9 +210,7 @@ export const IncomingOrderOverlay: React.FC<IncomingOrderOverlayProps> = ({
     return () => {
       isActive = false;
       if (timerId) clearTimeout(timerId);
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
+      stopSpeaking();
     };
   }, [approxPrice, startLocation, destination, distanceText]);
 
