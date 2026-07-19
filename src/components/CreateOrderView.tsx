@@ -221,22 +221,48 @@ const getRobustLocation = (
     return;
   }
 
+  let resolved = false;
+
+  const safeOnSuccess = (gcjLng: number, gcjLat: number, isHighAccuracy: boolean, addressName?: string) => {
+    if (resolved) return;
+    resolved = true;
+    clearTimeout(watchdog);
+    onSuccess(gcjLng, gcjLat, isHighAccuracy, addressName);
+  };
+
+  const safeOnFailure = (err: any) => {
+    if (resolved) return;
+    resolved = true;
+    clearTimeout(watchdog);
+    onFailure(err);
+  };
+
+  // Watchdog timer: If GPS/native geolocation hangs or permissions are blocked silently for > 3.5s,
+  // we bypass them and instantly trigger the IP-based CitySearch fallback.
+  const watchdog = setTimeout(() => {
+    if (!resolved) {
+      console.warn('⚡ [GPS Watchdog] Positioning took too long (>3.5s) or got stuck in WebView, triggering IP/City fallback!');
+      fallbackToCitySearch();
+    }
+  }, 3500);
+
   // Phase 1: Try Gaode's native Geolocation plugin first (highly optimized, has built-in IP fallback, returns GCJ-02)
   AMap.plugin('AMap.Geolocation', () => {
     try {
       const geolocation = new AMap.Geolocation({
         enableHighAccuracy: true, // Use high accuracy GPS if available
-        timeout: 10000,            // 10 seconds timeout
+        timeout: 8000,            // plugin timeout
         zoomToAccuracy: false,
         noIpLocate: 0,            // Allow IP fallback if GPS fails
         noGeoLocation: 0          // Allow browser geolocation
       });
 
       geolocation.getCurrentPosition((status: string, result: any) => {
+        if (resolved) return;
         if (status === 'complete' && result.position) {
           console.log('⚡ [AMap Geolocation] Succeeded:', result.position.lng, result.position.lat, result);
           const isHighAcc = result.location_type === 'gps' || result.location_type === 'html5';
-          onSuccess(result.position.lng, result.position.lat, isHighAcc, result.formattedAddress);
+          safeOnSuccess(result.position.lng, result.position.lat, isHighAcc, result.formattedAddress);
         } else {
           console.warn('⚡ [AMap Geolocation] Failed, trying native HTML5 geolocation as fallback...', status, result);
           fallbackToNative();
@@ -249,25 +275,28 @@ const getRobustLocation = (
   });
 
   const fallbackToNative = () => {
+    if (resolved) return;
     if (typeof window !== 'undefined' && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
+          if (resolved) return;
           const rawLng = pos.coords.longitude;
           const rawLat = pos.coords.latitude;
           console.log('⚡ [Native Geolocation] Succeeded, converting coordinates:', rawLng, rawLat);
           
           // Convert from WGS-84 (GPS) to GCJ-02 (Gaode)
           AMap.convertFrom([rawLng, rawLat], 'gps', (convertStatus: string, convertResult: any) => {
+            if (resolved) return;
             const finalLng = (convertStatus === 'complete' && convertResult.locations) ? convertResult.locations[0].lng : rawLng;
             const finalLat = (convertStatus === 'complete' && convertResult.locations) ? convertResult.locations[0].lat : rawLat;
-            onSuccess(finalLng, finalLat, true);
+            safeOnSuccess(finalLng, finalLat, true);
           });
         },
         (err) => {
           console.warn('⚡ [Native Geolocation] Failed, trying IP City Search:', err);
           fallbackToCitySearch();
         },
-        { enableHighAccuracy: false, timeout: 6000, maximumAge: 300000 }
+        { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
       );
     } else {
       fallbackToCitySearch();
@@ -275,22 +304,24 @@ const getRobustLocation = (
   };
 
   const fallbackToCitySearch = () => {
+    if (resolved) return;
     AMap.plugin('AMap.CitySearch', () => {
       try {
         const citySearch = new AMap.CitySearch();
         citySearch.getLocalCity((cityStatus: string, cityResult: any) => {
+          if (resolved) return;
           if (cityStatus === 'complete' && cityResult.bounds) {
             const bounds = cityResult.bounds;
             const finalLng = (bounds.southWest.lng + bounds.northEast.lng) / 2;
             const finalLat = (bounds.southWest.lat + bounds.northEast.lat) / 2;
             console.log('⚡ [City Search] Succeeded (IP fallback):', finalLng, finalLat, cityResult.city);
-            onSuccess(finalLng, finalLat, false, cityResult.city ? `${cityResult.city}中心` : undefined);
+            safeOnSuccess(finalLng, finalLat, false, cityResult.city ? `${cityResult.city}中心` : undefined);
           } else {
-            onFailure(new Error('All geolocation and IP fallbacks failed'));
+            safeOnFailure(new Error('All geolocation and IP fallbacks failed'));
           }
         });
       } catch (e) {
-        onFailure(e);
+        safeOnFailure(e);
       }
     });
   };

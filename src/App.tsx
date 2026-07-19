@@ -1315,6 +1315,7 @@ export default function App() {
         return (
           <TripCostView
             trip={currentTrip}
+            billingRules={currentTrip.isOnlineOrder ? onlineBillingRules : billingRules}
             onNavigateBack={() => {
               // Safe fallback back to navigation
               if (currentTrip) {

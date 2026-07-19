@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MapPin, Navigation, ChevronRight, Clock, ShieldCheck, X, PlusCircle, MinusCircle, CheckCircle } from 'lucide-react';
+import { MapPin, Navigation, ChevronRight, Clock, ShieldCheck, X, PlusCircle, MinusCircle, CheckCircle, Phone } from 'lucide-react';
 import { TripState, ChauffeurSettings, BillingRules, checkVipActive } from '../types';
 
 const SUGGESTED_DESTINATIONS = [
@@ -218,8 +218,20 @@ export default function ActiveTripView({
   };
 
   // Simulate navigation click trigger
-  const handleSimulateNavigation = () => {
+  const handleSimulateNavigation = (e?: React.MouseEvent | React.TouchEvent) => {
+    if (e) e.stopPropagation();
     triggerToast(`高配导航启航：正通过高德/百度安全规划至【${trip.endLocation || '目的地'}】`);
+  };
+
+  // Handle dial phone action
+  const handleMakePhoneCall = (e: React.MouseEvent | React.TouchEvent) => {
+    e.stopPropagation();
+    if (trip.passengerPhone && trip.passengerPhone.trim() !== '') {
+      window.location.href = `tel:${trip.passengerPhone.trim()}`;
+      triggerToast(`正在拨打乘客电话: ${trip.passengerPhone.trim()}`);
+    } else {
+      triggerToast('暂无乘客电话号码');
+    }
   };
 
   // 5. Swipe/Drag Actions listener for Touch & Mouse
@@ -449,14 +461,26 @@ export default function ActiveTripView({
             ¥
           </div>
 
+          {/* Phone Call Button */}
+          <div 
+            onClick={handleMakePhoneCall}
+            onTouchStart={handleMakePhoneCall}
+            className="absolute top-4 left-4 bg-white rounded-xl p-2 shadow-md flex flex-col items-center justify-center w-11 h-11 cursor-pointer active:scale-95 transition-transform select-none" 
+            data-purpose="phone-button"
+          >
+            <Phone className="h-4.5 w-4.5 text-[#26a69a] pointer-events-none" />
+            <span className="text-[9px] text-[#26a69a] mt-0.5 font-extrabold tracking-wider pointer-events-none select-none">电话</span>
+          </div>
+
           {/* Navigation Button */}
           <div 
             onClick={handleSimulateNavigation}
-            className="absolute top-4 right-4 bg-white rounded-xl p-2 shadow-md flex flex-col items-center justify-center w-11 h-11 cursor-pointer active:scale-95 transition-transform" 
+            onTouchStart={handleSimulateNavigation}
+            className="absolute top-4 right-4 bg-white rounded-xl p-2 shadow-md flex flex-col items-center justify-center w-11 h-11 cursor-pointer active:scale-95 transition-transform select-none" 
             data-purpose="nav-button"
           >
-            <Navigation className="h-4.5 w-4.5 text-[#26a69a] transform rotate-45" />
-            <span className="text-[9px] text-[#26a69a] mt-0.5 font-extrabold tracking-wider">导航</span>
+            <Navigation className="h-4.5 w-4.5 text-[#26a69a] transform rotate-45 pointer-events-none" />
+            <span className="text-[9px] text-[#26a69a] mt-0.5 font-extrabold tracking-wider pointer-events-none select-none">导航</span>
           </div>
 
           {/* Price & Duration Info Display */}
