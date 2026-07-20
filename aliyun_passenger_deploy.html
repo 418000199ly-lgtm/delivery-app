@@ -171,7 +171,7 @@
         </svg>
       </div>
       <div class="flex-grow text-left">
-        <p class="text-[10px] font-bold text-[#5f5e5e] uppercase tracking-wider mb-0.5">司机 service 通道</p>
+        <p class="text-[10px] font-bold text-[#5f5e5e] uppercase tracking-wider mb-0.5">司机 二维码报单 安全通道</p>
         <p class="text-sm font-semibold text-[#1a1c1c] leading-tight">
           正在链接至司机 <span id="driver-display" class="text-[#ff7d00] font-bold font-mono">...</span>
         </p>
@@ -442,6 +442,10 @@
             请使用正规渠道开通会员
           </p>
         </div>
+        <!-- 下面空白处添加灰色小字 -->
+        <p class="mt-6 text-xs text-slate-400 text-left px-4 leading-relaxed">
+          本页面仅提供产品图文展示，页面所有信息、参数、图文均不构成要约、报价或交易承诺，不具备法律合同效力，相关交易规则以线下正式书面文件为准。
+        </p>
       </section>
     </main>
     <footer style="text-align: center; padding: 20px 0; font-size: 12px; color: #666;" class="w-full z-20 shrink-0">
@@ -495,12 +499,15 @@
       }
     }
 
-    // 展现阻拦页面 (高可用极致优化：彻底废除对乘客端网页的任何 VIP 拦截及异常封禁，保障扫码下单 100% 极速通畅)
+    // 展现阻拦页面
     function showBlockedPage() {
-      console.log("VIP 验证通过：高可用极致放行，已废除拦截遮罩层，保障生产环境绝不误封、漏单！");
       const blockedOverlay = document.getElementById('blocked-overlay');
       if (blockedOverlay) {
-        blockedOverlay.classList.add('hidden'); // 强制保持隐藏
+        blockedOverlay.classList.remove('hidden');
+      }
+      const welcomeOverlay = document.getElementById('welcome-overlay');
+      if (welcomeOverlay) {
+        welcomeOverlay.style.display = 'none';
       }
     }
 
@@ -515,6 +522,20 @@
       window.location.hostname.includes('run.app') ||
       window.location.hostname.includes('aistudio.google')
     );
+
+    // 只能微信或支付宝扫码检测
+    const ua = navigator.userAgent.toLowerCase();
+    const isWeChat = ua.indexOf('micromessenger') !== -1;
+    const isAlipay = ua.indexOf('alipayclient') !== -1;
+    const isWeChatOrAlipay = isWeChat || isAlipay;
+
+    // 无论复制粘贴到任何浏览器里，均直接拦截（只有微信或支付宝扫码允许访问，开发模拟环境放行）
+    if (!isWeChatOrAlipay && !isDeveloperSimulator) {
+      window.addEventListener('DOMContentLoaded', showBlockedPage);
+      if (document.readyState === 'interactive' || document.readyState === 'complete') {
+        showBlockedPage();
+      }
+    }
 
     if (!hasDriverInUrl && !isDeveloperSimulator) {
       setTimeout(() => {
@@ -539,42 +560,87 @@
 
     // 动态更新欢迎词逻辑：无名字默认XX代驾，有名字显示欢迎使用（名字）；同时更新安全保障层
     function updateWelcomeText(rawName) {
-      const brandElement = document.getElementById('welcome-brand-name');
-      const orderCardTitle = document.getElementById('order-card-welcome-title');
-      const headerBrand = document.getElementById('header-brand-name');
       const cleanName = decodeURIComponent(rawName || '').trim();
       
       const hasCustom = cleanName && cleanName !== '极速' && cleanName !== '极速代驾' && cleanName !== 'XX代驾' && cleanName !== '小鸟代驾' && cleanName !== '';
       const brandText = hasCustom ? cleanName : '小鸟代驾';
 
-      if (brandElement) {
-        brandElement.innerText = brandText;
-      }
-
-      if (orderCardTitle) {
-        orderCardTitle.innerText = `欢迎使用${brandText}自助下单`;
-      }
-
-      if (headerBrand) {
-        headerBrand.innerText = brandText;
-      }
+      const ids = ['welcome-brand-name', 'header-brand-name', 'success-brand-name', 'footer-brand-name'];
+      ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.innerText = brandText;
+        }
+      });
     }
 
     // 优先读取 URL 中附带的名字，否则显示小鸟代驾
     let customAppName = urlParams.get('name') || '小鸟代驾';
     updateWelcomeText(customAppName);
 
-    // 自动检测接口域名，强制指向阿里云后台管理端，保证多端数据无缝实时互通互联
-    const apiDomain = 'https://admin.lyheiwandaijiamax.com';
+    // 智能自适应 API 接口域名：当同源部署时默认使用 origin，若在分离域名下，则自动检测锁定有效的核心后端 API 域名
+    let apiDomain = typeof window !== 'undefined' ? window.location.origin : '';
 
-    // 完美适配：改用高可用本地服务器/同源安全API代理加载司机自定义品牌名称，确保数据加载100%极速顺畅，并在此处进行强校验
-    const getDocUrlForBrand = `${apiDomain}/api/db/get?col=driver_users&id=${encodeURIComponent(driverPhone)}`;
-    fetch(getDocUrlForBrand)
-      .then(res => res.json())
-      .then(resData => {
+    // 完美适配：自适应多通道高可用安全 API 代理加载司机自定义品牌名称，确保数据加载100%极速顺畅
+    async function loadDriverConfigAndLockDomain(phone) {
+      const col = 'driver_users';
+      const id = encodeURIComponent(phone);
+      
+      // 1. 优先尝试本地/同源 API (最适合同源部署或沙箱预览)
+      try {
+        const localUrl = `/api/db/get?col=${col}&id=${id}`;
+        const res = await fetch(localUrl);
+        if (res.ok) {
+          const resData = await res.json();
+          if (resData && resData.exists && resData.data) {
+            apiDomain = window.location.origin;
+            console.log('✓ [API Auto-Detect] Local/Same-Origin backend verified and locked:', apiDomain);
+            return resData.data;
+          }
+        }
+      } catch (e) {
+        console.warn('同源主站接口暂不可用，将尝试跨域备用通道:', e);
+      }
+
+      // 2. 备用通道一：尝试阿里云独立管理后台 (最适合标准分离部署)
+      try {
+        const remoteUrl1 = `https://admin.lyheiwandaijiamax.com/api/db/get?col=${col}&id=${id}`;
+        const res = await fetch(remoteUrl1);
+        if (res.ok) {
+          const resData = await res.json();
+          if (resData && resData.exists && resData.data) {
+            apiDomain = 'https://admin.lyheiwandaijiamax.com';
+            console.log('✓ [API Auto-Detect] Remote admin backend verified and locked:', apiDomain);
+            return resData.data;
+          }
+        }
+      } catch (e) {
+        console.warn('独立管理后台接口请求失败，尝试标准 API 接口域名:', e);
+      }
+
+      // 3. 备用通道二：尝试标准 API 接口域名
+      try {
+        const remoteUrl2 = `https://api.lyheiwandaijiamax.com/api/db/get?col=${col}&id=${id}`;
+        const res = await fetch(remoteUrl2);
+        if (res.ok) {
+          const resData = await res.json();
+          if (resData && resData.exists && resData.data) {
+            apiDomain = 'https://api.lyheiwandaijiamax.com';
+            console.log('✓ [API Auto-Detect] Remote api backend verified and locked:', apiDomain);
+            return resData.data;
+          }
+        }
+      } catch (e) {
+        console.error('所有可用数据接口通道均已失效:', e);
+      }
+
+      return null;
+    }
+
+    loadDriverConfigAndLockDomain(driverPhone)
+      .then(data => {
         let isVipActive = true; // 默认给予最充分的可用性信任，保障全天候 100% 通畅
-        if (resData && resData.exists && resData.data) {
-          const data = resData.data;
+        if (data) {
           // 校验 VIP 有效期
           if (data.vipExpiry) {
             isVipActive = checkVipActive(data.vipExpiry);

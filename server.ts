@@ -416,19 +416,6 @@ async function startServer() {
     });
   });
 
-  // Direct download endpoint for daijia_deploy.zip (to make sure it works in all preview environments)
-  app.get('/daijia_deploy.zip', (req, res) => {
-    const filePath = path.join(process.cwd(), 'daijia_deploy.zip');
-    res.download(filePath, 'daijia_deploy.zip', (err) => {
-      if (err) {
-        console.error('[Download Error] daijia_deploy.zip serving failed:', err);
-        if (!res.headersSent) {
-          res.status(404).send('daijia_deploy.zip was not found on server. Please run build first to generate it.');
-        }
-      }
-    });
-  });
-
   // --- WECHAT SCAN LOGIN ENDPOINTS ---
 
   // 1. Initialize a WeChat scan login session
@@ -1075,10 +1062,8 @@ async function startServer() {
     }
 
     if (fs.existsSync(filePath)) {
-      res.setHeader('Content-Type', 'application/zip');
       res.download(filePath, 'daijia_deploy.zip');
     } else if (fs.existsSync(altPath)) {
-      res.setHeader('Content-Type', 'application/zip');
       res.download(altPath, 'daijia_deploy.zip');
     } else {
       res.status(404).send('部署包正在打包编译中，请在5秒后刷新页面重试！');
@@ -1101,10 +1086,8 @@ async function startServer() {
     }
 
     if (fs.existsSync(filePath)) {
-      res.setHeader('Content-Type', 'application/x-gzip');
       res.download(filePath, 'daijia_deploy.tar.gz');
     } else if (fs.existsSync(altPath)) {
-      res.setHeader('Content-Type', 'application/x-gzip');
       res.download(altPath, 'daijia_deploy.tar.gz');
     } else {
       res.status(404).send('部署包正在打包编译中，请在5秒后刷新页面重试！');
@@ -1127,10 +1110,8 @@ async function startServer() {
     }
 
     if (fs.existsSync(filePath)) {
-      res.setHeader('Content-Type', 'application/x-tar');
       res.download(filePath, 'daijia_deploy.tar');
     } else if (fs.existsSync(altPath)) {
-      res.setHeader('Content-Type', 'application/x-tar');
       res.download(altPath, 'daijia_deploy.tar');
     } else {
       res.status(404).send('部署包正在打包编译中，请在5秒后刷新页面重试！');
