@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Landmark, Car, HelpCircle, Flame, X } from 'lucide-react';
-import { TripState, BillingRules } from '../types';
+import { TripState, BillingRules, ChauffeurSettings, checkVipActive } from '../types';
 
 interface TripCostViewProps {
   trip: TripState;
+  settings?: ChauffeurSettings;
   billingRules: BillingRules;
   onNavigateBack: () => void;
   onGoToCollection: (updatedTrip: TripState) => void;
@@ -11,6 +12,7 @@ interface TripCostViewProps {
 
 export default function TripCostView({
   trip,
+  settings,
   billingRules,
   onNavigateBack,
   onGoToCollection
@@ -18,15 +20,17 @@ export default function TripCostView({
   // Modal state
   const [showRulesModal, setShowRulesModal] = useState(false);
 
+  const isVip = checkVipActive(settings?.vipExpiry);
+
   // Input binders for extra pad fees (Screenshot 1: 高速费, 停车费, 其他费用)
   const [bridgeFeeStr, setBridgeFeeStr] = useState('');
   const [parkingFeeStr, setParkingFeeStr] = useState('');
   const [otherFeeStr, setOtherFeeStr] = useState('');
 
   // Number converters
-  const bridgeFee = Number(bridgeFeeStr) || 0;
-  const parkingFee = Number(parkingFeeStr) || 0;
-  const otherFee = Number(otherFeeStr) || 0;
+  const bridgeFee = isVip ? (Number(bridgeFeeStr) || 0) : 0;
+  const parkingFee = isVip ? (Number(parkingFeeStr) || 0) : 0;
+  const otherFee = isVip ? (Number(otherFeeStr) || 0) : 0;
 
   // Real-time calculated Grand Total
   const grandTotal = Number((trip.calculatedBaseFee + bridgeFee + parkingFee + otherFee).toFixed(2));
@@ -100,57 +104,81 @@ export default function TripCostView({
           <div className="space-y-3">
             
             {/* 1. Bridge Fee input */}
-            <div className="bg-white rounded-2xl border border-gray-100 px-4 py-3.5 flex items-center justify-between shadow-xs">
+            <div 
+              onClick={() => {
+                if (!isVip) {
+                  alert('🔒 提示：垫付费用（路桥费、停车费、其他费用）属于VIP专属高级特权功能。您当前非VIP会员或会员已到期，请先激活VIP。');
+                }
+              }}
+              className={`bg-white rounded-2xl border border-gray-100 px-4 py-3.5 flex items-center justify-between shadow-xs ${!isVip ? 'opacity-65 cursor-not-allowed' : ''}`}
+            >
               <span className="text-sm font-bold text-gray-800">高速费/路桥费</span>
-              <div className="flex items-center bg-slate-50 border border-gray-100 rounded-xl px-3 py-1.5 shadow-inner">
+              <div className={`flex items-center border border-gray-100 rounded-xl px-3 py-1.5 shadow-inner ${!isVip ? 'bg-slate-100' : 'bg-slate-50'}`}>
                 <input
                   type="text"
                   pattern="[0-9]*"
-                  placeholder="请输入金额"
-                  value={bridgeFeeStr}
+                  placeholder={isVip ? "请输入金额" : "🔒 仅限VIP"}
+                  disabled={!isVip}
+                  value={isVip ? bridgeFeeStr : ""}
                   onChange={(e) => {
                     const val = e.target.value.replace(/[^0-9.]/g, '');
                     setBridgeFeeStr(val);
                   }}
-                  className="w-24 text-right bg-transparent text-sm font-semibold focus:outline-hidden text-gray-900 placeholder-gray-300"
+                  className="w-24 text-right bg-transparent text-sm font-semibold focus:outline-hidden text-gray-900 placeholder-gray-400 disabled:text-gray-400 disabled:cursor-not-allowed"
                 />
                 <span className="text-xs text-gray-400 ml-1.5 font-bold">元</span>
               </div>
             </div>
 
             {/* 2. Parking Fee input */}
-            <div className="bg-white rounded-2xl border border-gray-100 px-4 py-3.5 flex items-center justify-between shadow-xs">
+            <div 
+              onClick={() => {
+                if (!isVip) {
+                  alert('🔒 提示：垫付费用（路桥费、停车费、其他费用）属于VIP专属高级特权功能。您当前非VIP会员或会员已到期，请先激活VIP。');
+                }
+              }}
+              className={`bg-white rounded-2xl border border-gray-100 px-4 py-3.5 flex items-center justify-between shadow-xs ${!isVip ? 'opacity-65 cursor-not-allowed' : ''}`}
+            >
               <span className="text-sm font-bold text-gray-800">停车费</span>
-              <div className="flex items-center bg-slate-50 border border-gray-100 rounded-xl px-3 py-1.5 shadow-inner">
+              <div className={`flex items-center border border-gray-100 rounded-xl px-3 py-1.5 shadow-inner ${!isVip ? 'bg-slate-100' : 'bg-slate-50'}`}>
                 <input
                   type="text"
                   pattern="[0-9]*"
-                  placeholder="请输入金额"
-                  value={parkingFeeStr}
+                  placeholder={isVip ? "请输入金额" : "🔒 仅限VIP"}
+                  disabled={!isVip}
+                  value={isVip ? parkingFeeStr : ""}
                   onChange={(e) => {
                     const val = e.target.value.replace(/[^0-9.]/g, '');
                     setParkingFeeStr(val);
                   }}
-                  className="w-24 text-right bg-transparent text-sm font-semibold focus:outline-hidden text-gray-900 placeholder-gray-300"
+                  className="w-24 text-right bg-transparent text-sm font-semibold focus:outline-hidden text-gray-900 placeholder-gray-400 disabled:text-gray-400 disabled:cursor-not-allowed"
                 />
                 <span className="text-xs text-gray-400 ml-1.5 font-bold">元</span>
               </div>
             </div>
 
             {/* 3. Other Fees input */}
-            <div className="bg-white rounded-2xl border border-gray-100 px-4 py-3.5 flex items-center justify-between shadow-xs">
+            <div 
+              onClick={() => {
+                if (!isVip) {
+                  alert('🔒 提示：垫付费用（路桥费、停车费、其他费用）属于VIP专属高级特权功能。您当前非VIP会员或会员已到期，请先激活VIP。');
+                }
+              }}
+              className={`bg-white rounded-2xl border border-gray-100 px-4 py-3.5 flex items-center justify-between shadow-xs ${!isVip ? 'opacity-65 cursor-not-allowed' : ''}`}
+            >
               <span className="text-sm font-bold text-gray-800">其他费用</span>
-              <div className="flex items-center bg-slate-50 border border-gray-100 rounded-xl px-3 py-1.5 shadow-inner">
+              <div className={`flex items-center border border-gray-100 rounded-xl px-3 py-1.5 shadow-inner ${!isVip ? 'bg-slate-100' : 'bg-slate-50'}`}>
                 <input
                   type="text"
                   pattern="[0-9]*"
-                  placeholder="请输入金额"
-                  value={otherFeeStr}
+                  placeholder={isVip ? "请输入金额" : "🔒 仅限VIP"}
+                  disabled={!isVip}
+                  value={isVip ? otherFeeStr : ""}
                   onChange={(e) => {
                     const val = e.target.value.replace(/[^0-9.]/g, '');
                     setOtherFeeStr(val);
                   }}
-                  className="w-24 text-right bg-transparent text-sm font-semibold focus:outline-hidden text-gray-900 placeholder-gray-300"
+                  className="w-24 text-right bg-transparent text-sm font-semibold focus:outline-hidden text-gray-900 placeholder-gray-400 disabled:text-gray-400 disabled:cursor-not-allowed"
                 />
                 <span className="text-xs text-gray-400 ml-1.5 font-bold">元</span>
               </div>

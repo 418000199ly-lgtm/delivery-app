@@ -861,14 +861,7 @@ export default function App() {
     }
   }, [settings.onlineOrdersEnabled, isOnline, userRole]);
 
-  // Active VIP Limit Listener: automatically force-offline drivers when daily limits are exhausted
-  useEffect(() => {
-    const isVip = checkVipActive(settings.vipExpiry);
-    if (!isVip && stats.todayOrders >= 2 && isOnline) {
-      setIsOnline(false);
-      alert('🔒 提示：您当前的会员已到期或未激活。今日报单次数已用完（每天限额2次，每天凌晨6点自动刷新），系统已自动强制您下线并无法继续上线。如需无限报单，请开通/激活VIP服务。');
-    }
-  }, [settings.vipExpiry, stats.todayOrders, isOnline]);
+  // Active VIP Limit & State Reset Listener moved after handleUpdateSettings to avoid TDZ issues.
 
   // Listen for real-time incoming passenger orders from passenger self-service scans or admin dispatching
   useEffect(() => {
@@ -943,7 +936,6 @@ export default function App() {
   const handleStartTrip = (trip: TripState) => {
     setCurrentTrip(trip);
     setCurrentView('navigation');
-    triggerToast('订单已被接单！计费计时系统已极速激活。');
   };
 
   const handleUpdateTrip = (updated: TripState) => {
@@ -959,7 +951,6 @@ export default function App() {
     };
     setCurrentTrip(endedTrip);
     setCurrentView('cost');
-    triggerToast('行程结束。请登记路桥及垫付费用。');
   };
 
   const handleGoToCollection = (finalizedTrip: TripState) => {
@@ -1115,6 +1106,35 @@ export default function App() {
       });
     }
   };
+
+  // Active VIP Limit & State Reset Listener: automatically force-offline drivers when daily limits are exhausted,
+  // and force-revert settings (customAppName, deviationMitigation) when VIP has expired or is unactivated.
+  useEffect(() => {
+    const isVip = checkVipActive(settings.vipExpiry);
+    
+    // Force offline if daily limits are exhausted
+    if (!isVip && stats.todayOrders >= 2 && isOnline) {
+      setIsOnline(false);
+      alert('🔒 提示：您当前的会员已到期或未激活。今日报单次数已用完（每天限额2次，每天凌晨6点自动刷新），系统已自动强制您下线并无法继续上线。如需无限报单，请开通/激活VIP服务。');
+    }
+
+    // Force revert custom branding name & deviation features when VIP is not active
+    if (!isVip) {
+      let needsUpdate = false;
+      const updatedSettings = { ...settings };
+      if (settings.customAppName && settings.customAppName !== 'XX代驾') {
+        updatedSettings.customAppName = 'XX代驾';
+        needsUpdate = true;
+      }
+      if (settings.deviationMitigation) {
+        updatedSettings.deviationMitigation = false;
+        needsUpdate = true;
+      }
+      if (needsUpdate) {
+        handleUpdateSettings(updatedSettings);
+      }
+    }
+  }, [settings.vipExpiry, settings.customAppName, settings.deviationMitigation, stats.todayOrders, isOnline]);
 
   // --- 3. Page Router dispatcher ---
   const renderView = () => {
