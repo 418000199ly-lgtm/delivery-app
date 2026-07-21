@@ -30,6 +30,11 @@ jobs:
           npm install --legacy-peer-deps --no-audit --no-fund
           npm run build
 
+      # 3.5 动态生成 Android 启动图标和启动页
+      - name: Generate Android Icons & Splash Screen Assets
+        run: |
+          node scripts/generate-icons.js
+
       # 4. 同步 Capacitor 资源到 Android 工程
       - name: Capacitor Sync
         run: |

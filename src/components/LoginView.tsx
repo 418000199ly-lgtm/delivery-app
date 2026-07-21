@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getBaseApiUrl } from '../lib/dbProxy';
+import hwdjLogo from '../assets/images/hwdj_launcher_icon_1784366761434.jpg';
 import { 
   Smartphone, 
   ShieldCheck, 
@@ -74,7 +75,7 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
           setInfoMsg(`💡 成功通过测试沙盒通道：系统已为您离线生成验证码。点击下方一键填入直接登录！`);
         } else {
           setLoginMode('real');
-          setInfoMsg('✓ 阿里云短信验证码已发送！请注意查收您手机接收到的 4 位数短信验证码。');
+          setInfoMsg('✓ 短信验证码已发送！请注意查收您手机接收到的4位数短信验证码！');
         }
       } else {
         setErrorMsg(`❌ 验证码获取失败: ${data.error || '服务器响应异常'}`);
@@ -121,11 +122,11 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
         onLoginSuccess(phoneTrimmed);
       } else {
         const rawError = data.error || '验证码校验未通过';
-        let displayError = rawError;
         if (rawError.includes('isv.ValidateFail') || rawError.includes('400') || rawError.includes('验证失败')) {
-          displayError = '阿里云400验证失败，请正确填写验证码';
+          setErrorMsg('❌ 验证失败，请正确填写验证码！');
+        } else {
+          setErrorMsg(`❌ 登录失败: ${rawError}`);
         }
-        setErrorMsg(`❌ 登录失败: ${displayError}`);
       }
     } catch (err: any) {
       console.error('[Login] Verify SMS failed:', err);
@@ -150,12 +151,16 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
         
         <div className="flex-1 flex flex-col justify-between py-2 animate-in fade-in duration-300">
           
-          {/* Brand Area */}
-          <div className="space-y-1.5 text-center mt-2 shrink-0">
-            <h2 className="text-base font-black text-slate-100 tracking-tight">手机验证码安全登录</h2>
-            <p className="text-[10.5px] text-slate-400 max-w-[260px] mx-auto leading-relaxed">
-              输入11位中国大陆手机号码并获取验证码以进行安全验证登录。
-            </p>
+          {/* Brand Area with hwdjtb logo */}
+          <div className="flex flex-col items-center justify-center pt-3 pb-1 shrink-0">
+            <div className="w-28 h-28 rounded-2xl overflow-hidden shadow-2xl border border-slate-800 bg-[#0e1017] p-1.5 transition-all duration-300 hover:scale-105">
+              <img 
+                src={hwdjLogo} 
+                alt="黑湾代驾" 
+                className="w-full h-full object-cover rounded-xl"
+                referrerPolicy="no-referrer"
+              />
+            </div>
           </div>
 
 
