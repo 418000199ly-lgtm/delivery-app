@@ -467,12 +467,13 @@ export default function HomeView({
   const [showOrderHistory, setShowOrderHistory] = useState(false);
   const [driverOrders, setDriverOrders] = useState<any[]>(() => {
     try {
-      const existing = localStorage.getItem('dd_driver_orders');
+      const ordersKey = userPhone ? `dd_driver_orders_${userPhone}` : 'dd_driver_orders';
+      const existing = localStorage.getItem(ordersKey);
       if (existing) {
         const parsed = JSON.parse(existing);
         const filtered = filterOrdersWithinSixMonths(parsed);
         if (filtered.length !== parsed.length) {
-          localStorage.setItem('dd_driver_orders', JSON.stringify(filtered));
+          localStorage.setItem(ordersKey, JSON.stringify(filtered));
         }
         return filtered;
       }
@@ -509,7 +510,8 @@ export default function HomeView({
     ];
     const filteredDefault = filterOrdersWithinSixMonths(defaultOrders);
     try {
-      localStorage.setItem('dd_driver_orders', JSON.stringify(filteredDefault));
+      const ordersKey = userPhone ? `dd_driver_orders_${userPhone}` : 'dd_driver_orders';
+      localStorage.setItem(ordersKey, JSON.stringify(filteredDefault));
     } catch (e) {}
     return filteredDefault;
   });
@@ -518,18 +520,19 @@ export default function HomeView({
   useEffect(() => {
     if (showOrderHistory) {
       try {
-        const existing = localStorage.getItem('dd_driver_orders');
+        const ordersKey = userPhone ? `dd_driver_orders_${userPhone}` : 'dd_driver_orders';
+        const existing = localStorage.getItem(ordersKey);
         if (existing) {
           const parsed = JSON.parse(existing);
           const filtered = filterOrdersWithinSixMonths(parsed);
           setDriverOrders(filtered);
           if (filtered.length !== parsed.length) {
-            localStorage.setItem('dd_driver_orders', JSON.stringify(filtered));
+            localStorage.setItem(ordersKey, JSON.stringify(filtered));
           }
         }
       } catch (e) {}
     }
-  }, [showOrderHistory]);
+  }, [showOrderHistory, userPhone]);
 
   const [swipedOrderId, setSwipedOrderId] = useState<string | null>(null);
 
@@ -554,7 +557,8 @@ export default function HomeView({
     try {
       const updated = driverOrders.filter(o => o.id !== orderId);
       setDriverOrders(updated);
-      localStorage.setItem('dd_driver_orders', JSON.stringify(updated));
+      const ordersKey = userPhone ? `dd_driver_orders_${userPhone}` : 'dd_driver_orders';
+      localStorage.setItem(ordersKey, JSON.stringify(updated));
       if (swipedOrderId === orderId) {
         setSwipedOrderId(null);
       }
@@ -874,7 +878,7 @@ export default function HomeView({
         if (data && !data.isBanned) {
           const phone = doc.id;
           const isManagement = managementPhones.includes(phone) || phone === '15509601222' || phone === userPhone;
-          const isApprovedAndInSquad = data.onlineOrdersEnabled && squadPhones.includes(phone);
+          const isApprovedAndInSquad = (data.onlineOrdersEnabled || data.isOnline) && squadPhones.includes(phone);
 
           if (isManagement || isApprovedAndInSquad) {
             activeDrivers.push({
@@ -882,7 +886,7 @@ export default function HomeView({
               name: data.driverName || data.customAppName || '特约代驾司机',
               lat: Number(data.lat) || finalCoords!.lat,
               lng: Number(data.lng) || finalCoords!.lng,
-              onlineOrdersEnabled: !!data.onlineOrdersEnabled
+              onlineOrdersEnabled: !!data.onlineOrdersEnabled || !!data.isOnline
             });
           }
         }
@@ -1171,11 +1175,7 @@ export default function HomeView({
             setSliderPos(0);
             return;
           }
-          if (userRole !== '开发者司机' && (!onlineApp || onlineApp.status !== 'approved')) {
-            alert("⚠️ 无法上线听单！只有通过了「线上听单资质认证」审批的司机才能上线听单。请在首页点击「线上单开通」提交资料并等待管理员审批通过。");
-            setSliderPos(0);
-            return;
-          }
+
           const isVip = checkVipActive(settings.vipExpiry);
           if (!isVip && stats.todayOrders >= 2) {
             alert('🔒 提示：非VIP会员每日限制报单次数已用完（每天限额2次，明早6:00自动恢复，激活VIP解除限制）。');
@@ -1225,11 +1225,7 @@ export default function HomeView({
               setSliderPos(0);
               return;
             }
-            if (userRole !== '开发者司机' && (!onlineApp || onlineApp.status !== 'approved')) {
-              alert("⚠️ 无法上线听单！只有通过了「线上听单资质认证」审批的司机才能上线听单。请在首页点击「线上单开通」提交资料并等待管理员审批通过。");
-              setSliderPos(0);
-              return;
-            }
+
             const isVip = checkVipActive(settings.vipExpiry);
             if (!isVip && stats.todayOrders >= 2) {
               alert('🔒 提示：非VIP会员每日限制报单次数已用完（每天限额2次，明早6:00自动恢复，激活VIP解除限制）。');
@@ -1496,9 +1492,9 @@ export default function HomeView({
     const normalized = (settings.vipExpiry || '').trim();
     if (!settings.vipExpiry || normalized === '未激活' || normalized === '待激活' || normalized === '未激活待激活' || normalized === '') {
       return { 
-        text: '未激活', 
-        daysText: '未激活', 
-        colorClass: 'text-slate-400 bg-slate-100 border border-slate-200 font-semibold text-[10px]', 
+        text: '待激活', 
+        daysText: '待激活', 
+        colorClass: 'text-slate-400 bg-slate-100 border border-slate-200 font-extrabold text-[9px]', 
         subColor: 'text-slate-400', 
         badgeText: '待激活' 
       };
@@ -1737,7 +1733,7 @@ export default function HomeView({
             </div>
             <span className="text-[10px] text-gray-700 font-bold font-sans">有效期</span>
             <span className={`absolute -top-1 right-0 text-[8px] px-1 rounded-full scale-80 font-bold text-white ${
-              settings.vipExpiry ? 'bg-amber-500 animate-pulse' : 'bg-slate-400'
+              (settings.vipExpiry && settings.vipExpiry !== '待激活' && settings.vipExpiry !== '未激活') ? 'bg-amber-500 animate-pulse' : 'bg-slate-400'
             }`}>
               {vipInfo.badgeText}
             </span>

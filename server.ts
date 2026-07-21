@@ -152,13 +152,36 @@ if (isMySQLEnabled) {
         }
       }
       
-      console.warn('⚠️ [Database] Falling back to Firebase Cloud Database mode for high availability (sandbox or network isolation safe).');
+      console.warn('⚠️ [Database] Falling back to Local File-based Database mode (local_db.json) for high performance and offline safety in Mainland China.');
       isMySQLEnabled = false;
       mysqlPool = null;
     }
   })();
 } else {
-  console.log('[Database] Running in Firebase Cloud Database mode (To switch to your self-hosted MySQL, configure MYSQL_HOST in your .env file).');
+  console.log('[Database] Running in Local File-based Database mode (To switch to your self-hosted MySQL, configure MYSQL_HOST in your .env file).');
+}
+
+// Local File Database Helper Implementation for Mainland China (Aliyun ECS local_db.json)
+const LOCAL_JSON_DB_PATH = path.join(process.cwd(), 'local_db.json');
+
+function readLocalJsonDb(): Record<string, Record<string, any>> {
+  try {
+    if (fs.existsSync(LOCAL_JSON_DB_PATH)) {
+      const content = fs.readFileSync(LOCAL_JSON_DB_PATH, 'utf8');
+      return JSON.parse(content || '{}');
+    }
+  } catch (e) {
+    console.error('[Local JSON DB] Read error:', e);
+  }
+  return {};
+}
+
+function writeLocalJsonDb(data: Record<string, Record<string, any>>) {
+  try {
+    fs.writeFileSync(LOCAL_JSON_DB_PATH, JSON.stringify(data, null, 2), 'utf8');
+  } catch (e) {
+    console.error('[Local JSON DB] Write error:', e);
+  }
 }
 
 // Initialize server-side Firestore instance to bypass GFW firewalls inside emulator/mobile clients
@@ -662,17 +685,19 @@ async function startServer() {
       return;
     }
 
+    // Mainland China Aliyun local JSON DB fallback
     try {
-      const docRef = doc(db, String(col), String(id));
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        res.json({ exists: true, data: docSnap.data() });
+      const dbData = readLocalJsonDb();
+      const colDocs = dbData[String(col)] || {};
+      const docData = colDocs[String(id)];
+      if (docData !== undefined) {
+        res.json({ exists: true, data: docData });
       } else {
         res.json({ exists: false, data: null });
       }
     } catch (err: any) {
-      console.error(`[Server Proxy] Failed to get doc ${col}/${id}:`, err);
-      res.status(500).json({ error: err.message || 'Server database proxy error' });
+      console.error(`[Local DB] Failed to get doc ${col}/${id}:`, err);
+      res.status(500).json({ error: err.message || 'Local database error' });
     }
   });
 
@@ -710,13 +735,23 @@ async function startServer() {
       return;
     }
 
+    // Mainland China Aliyun local JSON DB fallback
     try {
-      const docRef = doc(db, String(col), String(id));
-      await setDoc(docRef, data, { merge: !!merge });
+      const dbData = readLocalJsonDb();
+      if (!dbData[String(col)]) {
+        dbData[String(col)] = {};
+      }
+      if (merge) {
+        const existing = dbData[String(col)][String(id)] || {};
+        dbData[String(col)][String(id)] = { ...existing, ...data };
+      } else {
+        dbData[String(col)][String(id)] = data;
+      }
+      writeLocalJsonDb(dbData);
       res.json({ success: true });
     } catch (err: any) {
-      console.error(`[Server Proxy] Failed to set doc ${col}/${id}:`, err);
-      res.status(500).json({ error: err.message || 'Server database proxy error' });
+      console.error(`[Local DB] Failed to set doc ${col}/${id}:`, err);
+      res.status(500).json({ error: err.message || 'Local database error' });
     }
   });
 
@@ -730,7 +765,7 @@ async function startServer() {
     if (isMySQLEnabled && mysqlPool) {
       try {
         const [rows]: any = await mysqlPool.query(
-          'SELECT \`data\` FROM \`daijia_documents\` WHERE \`collection\` = ? AND \`doc_id\` = ?',
+          'SELECT `data` FROM `daijia_documents` WHERE `collection` = ? AND `doc_id` = ?',
           [String(col), String(id)]
         );
         let existing = {};
@@ -742,8 +777,8 @@ async function startServer() {
         const finalData = { ...existing, ...data };
         const dataStr = JSON.stringify(finalData);
         await mysqlPool.query(
-          'INSERT INTO \`daijia_documents\` (\`collection\`, \`doc_id\`, \`data\`) VALUES (?, ?, ?) ' +
-          'ON DUPLICATE KEY UPDATE \`data\` = VALUES(\`data\`)',
+          'INSERT INTO `daijia_documents` (`collection`, `doc_id`, `data`) VALUES (?, ?, ?) ' +
+          'ON DUPLICATE KEY UPDATE `data` = VALUES(`data`)',
           [String(col), String(id), dataStr]
         );
         res.json({ success: true });
@@ -754,13 +789,19 @@ async function startServer() {
       return;
     }
 
+    // Mainland China Aliyun local JSON DB fallback
     try {
-      const docRef = doc(db, String(col), String(id));
-      await updateDoc(docRef, data);
+      const dbData = readLocalJsonDb();
+      if (!dbData[String(col)]) {
+        dbData[String(col)] = {};
+      }
+      const existing = dbData[String(col)][String(id)] || {};
+      dbData[String(col)][String(id)] = { ...existing, ...data };
+      writeLocalJsonDb(dbData);
       res.json({ success: true });
     } catch (err: any) {
-      console.error(`[Server Proxy] Failed to update doc ${col}/${id}:`, err);
-      res.status(500).json({ error: err.message || 'Server database proxy error' });
+      console.error(`[Local DB] Failed to update doc ${col}/${id}:`, err);
+      res.status(500).json({ error: err.message || 'Local database error' });
     }
   });
 
@@ -785,13 +826,17 @@ async function startServer() {
       return;
     }
 
+    // Mainland China Aliyun local JSON DB fallback
     try {
-      const docRef = doc(db, String(col), String(id));
-      await deleteDoc(docRef);
+      const dbData = readLocalJsonDb();
+      if (dbData[String(col)] && dbData[String(col)][String(id)] !== undefined) {
+        delete dbData[String(col)][String(id)];
+        writeLocalJsonDb(dbData);
+      }
       res.json({ success: true });
     } catch (err: any) {
-      console.error(`[Server Proxy] Failed to delete doc ${col}/${id}:`, err);
-      res.status(500).json({ error: err.message || 'Server database proxy error' });
+      console.error(`[Local DB] Failed to delete doc ${col}/${id}:`, err);
+      res.status(500).json({ error: err.message || 'Local database error' });
     }
   });
 
@@ -818,13 +863,19 @@ async function startServer() {
       return;
     }
 
+    // Mainland China Aliyun local JSON DB fallback
     try {
-      const colRef = collection(db, String(col));
-      const addedRef = await addDoc(colRef, data);
-      res.json({ success: true, id: addedRef.id });
+      const dbData = readLocalJsonDb();
+      if (!dbData[String(col)]) {
+        dbData[String(col)] = {};
+      }
+      const autoId = 'local_' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+      dbData[String(col)][autoId] = data;
+      writeLocalJsonDb(dbData);
+      res.json({ success: true, id: autoId });
     } catch (err: any) {
-      console.error(`[Server Proxy] Failed to add doc to col ${col}:`, err);
-      res.status(500).json({ error: err.message || 'Server database proxy error' });
+      console.error(`[Local DB] Failed to add doc to col ${col}:`, err);
+      res.status(500).json({ error: err.message || 'Local database error' });
     }
   });
 
@@ -894,39 +945,57 @@ async function startServer() {
       return;
     }
 
+    // Mainland China Aliyun local JSON DB fallback
     try {
-      const colRef = collection(db, String(col));
-      let q = query(colRef);
-      
+      const dbData = readLocalJsonDb();
+      const colDocs = dbData[String(col)] || {};
+      let docsList = Object.keys(colDocs).map(docId => ({
+        id: docId,
+        data: colDocs[docId]
+      }));
+
       if (constraints) {
         try {
           const parsed = JSON.parse(String(constraints));
-          const actualParams: any[] = [];
           for (const c of parsed) {
             if (c.type === 'where') {
-              actualParams.push(where(c.field, c.operator, c.value));
+              const { field, operator, value } = c;
+              docsList = docsList.filter((docObj: any) => {
+                const val = docObj.data[field];
+                if (operator === '==' || operator === '===') {
+                  return val === value;
+                }
+                if (operator === '!=') {
+                  return val !== value;
+                }
+                if (operator === '>') {
+                  return val > value;
+                }
+                if (operator === '<') {
+                  return val < value;
+                }
+                if (operator === '>=') {
+                  return val >= value;
+                }
+                if (operator === '<=') {
+                  return val <= value;
+                }
+                if (operator === 'array-contains') {
+                  return Array.isArray(val) && val.includes(value);
+                }
+                return true;
+              });
             }
           }
-          if (actualParams.length > 0) {
-            q = query(colRef, ...actualParams);
-          }
-        } catch (_) {
-          console.warn("[Server Proxy] Failed to parse constraints JSON, returning default collection query list.");
+        } catch (e) {
+          console.warn('[Local DB Query] Failed to parse constraints:', e);
         }
       }
 
-      const querySnap = await getDocs(q);
-      const docsList: any[] = [];
-      querySnap.forEach((docSnap) => {
-        docsList.push({
-          id: docSnap.id,
-          data: docSnap.data()
-        });
-      });
       res.json({ docs: docsList });
     } catch (err: any) {
-      console.error(`[Server Proxy] Failed to list collection ${col}:`, err);
-      res.status(500).json({ error: err.message || 'Server database proxy error' });
+      console.error(`[Local DB] Failed to list collection ${col}:`, err);
+      res.status(500).json({ error: err.message || 'Local database error' });
     }
   });
 

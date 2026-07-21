@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import PhoneFrame from './components/PhoneFrame';
 import HomeView from './components/HomeView';
 import SettingsView, { regenerateQRCode } from './components/SettingsView';
@@ -263,6 +263,9 @@ export default function App() {
   };
 
   // --- 1. Persistent State Management ---
+  const lastCalibratedPhoneRef = useRef<string | null>(null);
+  const lastCalibratedPhoneSettingsRef = useRef<string | null>(null);
+
   const [billingRules, setBillingRules] = useState<BillingRules>(() => {
     const cached = localStorage.getItem('dd_billing_rules');
     return cached ? JSON.parse(cached) : DEFAULT_BILLING_RULES;
@@ -271,22 +274,26 @@ export default function App() {
   const [onlineBillingRules, setOnlineBillingRules] = useState<BillingRules>(DEFAULT_BILLING_RULES);
 
   const [settings, setSettings] = useState<ChauffeurSettings>(() => {
-    const cached = localStorage.getItem('dd_settings');
+    const phone = typeof window !== 'undefined' ? localStorage.getItem('dd_user_phone') : null;
+    const key = phone ? `dd_settings_${phone}` : 'dd_settings';
+    const cached = typeof window !== 'undefined' ? (localStorage.getItem(key) || localStorage.getItem('dd_settings')) : null;
     return cached ? JSON.parse(cached) : DEFAULT_SETTINGS;
   });
 
   const [stats, setStats] = useState<DriverStats>(() => {
-    const cached = localStorage.getItem('dd_stats');
-    const hasResetMyPoints = localStorage.getItem('dd_stats_reset_my_points_v1');
+    const phone = typeof window !== 'undefined' ? localStorage.getItem('dd_user_phone') : null;
+    const key = phone ? `dd_stats_${phone}` : 'dd_stats';
+    const cached = typeof window !== 'undefined' ? (localStorage.getItem(key) || localStorage.getItem('dd_stats')) : null;
+    const hasResetMyPoints = typeof window !== 'undefined' ? localStorage.getItem('dd_stats_reset_my_points_v1') : null;
     const defaultStats: DriverStats = { todayOrders: 0, todayIncome: 0.00, myPoints: 0, lastResetDate: getCurrent6AmDay() };
 
-    if (!hasResetMyPoints) {
+    if (!hasResetMyPoints && typeof window !== 'undefined') {
       localStorage.setItem('dd_stats_reset_my_points_v1', 'true');
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
           parsed.myPoints = 0;
-          localStorage.setItem('dd_stats', JSON.stringify(parsed));
+          localStorage.setItem(key, JSON.stringify(parsed));
           const currentDay = getCurrent6AmDay();
           if (parsed.lastResetDate !== currentDay) {
             parsed.todayOrders = 0;
@@ -615,6 +622,8 @@ export default function App() {
   const handleLogout = () => {
     localStorage.removeItem('dd_user_phone');
     setUserPhone(null);
+    setSettings(DEFAULT_SETTINGS);
+    setStats({ todayOrders: 0, todayIncome: 0.00, myPoints: 0, lastResetDate: getCurrent6AmDay() });
     setCurrentView('home');
     triggerToast('您的司机端安全会话已安全退出断开！');
   };
@@ -643,7 +652,12 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('dd_settings', JSON.stringify(settings));
-  }, [settings]);
+    if (userPhone) {
+      if (lastCalibratedPhoneSettingsRef.current === userPhone) {
+        localStorage.setItem(`dd_settings_${userPhone}`, JSON.stringify(settings));
+      }
+    }
+  }, [settings, userPhone]);
 
   // One-time automatic clean-up of legacy QR codes from user session/database to eliminate old center logos/text
   useEffect(() => {
@@ -687,6 +701,38 @@ export default function App() {
     }
   }, []);
 
+  // Load settings and stats instantly on userPhone changes, and clear calibrations
+  useEffect(() => {
+    // Clear calibration indicators immediately upon switching userPhone
+    lastCalibratedPhoneRef.current = null;
+    lastCalibratedPhoneSettingsRef.current = null;
+
+    if (userPhone) {
+      const statsKey = `dd_stats_${userPhone}`;
+      const cachedStats = localStorage.getItem(statsKey);
+      if (cachedStats) {
+        try {
+          setStats(JSON.parse(cachedStats));
+        } catch (_) {}
+      } else {
+        setStats({ todayOrders: 0, todayIncome: 0.00, myPoints: 0, lastResetDate: getCurrent6AmDay() });
+      }
+
+      const settingsKey = `dd_settings_${userPhone}`;
+      const cachedSettings = localStorage.getItem(settingsKey);
+      if (cachedSettings) {
+        try {
+          setSettings(JSON.parse(cachedSettings));
+        } catch (_) {}
+      } else {
+        setSettings({
+          ...DEFAULT_SETTINGS,
+          customAppName: '一键代驾'
+        });
+      }
+    }
+  }, [userPhone]);
+
   // Synchronize driver user account membership expiry & online orders status with Firestore in real-time
   useEffect(() => {
     if (!userPhone) return;
@@ -696,6 +742,28 @@ export default function App() {
       if (docSnap.exists()) {
         const data = docSnap.data();
         if (data) {
+          setStats(prev => {
+            let nextStats = { ...prev };
+            let changed = false;
+            if (data.todayOrders !== undefined && prev.todayOrders !== data.todayOrders) {
+              nextStats.todayOrders = Number(data.todayOrders);
+              changed = true;
+            }
+            if (data.todayIncome !== undefined && prev.todayIncome !== data.todayIncome) {
+              nextStats.todayIncome = Number(data.todayIncome);
+              changed = true;
+            }
+            if (data.myPoints !== undefined && prev.myPoints !== data.myPoints) {
+              nextStats.myPoints = Number(data.myPoints);
+              changed = true;
+            }
+            if (data.lastResetDate !== undefined && prev.lastResetDate !== data.lastResetDate) {
+              nextStats.lastResetDate = data.lastResetDate;
+              changed = true;
+            }
+            return changed ? nextStats : prev;
+          });
+
           setSettings(prev => {
             let nextSettings = { ...prev };
             let changed = false;
@@ -769,10 +837,14 @@ export default function App() {
             }
             return changed ? nextSettings : prev;
           });
+
+          // Set both calibration references to this user on successful snapshot delivery
+          lastCalibratedPhoneRef.current = userPhone;
+          lastCalibratedPhoneSettingsRef.current = userPhone;
         }
       } else {
         // Create user doc if it doesn't exist yet
-        const initialExpiry = settings.vipExpiry || '';
+        const initialExpiry = '待激活';
         const initialOnlineEnabled = settings.onlineOrdersEnabled || false;
         const initialCity = settings.city || '';
         const initialIsBanned = settings.isBanned || false;
@@ -795,7 +867,15 @@ export default function App() {
           deviationMitigation: !!settings.deviationMitigation,
           deviationKm: settings.deviationKm ?? 1.0,
           deviationWaitSec: settings.deviationWaitSec ?? 30,
+          todayOrders: 0,
+          todayIncome: 0.00,
+          myPoints: 0,
+          lastResetDate: getCurrent6AmDay(),
           updatedAt: new Date().toISOString()
+        }).then(() => {
+          // Allow writing now that initial user record is created on the server
+          lastCalibratedPhoneRef.current = userPhone;
+          lastCalibratedPhoneSettingsRef.current = userPhone;
         }).catch(err => {
           console.error("Error registering driver user in firestore:", err);
         });
@@ -809,7 +889,22 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('dd_stats', JSON.stringify(stats));
-  }, [stats]);
+    if (userPhone) {
+      if (lastCalibratedPhoneRef.current === userPhone) {
+        localStorage.setItem(`dd_stats_${userPhone}`, JSON.stringify(stats));
+        
+        const userDocRef = doc(db, 'driver_users', userPhone);
+        setDoc(userDocRef, {
+          todayOrders: stats.todayOrders ?? 0,
+          todayIncome: stats.todayIncome ?? 0.00,
+          myPoints: stats.myPoints ?? 0,
+          lastResetDate: stats.lastResetDate || getCurrent6AmDay()
+        }, { merge: true }).catch(err => {
+          console.error("Error syncing stats to Firestore:", err);
+        });
+      }
+    }
+  }, [stats, userPhone]);
 
   // Automatic daily reset at 6:00 AM
   useEffect(() => {
@@ -853,14 +948,6 @@ export default function App() {
     }
   }, [settings.isBanned, isOnline]);
 
-  // Active Online Listening Qualification Listener: automatically force-offline drivers without active approval (except developer drivers)
-  useEffect(() => {
-    if (userRole !== '开发者司机' && !settings.onlineOrdersEnabled && isOnline) {
-      setIsOnline(false);
-      alert('⚠️ 听单资质已失效：您的账号尚未通过「线上听单资质认证」或开通资格已被管理员收回。已强制为您切换至下线状态！');
-    }
-  }, [settings.onlineOrdersEnabled, isOnline, userRole]);
-
   // Active VIP Limit & State Reset Listener moved after handleUpdateSettings to avoid TDZ issues.
 
   // Listen for real-time incoming passenger orders from passenger self-service scans or admin dispatching
@@ -877,7 +964,7 @@ export default function App() {
           if (submitTime > Date.now() - 3600000) {
             // Verify dispatching/receiving permissions: management team is unaffected by dispatch squad restrictions
             const isManagementTeam = userRole === '开发者司机' || userRole === '城市老板司机' || userRole === '城市管理司机' || userRole === '城市派单员司机';
-            const isApproved = !!settings.onlineOrdersEnabled;
+            const isApproved = !!settings.onlineOrdersEnabled || isOnline;
             const canReceive = isManagementTeam || (isApproved && isInSquad);
 
             if (!canReceive) {
@@ -895,7 +982,7 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [userPhone, currentView, userRole, settings.onlineOrdersEnabled, isInSquad]);
+  }, [userPhone, currentView, userRole, settings.onlineOrdersEnabled, isInSquad, isOnline]);
 
   const handleAcceptIncomingOrder = (trip: TripState) => {
     if (!userPhone) return;
@@ -962,7 +1049,8 @@ export default function App() {
     // Record to driver order history
     if (currentTrip) {
       try {
-        const existingStr = localStorage.getItem('dd_driver_orders');
+        const ordersKey = userPhone ? `dd_driver_orders_${userPhone}` : 'dd_driver_orders';
+        const existingStr = localStorage.getItem(ordersKey);
         let orders = existingStr ? JSON.parse(existingStr) : [];
         if (!Array.isArray(orders)) orders = [];
         const now = new Date();
@@ -1014,7 +1102,7 @@ export default function App() {
           status: '已支付'
         };
         orders.unshift(newOrder);
-        localStorage.setItem('dd_driver_orders', JSON.stringify(orders));
+        localStorage.setItem(ordersKey, JSON.stringify(orders));
       } catch (e) {
         console.error('Failed to save order to history:', e);
       }
