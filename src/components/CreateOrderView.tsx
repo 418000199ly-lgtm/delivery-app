@@ -522,8 +522,6 @@ export default function CreateOrderView({
   const debounceTimerRef = useRef<any>(null);
   const prefetchedCoordsRef = useRef<{ lng: number; lat: number } | null>(null);
   const prefetchedGeocodedRef = useRef<boolean>(false);
-  const isUpdatingFromMapRef = useRef<boolean>(false);
-
   useEffect(() => {
     if (driverCoords && !isDefaultYinchuanCoords(driverCoords)) {
       prefetchedCoordsRef.current = { lng: driverCoords.lng, lat: driverCoords.lat };
@@ -555,13 +553,13 @@ export default function CreateOrderView({
             
             AMap.plugin('AMap.Geocoder', () => {
               const geocoder = new AMap.Geocoder({
+                city: registeredCity || '银川市',
                 extensions: 'all'
               });
-              geocoder.getAddress([finalLng, finalLat], (geoStatus: string, geoResult: any) => {
+              geocoder.getAddress(new AMap.LngLat(finalLng, finalLat), (geoStatus: string, geoResult: any) => {
                 isMapMovingProgrammaticallyRef.current = false;
                 if (geoStatus === 'complete' && geoResult.regeocode) {
                   const cleanLabel = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress, finalLng, finalLat);
-                  isUpdatingFromMapRef.current = true;
                   setStartLocation(cleanLabel);
                 } else {
                   setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
@@ -629,17 +627,17 @@ export default function CreateOrderView({
 
         AMap.plugin(['AMap.Geocoder', 'AMap.Geolocation', 'AMap.Driving'], () => {
           const geocoder = new AMap.Geocoder({
+            city: registeredCity || '银川市',
             extensions: 'all'
           });
 
           const reverseGeocodeCenter = (lng: number, lat: number) => {
             isMapMovingProgrammaticallyRef.current = true;
             map.setCenter([lng, lat]);
-            geocoder.getAddress([lng, lat], (geoStatus: string, geoResult: any) => {
+            geocoder.getAddress(new AMap.LngLat(lng, lat), (geoStatus: string, geoResult: any) => {
               isMapMovingProgrammaticallyRef.current = false;
               if (geoStatus === 'complete' && geoResult.regeocode) {
                 const cleanLabel = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress, lng, lat);
-                isUpdatingFromMapRef.current = true;
                 setStartLocation(cleanLabel);
               } else {
                 setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
@@ -739,12 +737,12 @@ export default function CreateOrderView({
           }
 
           const updateAddressFromMapCenter = () => {
-            if (isMapMovingProgrammaticallyRef.current) return;
             const center = map.getCenter();
-            geocoder.getAddress([center.lng, center.lat], (geocodestatus: string, geocoderesult: any) => {
+            const lng = center.getLng ? center.getLng() : center.lng;
+            const lat = center.getLat ? center.getLat() : center.lat;
+            geocoder.getAddress(new AMap.LngLat(lng, lat), (geocodestatus: string, geocoderesult: any) => {
               if (geocodestatus === 'complete' && geocoderesult.regeocode) {
-                const cleanLabel = getHighPrecisionLocationName(geocoderesult.regeocode, geocoderesult.regeocode.formattedAddress, center.lng, center.lat);
-                isUpdatingFromMapRef.current = true;
+                const cleanLabel = getHighPrecisionLocationName(geocoderesult.regeocode, geocoderesult.regeocode.formattedAddress, lng, lat);
                 setStartLocation(cleanLabel);
               } else {
                 setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
@@ -759,7 +757,7 @@ export default function CreateOrderView({
 
           // Debounced live update as the user is dragging the map
           const onDragging = () => {
-            if (!isUserDraggingRef.current || isMapMovingProgrammaticallyRef.current) return;
+            if (!isUserDraggingRef.current) return;
             if (debounceTimerRef.current) {
               clearTimeout(debounceTimerRef.current);
             }
@@ -769,7 +767,6 @@ export default function CreateOrderView({
           };
 
           map.on('dragging', onDragging);
-          map.on('mapmove', onDragging);
           
           map.on('dragend', () => {
             isUserDraggingRef.current = false;
@@ -814,15 +811,17 @@ export default function CreateOrderView({
     };
   }, []);
 
-  // Synchronize map center when manually editing startLocation text
+  // Synchronize map center ONLY when the user finishes manual editing
+  const prevIsEditingStartRef = useRef(isEditingStart);
   useEffect(() => {
     const AMap = (window as any).AMap;
     const map = mapInstanceRef.current;
-    if (AMap && map && startLocation && !isEditingStart) {
-      if (isUpdatingFromMapRef.current) {
-        isUpdatingFromMapRef.current = false;
-        return;
-      }
+    
+    // Detect transition from true (editing) to false (finished editing)
+    const finishedEditing = prevIsEditingStartRef.current === true && isEditingStart === false;
+    prevIsEditingStartRef.current = isEditingStart;
+
+    if (finishedEditing && AMap && map && startLocation) {
       AMap.plugin('AMap.Geocoder', () => {
         const geocoder = new AMap.Geocoder({
           city: registeredCity || '银川市',
@@ -840,7 +839,7 @@ export default function CreateOrderView({
         });
       });
     }
-  }, [isEditingStart, startLocation]);
+  }, [isEditingStart, startLocation, registeredCity]);
 
   const handleAcceptPermission = () => {
     localStorage.setItem('dd_location_permission_prompt_shown', 'true');
@@ -869,13 +868,13 @@ export default function CreateOrderView({
       
       AMap.plugin('AMap.Geocoder', () => {
         const geocoder = new AMap.Geocoder({
+          city: registeredCity || '银川市',
           extensions: 'all'
         });
-        geocoder.getAddress([finalLng, finalLat], (geoStatus: string, geoResult: any) => {
+        geocoder.getAddress(new AMap.LngLat(finalLng, finalLat), (geoStatus: string, geoResult: any) => {
           isMapMovingProgrammaticallyRef.current = false;
           if (geoStatus === 'complete' && geoResult.regeocode) {
             const highPrecisionName = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress, finalLng, finalLat);
-            isUpdatingFromMapRef.current = true;
             setStartLocation(highPrecisionName);
           } else {
             setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
