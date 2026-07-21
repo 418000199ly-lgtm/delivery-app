@@ -364,17 +364,18 @@ export default function ActiveTripView({
   // Simulate navigation click trigger
   const handleSimulateNavigation = (e?: React.MouseEvent | React.TouchEvent) => {
     if (e) e.stopPropagation();
-    triggerToast(`高配导航启航：正通过高德/百度安全规划至【${trip.endLocation || '目的地'}】`);
+    // 导航按钮现在暂时不开发，只作为展示用，无任何功能效果
   };
 
   // Handle dial phone action
   const handleMakePhoneCall = (e: React.MouseEvent | React.TouchEvent) => {
     e.stopPropagation();
-    if (trip.passengerPhone && trip.passengerPhone.trim() !== '') {
-      window.location.href = `tel:${trip.passengerPhone.trim()}`;
-      triggerToast(`正在拨打乘客电话: ${trip.passengerPhone.trim()}`);
+    const phone = trip.passengerPhone ? trip.passengerPhone.trim() : '';
+    if (phone && phone !== '' && phone !== '13900000000') {
+      window.location.href = `tel:${phone}`;
+      triggerToast(`正在拨打乘客电话: ${phone}`);
     } else {
-      triggerToast('暂无乘客电话号码');
+      triggerToast('未输入手机号');
     }
   };
 
@@ -493,52 +494,8 @@ export default function ActiveTripView({
     });
   };
 
-  // Fast double click correction on active trip page area
-  const handleDoubleClickPage = (e: React.MouseEvent<HTMLDivElement>) => {
-    // Avoid triggering when double clicking interactive buttons or dialogs
-    const target = e.target as HTMLElement;
-    if (target.closest('button') || target.closest('[role="dialog"]') || target.closest('header')) {
-      return;
-    }
-
-    if (trip.isOnlineOrder) {
-      return;
-    }
-
-    if (!checkVipActive(settings.vipExpiry)) {
-      triggerToast('🔒 提示：纠偏功能为VIP会员专属特权！');
-      return;
-    }
-
-    if (!settings.deviationMitigation) {
-      triggerToast('纠偏功能已设定为禁用，请进入设置页开启它');
-      return;
-    }
-
-    const addedKm = settings.deviationKm ?? 1.0;
-    const addedWaitSec = settings.deviationWaitSec ?? 60;
-
-    const nextSec = Math.max(0, waitingSeconds + addedWaitSec);
-    setWaitingSeconds(nextSec);
-
-    const nextDist = Math.max(0, Number((trip.currentDistance + addedKm).toFixed(2)));
-    const nextWaitingTime = Math.floor(nextSec / 60);
-    const cost = calculateCost(nextDist, nextWaitingTime, billingRules);
-
-    onUpdateTrip({
-      ...trip,
-      currentDistance: nextDist,
-      currentWaitingTime: nextWaitingTime,
-      calculatedBaseFee: cost.base,
-      calculatedTotalFee: cost.total
-    });
-
-    // Actual rectification logic executed, toast notification suppressed as per user request
-  };
-
   return (
     <div 
-      onDoubleClick={handleDoubleClickPage}
       className="flex-1 flex flex-col justify-between h-full w-full bg-[#f8f9fb] text-[#333] select-none relative overflow-hidden font-sans"
     >
       

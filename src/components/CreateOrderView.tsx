@@ -1285,7 +1285,7 @@ export default function CreateOrderView({
 
     // Generate new robust trip state
     const targetDestination = destination.trim() || '待指定安全目的地';
-    const targetPhone = phoneNumber.trim() || '13900000000';
+    const targetPhone = phoneNumber.trim();
     const startingFeeApplied = Number((baseStartingPrice * weatherMultiplier).toFixed(2));
     const finalEstimatedBaseFee = routeDistance !== null ? Number((estimatedPriceSubtotal * weatherMultiplier).toFixed(2)) : startingFeeApplied;
     
