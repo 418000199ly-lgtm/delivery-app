@@ -238,6 +238,49 @@ const getHighPrecisionLocationName = (
   return poiName || fallbackAddress;
 };
 
+const PI = 3.1415926535897932384626;
+const a_axis = 6378245.0; // Semi-major axis
+const ee_factor = 0.00669342162296594323; // Flattening factor
+
+function transformLat(x: number, y: number): number {
+  let ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+  ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
+  ret += (20.0 * Math.sin(y * PI) + 40.0 * Math.sin(y / 3.0 * PI)) * 2.0 / 3.0;
+  ret += (160.0 * Math.sin(y / 12.0 * PI) + 320 * Math.sin(y * PI / 30.0)) * 2.0 / 3.0;
+  return ret;
+}
+
+function transformLng(x: number, y: number): number {
+  let ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+  ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
+  ret += (20.0 * Math.sin(x * PI) + 40.0 * Math.sin(x / 3.0 * PI)) * 2.0 / 3.0;
+  ret += (150.0 * Math.sin(x / 12.0 * PI) + 300.0 * Math.sin(x / 30.0 * PI)) * 2.0 / 3.0;
+  return ret;
+}
+
+function outOfChina(lng: number, lat: number): boolean {
+  if (lng < 72.004 || lng > 137.8347) return true;
+  if (lat < 0.8293 || lat > 55.8271) return true;
+  return false;
+}
+
+function wgs84ToGcj02(lng: number, lat: number): { lng: number; lat: number } {
+  if (outOfChina(lng, lat)) {
+    return { lng, lat };
+  }
+  let dLat = transformLat(lng - 105.0, lat - 35.0);
+  let dLng = transformLng(lng - 105.0, lat - 35.0);
+  const radLat = lat / 180.0 * PI;
+  let magic = Math.sin(radLat);
+  magic = 1 - ee_factor * magic * magic;
+  const sqrtMagic = Math.sqrt(magic);
+  dLat = (dLat * 180.0) / ((a_axis * (1 - ee_factor)) / (magic * sqrtMagic) * PI);
+  dLng = (dLng * 180.0) / (a_axis / sqrtMagic * Math.cos(radLat) * PI);
+  const mgLat = lat + dLat;
+  const mgLng = lng + dLng;
+  return { lng: mgLng, lat: mgLat };
+}
+
 const getRobustLocation = (
   AMap: any,
   onSuccess: (gcjLng: number, gcjLat: number, isHighAccuracy: boolean, addressName?: string) => void,
@@ -248,103 +291,114 @@ const getRobustLocation = (
     return;
   }
 
-  let resolved = false;
+  let hasLowAccuracy = false;
+  let hasHighAccuracy = false;
 
-  const safeOnSuccess = (gcjLng: number, gcjLat: number, isHighAccuracy: boolean, addressName?: string) => {
-    if (resolved) return;
-    resolved = true;
-    clearTimeout(watchdog);
-    onSuccess(gcjLng, gcjLat, isHighAccuracy, addressName);
+  const handleSuccess = (gcjLng: number, gcjLat: number, isHighAcc: boolean, addressName?: string) => {
+    if (hasHighAccuracy) {
+      // High accuracy already achieved, ignore any incoming results
+      return;
+    }
+    if (isHighAcc) {
+      hasHighAccuracy = true;
+      clearTimeout(watchdog);
+      onSuccess(gcjLng, gcjLat, true, addressName);
+    } else {
+      if (!hasLowAccuracy) {
+        hasLowAccuracy = true;
+        onSuccess(gcjLng, gcjLat, false, addressName);
+      }
+    }
   };
 
   const safeOnFailure = (err: any) => {
-    if (resolved) return;
-    resolved = true;
+    // If we already achieved some sort of location, don't trigger general failure
+    if (hasLowAccuracy || hasHighAccuracy) return;
     clearTimeout(watchdog);
     onFailure(err);
   };
 
-  // Watchdog timer: If GPS/native geolocation hangs or permissions are blocked silently for > 12s,
-  // we bypass them and instantly trigger the IP-based CitySearch fallback.
+  // Watchdog timer: If everything else fails or takes too long, fall back to city search
   const watchdog = setTimeout(() => {
-    if (!resolved) {
-      console.warn('⚡ [GPS Watchdog] Positioning took too long (>12s) or got stuck in WebView, triggering IP/City fallback!');
+    if (!hasLowAccuracy && !hasHighAccuracy) {
+      console.warn('⚡ [GPS Watchdog] Positioning took too long (>6s) or got stuck, triggering IP/City fallback!');
       fallbackToCitySearch();
     }
-  }, 12000);
+  }, 6000); // 6s watchdog to cover cellular base stations/GPS warm-up
 
-  // Phase 1: Try Gaode's native Geolocation plugin first (highly optimized, has built-in IP fallback, returns GCJ-02)
+  // 1. Fast Coarse/Cached positioning (Base station simulation)
+  if (typeof window !== 'undefined' && navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const rawLng = pos.coords.longitude;
+        const rawLat = pos.coords.latitude;
+        const converted = wgs84ToGcj02(rawLng, rawLat);
+        console.log('⚡ [Fast Network Geolocation] Resolved:', converted.lng, converted.lat);
+        handleSuccess(converted.lng, converted.lat, false);
+      },
+      (err) => {
+        console.warn('⚡ [Fast Network Geolocation] Failed:', err);
+      },
+      { enableHighAccuracy: false, timeout: 1200, maximumAge: 300000 } // use cache up to 5 mins for instant return
+    );
+
+    // 2. High accuracy browser GPS/Simulation positioning
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const rawLng = pos.coords.longitude;
+        const rawLat = pos.coords.latitude;
+        const converted = wgs84ToGcj02(rawLng, rawLat);
+        console.log('⚡ [Precise GPS Geolocation] Resolved:', converted.lng, converted.lat);
+        handleSuccess(converted.lng, converted.lat, true);
+      },
+      (err) => {
+        console.warn('⚡ [Precise GPS Geolocation] Failed:', err);
+      },
+      { enableHighAccuracy: true, timeout: 3500, maximumAge: 0 } // fresh GPS reading
+    );
+  }
+
+  // 3. Gaode Map Geolocation plugin
   AMap.plugin('AMap.Geolocation', () => {
     try {
       const geolocation = new AMap.Geolocation({
-        enableHighAccuracy: true, // Use high accuracy GPS if available
-        timeout: 10000,           // plugin timeout (increased for hardware GPS stabilization)
+        enableHighAccuracy: true,
+        timeout: 4000,
         zoomToAccuracy: false,
-        noIpLocate: 0,            // Allow IP fallback if GPS fails
-        noGeoLocation: 0,         // Allow browser geolocation
-        maximumAge: 0,            // Force fresh location coordinates
-        convert: true             // Automatically convert coordinates to GCJ-02
+        noIpLocate: 0,
+        noGeoLocation: 0,
+        maximumAge: 0,
+        convert: true
       });
 
       geolocation.getCurrentPosition((status: string, result: any) => {
-        if (resolved) return;
         if (status === 'complete' && result.position) {
-          console.log('⚡ [AMap Geolocation] Succeeded:', result.position.lng, result.position.lat, result);
+          console.log('⚡ [AMap Geolocation] Resolved:', result.position.lng, result.position.lat);
           const isHighAcc = result.location_type === 'gps' || result.location_type === 'html5';
-          safeOnSuccess(result.position.lng, result.position.lat, isHighAcc, result.formattedAddress);
+          handleSuccess(result.position.lng, result.position.lat, isHighAcc, result.formattedAddress);
         } else {
-          console.warn('⚡ [AMap Geolocation] Failed, trying native HTML5 geolocation as fallback...', status, result);
-          fallbackToNative();
+          console.warn('⚡ [AMap Geolocation] Failed:', status, result);
+          fallbackToCitySearch();
         }
       });
     } catch (e) {
-      console.warn('⚡ [AMap Geolocation] Exception, trying native HTML5:', e);
-      fallbackToNative();
+      console.warn('⚡ [AMap Geolocation] Exception:', e);
+      fallbackToCitySearch();
     }
   });
 
-  const fallbackToNative = () => {
-    if (resolved) return;
-    if (typeof window !== 'undefined' && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          if (resolved) return;
-          const rawLng = pos.coords.longitude;
-          const rawLat = pos.coords.latitude;
-          console.log('⚡ [Native Geolocation] Succeeded, converting coordinates:', rawLng, rawLat);
-          
-          // Convert from WGS-84 (GPS) to GCJ-02 (Gaode)
-          AMap.convertFrom([rawLng, rawLat], 'gps', (convertStatus: string, convertResult: any) => {
-            if (resolved) return;
-            const finalLng = (convertStatus === 'complete' && convertResult.locations) ? convertResult.locations[0].lng : rawLng;
-            const finalLat = (convertStatus === 'complete' && convertResult.locations) ? convertResult.locations[0].lat : rawLat;
-            safeOnSuccess(finalLng, finalLat, true);
-          });
-        },
-        (err) => {
-          console.warn('⚡ [Native Geolocation] Failed, trying IP City Search:', err);
-          fallbackToCitySearch();
-        },
-        { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
-      );
-    } else {
-      fallbackToCitySearch();
-    }
-  };
-
   const fallbackToCitySearch = () => {
-    if (resolved) return;
+    if (hasLowAccuracy || hasHighAccuracy) return;
     AMap.plugin('AMap.CitySearch', () => {
       try {
         const citySearch = new AMap.CitySearch();
         citySearch.getLocalCity((cityStatus: string, cityResult: any) => {
-          if (resolved) return;
           if (cityStatus === 'complete' && cityResult.bounds) {
             const bounds = cityResult.bounds;
             const finalLng = (bounds.southWest.lng + bounds.northEast.lng) / 2;
             const finalLat = (bounds.southWest.lat + bounds.northEast.lat) / 2;
-            console.log('⚡ [City Search] Succeeded (IP fallback):', finalLng, finalLat, cityResult.city);
-            safeOnSuccess(finalLng, finalLat, false, cityResult.city ? `${cityResult.city}中心` : undefined);
+            console.log('⚡ [City Search Fallback] Resolved:', finalLng, finalLat);
+            handleSuccess(finalLng, finalLat, false, cityResult.city ? `${cityResult.city}中心` : undefined);
           } else {
             safeOnFailure(new Error('All geolocation and IP fallbacks failed'));
           }
@@ -491,27 +545,26 @@ export default function CreateOrderView({
           // If map and AMap are already fully loaded, immediately update center & reverse-geocode
           if (map && AMap && !prefetchedGeocodedRef.current) {
             prefetchedGeocodedRef.current = true;
-            AMap.convertFrom([rawLng, rawLat], 'gps', (status: string, result: any) => {
-              const finalLng = (status === 'complete' && result.locations) ? result.locations[0].lng : rawLng;
-              const finalLat = (status === 'complete' && result.locations) ? result.locations[0].lat : rawLat;
-              
-              isMapMovingProgrammaticallyRef.current = true;
-              map.setCenter([finalLng, finalLat]);
-              
-              AMap.plugin('AMap.Geocoder', () => {
-                const geocoder = new AMap.Geocoder({
-                  city: registeredCity || '银川市',
-                  extensions: 'all'
-                });
-                geocoder.getAddress([finalLng, finalLat], (geoStatus: string, geoResult: any) => {
-                  isMapMovingProgrammaticallyRef.current = false;
-                  if (geoStatus === 'complete' && geoResult.regeocode) {
-                    const cleanLabel = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress, finalLng, finalLat);
-                    setStartLocation(cleanLabel);
-                  } else {
-                    setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
-                  }
-                });
+            const converted = wgs84ToGcj02(rawLng, rawLat);
+            const finalLng = converted.lng;
+            const finalLat = converted.lat;
+            
+            isMapMovingProgrammaticallyRef.current = true;
+            map.setCenter([finalLng, finalLat]);
+            
+            AMap.plugin('AMap.Geocoder', () => {
+              const geocoder = new AMap.Geocoder({
+                city: registeredCity || '银川市',
+                extensions: 'all'
+              });
+              geocoder.getAddress([finalLng, finalLat], (geoStatus: string, geoResult: any) => {
+                isMapMovingProgrammaticallyRef.current = false;
+                if (geoStatus === 'complete' && geoResult.regeocode) {
+                  const cleanLabel = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress, finalLng, finalLat);
+                  setStartLocation(cleanLabel);
+                } else {
+                  setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
+                }
               });
             });
           }
@@ -548,7 +601,10 @@ export default function CreateOrderView({
 
         const initialCenter = driverCoords && !isDefaultYinchuanCoords(driverCoords)
           ? [driverCoords.lng, driverCoords.lat]
-          : (hasCached ? [Number(cachedLng), Number(cachedLat)] : (prefetchedCoordsRef.current ? [prefetchedCoordsRef.current.lng, prefetchedCoordsRef.current.lat] : [106.230912, 38.487193]));
+          : (hasCached ? [Number(cachedLng), Number(cachedLat)] : (prefetchedCoordsRef.current ? (() => {
+              const converted = wgs84ToGcj02(prefetchedCoordsRef.current.lng, prefetchedCoordsRef.current.lat);
+              return [converted.lng, converted.lat];
+            })() : [106.230912, 38.487193]));
 
         // Initialize AMap strictly in 2D mode, with disabled manual rotatability/pitching
         const map = new AMap.Map(mapContainerRef.current, {
@@ -639,11 +695,8 @@ export default function CreateOrderView({
               const { lng, lat } = prefetchedCoordsRef.current;
               console.log('⚡ Speeding up using pre-fetched native GPS coordinates:', lng, lat);
               
-              AMap.convertFrom([lng, lat], 'gps', (convertStatus: string, convertResult: any) => {
-                const finalLng = (convertStatus === 'complete' && convertResult.locations) ? convertResult.locations[0].lng : lng;
-                const finalLat = (convertStatus === 'complete' && convertResult.locations) ? convertResult.locations[0].lat : lat;
-                reverseGeocodeCenter(finalLng, finalLat);
-              });
+              const converted = wgs84ToGcj02(lng, lat);
+              reverseGeocodeCenter(converted.lng, converted.lat);
               return true;
             }
             return false;
