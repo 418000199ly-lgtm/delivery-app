@@ -553,7 +553,6 @@ export default function CreateOrderView({
             
             AMap.plugin('AMap.Geocoder', () => {
               const geocoder = new AMap.Geocoder({
-                city: registeredCity || '银川市',
                 extensions: 'all'
               });
               geocoder.getAddress(new AMap.LngLat(finalLng, finalLat), (geoStatus: string, geoResult: any) => {
@@ -562,7 +561,12 @@ export default function CreateOrderView({
                   const cleanLabel = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress, finalLng, finalLat);
                   setStartLocation(cleanLabel);
                 } else {
-                  setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
+                  setStartLocation(prev => {
+                    if (prev && prev !== '正在获取当前位置...' && prev !== '请授权开启定位权限' && prev !== '未定位起点') {
+                      return prev;
+                    }
+                    return registeredCity ? `${registeredCity}中心` : '未知起点';
+                  });
                 }
               });
             });
@@ -627,7 +631,6 @@ export default function CreateOrderView({
 
         AMap.plugin(['AMap.Geocoder', 'AMap.Geolocation', 'AMap.Driving'], () => {
           const geocoder = new AMap.Geocoder({
-            city: registeredCity || '银川市',
             extensions: 'all'
           });
 
@@ -640,7 +643,12 @@ export default function CreateOrderView({
                 const cleanLabel = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress, lng, lat);
                 setStartLocation(cleanLabel);
               } else {
-                setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
+                setStartLocation(prev => {
+                  if (prev && prev !== '正在获取当前位置...' && prev !== '请授权开启定位权限' && prev !== '未定位起点') {
+                    return prev;
+                  }
+                  return registeredCity ? `${registeredCity}中心` : '未知起点';
+                });
               }
             });
           };
@@ -675,12 +683,22 @@ export default function CreateOrderView({
                         const cLat = (bounds.southWest.lat + bounds.northEast.lat) / 2;
                         reverseGeocodeCenter(cLng, cLat);
                       } else {
-                        setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
+                        setStartLocation(prev => {
+                          if (prev && prev !== '正在获取当前位置...' && prev !== '请授权开启定位权限' && prev !== '未定位起点') {
+                            return prev;
+                          }
+                          return registeredCity ? `${registeredCity}中心` : '未知起点';
+                        });
                       }
                     });
                   } catch (e) {
                     console.warn('CitySearch failed:', e);
-                    setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
+                    setStartLocation(prev => {
+                      if (prev && prev !== '正在获取当前位置...' && prev !== '请授权开启定位权限' && prev !== '未定位起点') {
+                        return prev;
+                      }
+                      return registeredCity ? `${registeredCity}中心` : '未知起点';
+                    });
                   }
                 });
               }
@@ -740,36 +758,36 @@ export default function CreateOrderView({
             const center = map.getCenter();
             const lng = center.getLng ? center.getLng() : center.lng;
             const lat = center.getLat ? center.getLat() : center.lat;
-            geocoder.getAddress(new AMap.LngLat(lng, lat), (geocodestatus: string, geocoderesult: any) => {
+            geocoder.getAddress(center, (geocodestatus: string, geocoderesult: any) => {
               if (geocodestatus === 'complete' && geocoderesult.regeocode) {
                 const cleanLabel = getHighPrecisionLocationName(geocoderesult.regeocode, geocoderesult.regeocode.formattedAddress, lng, lat);
                 setStartLocation(cleanLabel);
               } else {
-                setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
+                setStartLocation(prev => {
+                  if (prev && prev !== '正在获取当前位置...' && prev !== '请授权开启定位权限' && prev !== '未定位起点') {
+                    return prev;
+                  }
+                  return registeredCity ? `${registeredCity}中心` : '未知起点';
+                });
               }
             });
           };
 
-          // Track when the user is actively dragging the map
-          map.on('dragstart', () => {
-            isUserDraggingRef.current = true;
-          });
-
-          // Debounced live update as the user is dragging the map
-          const onDragging = () => {
-            if (!isUserDraggingRef.current) return;
+          // Smooth and responsive real-time map movement listeners
+          const onMapMove = () => {
+            if (isMapMovingProgrammaticallyRef.current) return;
             if (debounceTimerRef.current) {
               clearTimeout(debounceTimerRef.current);
             }
             debounceTimerRef.current = setTimeout(() => {
               updateAddressFromMapCenter();
-            }, 180); // ultra-responsive live 180ms debounced updates
+            }, 150); // ultra-responsive live 150ms debounced updates
           };
 
-          map.on('dragging', onDragging);
+          map.on('mapmove', onMapMove);
           
-          map.on('dragend', () => {
-            isUserDraggingRef.current = false;
+          map.on('moveend', () => {
+            if (isMapMovingProgrammaticallyRef.current) return;
             if (debounceTimerRef.current) {
               clearTimeout(debounceTimerRef.current);
             }
@@ -824,7 +842,6 @@ export default function CreateOrderView({
     if (finishedEditing && AMap && map && startLocation) {
       AMap.plugin('AMap.Geocoder', () => {
         const geocoder = new AMap.Geocoder({
-          city: registeredCity || '银川市',
           extensions: 'all'
         });
         geocoder.getLocation(startLocation, (status: string, result: any) => {
@@ -852,7 +869,7 @@ export default function CreateOrderView({
 
   const handleDenyPermission = () => {
     setShowPermissionPrompt(false);
-    setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
+    setStartLocation(registeredCity ? `${registeredCity}中心` : '未获得定位授权');
   };
 
   const handleRecenterAndLocate = () => {
@@ -868,7 +885,6 @@ export default function CreateOrderView({
       
       AMap.plugin('AMap.Geocoder', () => {
         const geocoder = new AMap.Geocoder({
-          city: registeredCity || '银川市',
           extensions: 'all'
         });
         geocoder.getAddress(new AMap.LngLat(finalLng, finalLat), (geoStatus: string, geoResult: any) => {
@@ -877,7 +893,12 @@ export default function CreateOrderView({
             const highPrecisionName = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress, finalLng, finalLat);
             setStartLocation(highPrecisionName);
           } else {
-            setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
+            setStartLocation(prev => {
+              if (prev && prev !== '正在获取当前位置...' && prev !== '请授权开启定位权限' && prev !== '未定位起点') {
+                return prev;
+              }
+              return registeredCity ? `${registeredCity}中心` : '未知起点';
+            });
           }
         });
       });
@@ -904,11 +925,21 @@ export default function CreateOrderView({
                   const cLat = (bounds.southWest.lat + bounds.northEast.lat) / 2;
                   runReverseGeocoding(cLng, cLat);
                 } else {
-                  setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
+                  setStartLocation(prev => {
+                    if (prev && prev !== '正在获取当前位置...' && prev !== '请授权开启定位权限' && prev !== '未定位起点') {
+                      return prev;
+                    }
+                    return registeredCity ? `${registeredCity}中心` : '未知起点';
+                  });
                 }
               });
             } catch (e) {
-              setStartLocation(registeredCity ? `${registeredCity}人民政府附近` : '银川市人民政府附近');
+              setStartLocation(prev => {
+                if (prev && prev !== '正在获取当前位置...' && prev !== '请授权开启定位权限' && prev !== '未定位起点') {
+                  return prev;
+                }
+                return registeredCity ? `${registeredCity}中心` : '未知起点';
+              });
             }
           });
         }
