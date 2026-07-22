@@ -47,5 +47,14 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>黑湾代驾需要访问您的位置，以便为您精准计算行程路线与代驾费用。</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>黑湾代驾需要持续访问您的位置，以便实时记录代驾轨迹与实时计费。</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 </dict>
 </plist>

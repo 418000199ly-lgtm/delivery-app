@@ -113,7 +113,7 @@ async function generate() {
     { path: 'android/app/src/main/res/drawable-land-xxxhdpi/splash.png', w: 1920, h: 1280 }
   ];
 
-  // 4. Generate Splash Screens
+  // 4. Generate Splash Screens (Android & iOS)
   console.log('Generating splash screen images...');
   for (const item of splashSizes) {
     ensureDirExists(item.path);
@@ -126,6 +126,85 @@ async function generate() {
     canvas.composite(scaledLogo, offsetX, offsetY);
     await canvas.write(item.path);
   }
+
+  // 5. Generate iOS AppIcon & Splash Screen Assets
+  console.log('Generating iOS AppIcon & Splash assets...');
+  const iosIconDir = 'ios/App/App/Assets.xcassets/AppIcon.appiconset';
+  const iosSplashDir = 'ios/App/App/Assets.xcassets/Splash.imageset';
+
+  // Make 1024x1024 iOS Marketing Icon & AppIcon
+  const iosIconSizes = [
+    { name: 'AppIcon-20x20@2x.png', size: 40 },
+    { name: 'AppIcon-20x20@3x.png', size: 60 },
+    { name: 'AppIcon-29x29@2x.png', size: 58 },
+    { name: 'AppIcon-29x29@3x.png', size: 87 },
+    { name: 'AppIcon-40x40@2x.png', size: 80 },
+    { name: 'AppIcon-40x40@3x.png', size: 120 },
+    { name: 'AppIcon-60x60@2x.png', size: 120 },
+    { name: 'AppIcon-60x60@3x.png', size: 180 },
+    { name: 'AppIcon-76x76@2x.png', size: 152 },
+    { name: 'AppIcon-83.5x83.5@2x.png', size: 167 },
+    { name: 'AppIcon-1024.png', size: 1024 },
+    { name: 'AppIcon-512@2x.png', size: 1024 }
+  ];
+
+  for (const item of iosIconSizes) {
+    const destPath = path.join(iosIconDir, item.name);
+    ensureDirExists(destPath);
+    const canvas = new Jimp({ width: item.size, height: item.size, color: WHITE_COLOR });
+    const logoSize = Math.round(item.size * 0.85);
+    const scaledLogo = baseLogo.clone().resize({ w: logoSize, h: logoSize });
+    const offset = Math.round((item.size - logoSize) / 2);
+    canvas.composite(scaledLogo, offset, offset);
+    await canvas.write(destPath);
+  }
+
+  // Create iOS AppIcon Contents.json
+  const iosAppIconContents = {
+    images: [
+      { size: "20x20", idiom: "iphone", filename: "AppIcon-20x20@2x.png", scale: "2x" },
+      { size: "20x20", idiom: "iphone", filename: "AppIcon-20x20@3x.png", scale: "3x" },
+      { size: "29x29", idiom: "iphone", filename: "AppIcon-29x29@2x.png", scale: "2x" },
+      { size: "29x29", idiom: "iphone", filename: "AppIcon-29x29@3x.png", scale: "3x" },
+      { size: "40x40", idiom: "iphone", filename: "AppIcon-40x40@2x.png", scale: "2x" },
+      { size: "40x40", idiom: "iphone", filename: "AppIcon-40x40@3x.png", scale: "3x" },
+      { size: "60x60", idiom: "iphone", filename: "AppIcon-60x60@2x.png", scale: "2x" },
+      { size: "60x60", idiom: "iphone", filename: "AppIcon-60x60@3x.png", scale: "3x" },
+      { size: "20x20", idiom: "ipad", filename: "AppIcon-20x20@2x.png", scale: "2x" },
+      { size: "29x29", idiom: "ipad", filename: "AppIcon-29x29@2x.png", scale: "2x" },
+      { size: "40x40", idiom: "ipad", filename: "AppIcon-40x40@2x.png", scale: "2x" },
+      { size: "76x76", idiom: "ipad", filename: "AppIcon-76x76@2x.png", scale: "2x" },
+      { size: "83.5x83.5", idiom: "ipad", filename: "AppIcon-83.5x83.5@2x.png", scale: "2x" },
+      { size: "1024x1024", idiom: "ios-marketing", filename: "AppIcon-1024.png", scale: "1x" },
+      { size: "1024x1024", idiom: "universal", platform: "ios", filename: "AppIcon-512@2x.png" }
+    ],
+    info: { author: "xcode", version: 1 }
+  };
+  fs.writeFileSync(path.join(iosIconDir, 'Contents.json'), JSON.stringify(iosAppIconContents, null, 2), 'utf8');
+
+  // Generate iOS Splash images
+  const iosSplashFiles = ['splash-2732x2732.png', 'splash-2732x2732-1.png', 'splash-2732x2732-2.png'];
+  for (const sFile of iosSplashFiles) {
+    const destPath = path.join(iosSplashDir, sFile);
+    ensureDirExists(destPath);
+    const canvas = new Jimp({ width: 2732, height: 2732, color: DARK_BG_COLOR });
+    const logoSize = Math.round(2732 * 0.25);
+    const scaledLogo = baseLogo.clone().resize({ w: logoSize, h: logoSize });
+    const offset = Math.round((2732 - logoSize) / 2);
+    canvas.composite(scaledLogo, offset, offset);
+    await canvas.write(destPath);
+  }
+
+  // Create iOS Splash Contents.json
+  const iosSplashContents = {
+    images: [
+      { idiom: "universal", filename: "splash-2732x2732.png", scale: "1x" },
+      { idiom: "universal", filename: "splash-2732x2732-1.png", scale: "2x" },
+      { idiom: "universal", filename: "splash-2732x2732-2.png", scale: "3x" }
+    ],
+    info: { author: "xcode", version: 1 }
+  };
+  fs.writeFileSync(path.join(iosSplashDir, 'Contents.json'), JSON.stringify(iosSplashContents, null, 2), 'utf8');
 
   // Ensure colors.xml is up to date with correct adaptive background
   const colorsXmlPath = 'android/app/src/main/res/values/colors.xml';

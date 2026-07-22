@@ -97,6 +97,7 @@ jobs:
       - name: Add & Sync iOS Platform
         run: |
           npx cap add ios || true
+          node scripts/generate-icons.js || true
           npx cap sync ios
 
       - name: Install CocoaPods (If Podfile exists)
