@@ -1,5 +1,3 @@
-import { initializeApp } from 'firebase/app';
-
 // Mock DB reference object just to align with existing code
 const dbPlaceholder = { _isProxy: true };
 
@@ -250,9 +248,9 @@ export async function addDoc(collectionRef: any, data: any) {
   const url = `${baseUrl}/api/db/add`;
   const randomId = 'doc_' + Math.random().toString(36).substring(2, 11);
   
-  const cacheKey = `mock_db_${collectionRef.collectionName}_${randomId}`;
+  const tempCacheKey = `mock_db_${collectionRef.collectionName}_${randomId}`;
   try {
-    localStorage.setItem(cacheKey, JSON.stringify(data));
+    localStorage.setItem(tempCacheKey, JSON.stringify(data));
   } catch (_) {}
 
   try {
@@ -268,7 +266,15 @@ export async function addDoc(collectionRef: any, data: any) {
       throw new Error(`DB Add failed: ${res.statusText}`);
     }
     const result = await res.json();
-    return { id: result.id || randomId };
+    const finalId = result.id || randomId;
+    
+    // Clean up temporary pre-cache key and update with real server document ID
+    try {
+      localStorage.removeItem(tempCacheKey);
+      localStorage.setItem(`mock_db_${collectionRef.collectionName}_${finalId}`, JSON.stringify(data));
+    } catch (_) {}
+
+    return { id: finalId };
   } catch (err) {
     console.warn("Proxy DB Add fell back to local store:", err);
     return { id: randomId };
@@ -294,6 +300,30 @@ export async function getDocs(queryRefOrColRef: any): Promise<ProxyQuerySnapshot
     const docs = (result.docs || []).map((docItem: any) => {
       return new ProxyDocumentSnapshot(docItem.id, docItem.data, true);
     });
+
+    // Synchronize localStorage cache with authoritative server state:
+    // Remove stale/deleted local keys that no longer exist on server for this collection.
+    try {
+      if (!constraints || constraints.length === 0) {
+        const serverDocIds = new Set((result.docs || []).map((d: any) => String(d.id)));
+        const prefix = `mock_db_${colName}_`;
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith(prefix)) {
+            const docId = key.substring(prefix.length);
+            if (!serverDocIds.has(docId)) {
+              localStorage.removeItem(key);
+            }
+          }
+        }
+        (result.docs || []).forEach((d: any) => {
+          if (d && d.id) {
+            localStorage.setItem(`mock_db_${colName}_${d.id}`, JSON.stringify(d.data));
+          }
+        });
+      }
+    } catch (_) {}
+
     return new ProxyQuerySnapshot(docs);
   } catch (err) {
     console.warn("Proxy DB Query falling back to local simulation:", err);

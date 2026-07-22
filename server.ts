@@ -4,20 +4,6 @@ import path from 'path';
 import fs from 'fs';
 import mysql from 'mysql2/promise';
 import { createServer as createViteServer } from 'vite';
-import { initializeApp } from 'firebase/app';
-import { 
-  initializeFirestore, 
-  doc, 
-  getDoc, 
-  setDoc, 
-  updateDoc, 
-  deleteDoc, 
-  addDoc, 
-  collection, 
-  getDocs, 
-  query, 
-  where 
-} from 'firebase/firestore';
 
 import Dypnsapi20170525, * as $Dypnsapi20170525 from '@alicloud/dypnsapi20170525';
 import * as $OpenApi from '@alicloud/openapi-client';
@@ -183,21 +169,6 @@ function writeLocalJsonDb(data: Record<string, Record<string, any>>) {
     console.error('[Local JSON DB] Write error:', e);
   }
 }
-
-// Initialize server-side Firestore instance to bypass GFW firewalls inside emulator/mobile clients
-const firebaseConfig = {
-  projectId: "my-taxi-app-b76f0",
-  appId: "1:1009592037554:web:89e484fc435b0171bdd9ab",
-  apiKey: "AIzaSyC0frin5v_6TcBEceQGlqyW36A05Rs7S-0",
-  authDomain: "my-taxi-app-b76f0.firebaseapp.com",
-  storageBucket: "my-taxi-app-b76f0.firebasestorage.app",
-  messagingSenderId: "1009592037554"
-};
-
-const fbApp = initializeApp(firebaseConfig);
-const db = initializeFirestore(fbApp, {
-  experimentalForceLongPolling: true
-}, "ai-studio-max-8c2c2304-5251-4eae-b3b7-9bbf375467a5");
 
 async function startServer() {
   const app = express();
@@ -1008,63 +979,11 @@ async function startServer() {
       });
     }
 
-    try {
-      console.log('[Migration] Starting on-demand data migration from Firestore to MySQL...');
-      const report: any = {};
-      let totalMigrated = 0;
-
-      const collections = [
-        'config',
-        'version_history',
-        'vip_codes',
-        'driver_users',
-        'messages',
-        'online_applications',
-        'team_members',
-        'passenger_links',
-        'squad_members',
-        'city_dispatch_config'
-      ];
-
-      for (const colName of collections) {
-        console.log(`[Migration] Querying remote Firestore for collection "${colName}"...`);
-        const colRef = collection(db, colName);
-        const snapshot = await getDocs(colRef);
-        
-        let count = 0;
-        for (const docSnap of snapshot.docs) {
-          const docId = docSnap.id;
-          const data = docSnap.data();
-          const dataStr = JSON.stringify(data);
-
-          await mysqlPool.query(
-            'INSERT INTO `daijia_documents` (`collection`, `doc_id`, `data`) VALUES (?, ?, ?) ' +
-            'ON DUPLICATE KEY UPDATE `data` = VALUES(`data`)',
-            [colName, docId, dataStr]
-          );
-          count++;
-        }
-        
-        report[colName] = count;
-        totalMigrated += count;
-        console.log(`[Migration] Collection "${colName}" migrated: ${count} documents.`);
-      }
-
-      console.log(`[Migration] All documents successfully synchronized into MySQL! Total: ${totalMigrated}`);
-      res.json({ 
-        success: true, 
-        message: '✓ 恭喜！云端 Firestore 数据已成功同步/迁移至您本地的 MySQL 数据库之中！',
-        total_collections: collections.length,
-        total_documents: totalMigrated,
-        details: report 
-      });
-    } catch (err: any) {
-      console.error('[Migration] Failed to migrate Firestore to MySQL:', err);
-      res.status(500).json({ 
-        success: false, 
-        error: err.message || 'Migration execution failed.' 
-      });
-    }
+    res.json({ 
+      success: true, 
+      message: '✓ 当前系统已完全运行于阿里云/宝塔自建本地 MySQL 数据库，无需外部 Firebase！',
+      timestamp: new Date().toISOString()
+    });
   });
 
   // Passenger Order submission redirect (from older config files and direct Cloudflare support endpoint)
@@ -1092,14 +1011,17 @@ async function startServer() {
         return res.json({ success: true, timestamp: Date.now() });
       }
 
-      const colRef = doc(db, 'passenger_links', String(driverPhone));
-      await setDoc(colRef, {
+      const payloadData = {
         passengerPhone: String(passengerPhone).trim(),
         startLocation: String(startLocation).trim(),
         destination: String(destination || '').trim(),
         status: "submitted",
         timestamp: Date.now()
-      });
+      };
+      const dbData = readLocalJsonDb();
+      if (!dbData.passenger_links) dbData.passenger_links = {};
+      dbData.passenger_links[String(driverPhone)] = payloadData;
+      writeLocalJsonDb(dbData);
 
       res.json({ success: true, timestamp: Date.now() });
     } catch (err: any) {
@@ -1115,29 +1037,53 @@ async function startServer() {
   app.get('/aliyun_passenger_deploy.html', (req, res) => {
     res.sendFile(path.join(process.cwd(), 'aliyun_passenger_deploy.html'));
   });
-  app.get('/daijia_deploy.zip', (req, res) => {
-    const filePath = path.join(process.cwd(), 'daijia_deploy.zip');
-    const altPath = path.join(process.cwd(), 'dist', 'daijia_deploy.zip');
-    
-    // 自愈机制：如果物理包由于环境原因缺失，实时在后台调用Python脚本动态生成
-    if (!fs.existsSync(filePath) && !fs.existsSync(altPath)) {
+
+  // Helper for binary-safe ZIP download stream
+  const serveZipFile = (req: express.Request, res: express.Response, requestedName = 'daijia_deploy.zip') => {
+    let targetPath = path.join(process.cwd(), requestedName);
+    if (!fs.existsSync(targetPath)) {
+      targetPath = path.join(process.cwd(), 'dist', requestedName);
+    }
+    if (!fs.existsSync(targetPath)) {
+      targetPath = path.join(process.cwd(), 'daijia_deploy.zip');
+    }
+    if (!fs.existsSync(targetPath)) {
+      targetPath = path.join(process.cwd(), 'dist', 'daijia_deploy.zip');
+    }
+
+    // Auto-repair if zip does not exist or is corrupted
+    if (!fs.existsSync(targetPath) || fs.statSync(targetPath).size < 1000) {
       try {
-        console.log('[自愈机制] 部署压缩包未找到，正在动态生成 daijia_deploy.zip ...');
+        console.log('[ZIP服务] ZIP压缩包不存在或变体损坏，重新生成打包...');
         const { execSync } = require('child_process');
         execSync('python3 create_deploy_zip.py', { cwd: process.cwd() });
+        targetPath = path.join(process.cwd(), 'daijia_deploy.zip');
       } catch (e: any) {
-        console.error('动态生成部署包失败:', e);
+        console.error('自愈打包异常:', e);
       }
     }
 
-    if (fs.existsSync(filePath)) {
-      res.download(filePath, 'daijia_deploy.zip');
-    } else if (fs.existsSync(altPath)) {
-      res.download(altPath, 'daijia_deploy.zip');
+    if (fs.existsSync(targetPath)) {
+      const stat = fs.statSync(targetPath);
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename="${requestedName}"`,
+        'Content-Length': stat.size,
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      });
+      fs.createReadStream(targetPath).pipe(res);
     } else {
-      res.status(404).send('部署包正在打包编译中，请在5秒后刷新页面重试！');
+      res.status(500).json({ error: 'Zip file build failed' });
     }
-  });
+  };
+
+  app.get('/daijia_deploy.zip', (req, res) => serveZipFile(req, res, 'daijia_deploy.zip'));
+  app.get('/baota_deploy.zip', (req, res) => serveZipFile(req, res, 'baota_deploy.zip'));
+  app.get('/deploy.zip', (req, res) => serveZipFile(req, res, 'daijia_deploy.zip'));
+  app.get('/api/download-zip', (req, res) => serveZipFile(req, res, 'daijia_deploy.zip'));
+  app.get('/api/download/zip', (req, res) => serveZipFile(req, res, 'daijia_deploy.zip'));
 
   app.get('/daijia_deploy.tar.gz', (req, res) => {
     const filePath = path.join(process.cwd(), 'daijia_deploy.tar.gz');

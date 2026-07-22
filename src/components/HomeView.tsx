@@ -1733,7 +1733,7 @@ export default function HomeView({
             </div>
             <span className="text-[10px] text-gray-700 font-bold font-sans">有效期</span>
             <span className={`absolute -top-1 right-0 text-[8px] px-1 rounded-full scale-80 font-bold text-white ${
-              (settings.vipExpiry && settings.vipExpiry !== '待激活' && settings.vipExpiry !== '未激活') ? 'bg-amber-500 animate-pulse' : 'bg-slate-400'
+              checkVipActive(settings.vipExpiry) ? 'bg-amber-500 animate-pulse' : 'bg-slate-400'
             }`}>
               {vipInfo.badgeText}
             </span>
@@ -2594,18 +2594,18 @@ export default function HomeView({
                     <Crown className="w-24 h-24 text-amber-500 rotate-12" />
                   </div>
                   <span className="inline-block px-2 py-0.5 rounded-full bg-amber-500 text-[8px] font-black text-slate-900 tracking-wide uppercase mb-2">
-                    {settings.vipExpiry ? 'VIP 尊享席位' : '普通特约用户'}
+                    {checkVipActive(settings.vipExpiry) ? 'VIP 尊享席位' : '普通特约用户'}
                   </span>
                   <p className="text-xs font-bold text-white">
-                    {settings.vipExpiry 
+                    {checkVipActive(settings.vipExpiry) 
                       ? `您当前尊享 VIP 终极权益` 
                       : `您当前为普通免费额度账号`
                     }
                   </p>
                   <p className="text-[10px] text-slate-400 mt-1">
-                    {settings.vipExpiry 
+                    {checkVipActive(settings.vipExpiry) 
                       ? `服务到期时间: ${settings.vipExpiry}` 
-                      : '立即订阅以下套餐，秒级极速激活全端无限特权服务'
+                      : 'VIP未激活或已到期，使用兑换码激活享无限特权'
                     }
                   </p>
                 </div>

@@ -1,10 +1,11 @@
 import React, { useState, useRef } from 'react';
-import { X, ChevronRight, ChevronLeft, HelpCircle, RotateCcw, PlusSquare, Bookmark, Save, ImagePlus, Trash2, CheckCircle, Loader2, Crown, LogOut } from 'lucide-react';
+import { X, ChevronRight, ChevronLeft, HelpCircle, RotateCcw, PlusSquare, Bookmark, Save, ImagePlus, Trash2, CheckCircle, Loader2, Crown, LogOut, Volume2 } from 'lucide-react';
 import jsQR from 'jsqr';
 import QRCode from 'qrcode';
 import { ChauffeurSettings, checkVipActive } from '../types';
 import { db, doc, getDoc, updateDoc, getBaseApiUrl } from '../lib/dbProxy';
 import { MOCK_ALBUM_PHOTOS } from '../utils/mockImages';
+import { speakText, initAudioUnlock } from '../utils/speech';
 
 export function regenerateQRCode(dataUrl: string, type: 'wechat' | 'alipay'): Promise<string> {
   return new Promise((resolve) => {
@@ -793,6 +794,10 @@ export default function SettingsView({
   const toggleVoiceBroadcast = () => {
     const next = settings.voiceBroadcast === '开单语音播报' ? '静音播报' : '开单语音播报';
     onUpdateSettings({ ...settings, voiceBroadcast: next });
+    if (next === '开单语音播报') {
+      initAudioUnlock();
+      speakText('已开启开单语音播报，播报音量已同步您的手机侧边音量按键。');
+    }
   };
 
   const handleRechargeSubmit = () => {
@@ -874,16 +879,35 @@ export default function SettingsView({
           </button>
 
           {/* Voice broadcast changer */}
-          <button 
-            onClick={toggleVoiceBroadcast}
-            className="w-full py-4 px-4 flex items-center justify-between hover:bg-gray-50 bg-white transition-colors text-left"
-          >
-            <span className="text-sm font-semibold text-gray-700">语音播报</span>
-            <div className="flex items-center space-x-1 text-teal-600 font-semibold">
-              <span className="text-xs">{settings.voiceBroadcast}</span>
-              <ChevronRight className="w-4 h-4 text-teal-400" />
+          <div className="w-full py-3.5 px-4 flex flex-col space-y-2 bg-white">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-gray-700">语音播报状态</span>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    initAudioUnlock();
+                    speakText('语音播报测试成功！音量已自动同步您手机侧边按键设置的媒体音量。');
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 text-xs font-bold flex items-center space-x-1 border border-teal-200/80 active:scale-95 transition-all cursor-pointer"
+                >
+                  <Volume2 className="w-3.5 h-3.5 text-teal-600 animate-pulse" />
+                  <span>测试语音</span>
+                </button>
+                <button 
+                  type="button"
+                  onClick={toggleVoiceBroadcast}
+                  className="flex items-center space-x-1 text-teal-600 font-semibold py-1 px-1.5 hover:bg-gray-100 rounded-md transition-colors"
+                >
+                  <span className="text-xs">{settings.voiceBroadcast}</span>
+                  <ChevronRight className="w-4 h-4 text-teal-400" />
+                </button>
+              </div>
             </div>
-          </button>
+            <p className="text-[11px] text-gray-400 leading-tight">
+              💡 提示：无需先点击屏幕，在上方点击【测试语音】即可直接激活并测试播报！播报音量完全跟随您手机侧边按键（媒体音量）大小，按手机侧边音量上键即可随时调大声音。
+            </p>
+          </div>
 
         </div>
 
@@ -904,14 +928,14 @@ export default function SettingsView({
           {/* VIP Membership Status */}
           <div className="py-4 px-4 flex items-center justify-between bg-white">
             <span className="text-sm font-semibold text-gray-700">VIP会员状态</span>
-            {settings.vipExpiry ? (
+            {checkVipActive(settings.vipExpiry) ? (
               <div className="flex items-center space-x-1.5 text-amber-600 font-bold text-xs bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
                 <Crown className="w-4 h-4 text-amber-500 animate-pulse" />
-                <span>已激活VIP {settings.vipExpiry && `(${settings.vipExpiry})`}</span>
+                <span>已激活 VIP ({settings.vipExpiry})</span>
               </div>
             ) : (
               <div className="flex items-center space-x-1 text-slate-400 font-medium text-xs bg-slate-50 px-2.5 py-1 rounded-lg">
-                <span>未激活 VIP</span>
+                <span>未激活 / 已到期 VIP</span>
               </div>
             )}
           </div>

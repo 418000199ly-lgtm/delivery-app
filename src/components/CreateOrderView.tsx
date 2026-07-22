@@ -555,7 +555,7 @@ export default function CreateOrderView({
               const geocoder = new AMap.Geocoder({
                 extensions: 'all'
               });
-              geocoder.getAddress(new AMap.LngLat(finalLng, finalLat), (geoStatus: string, geoResult: any) => {
+              geocoder.getAddress([finalLng, finalLat], (geoStatus: string, geoResult: any) => {
                 isMapMovingProgrammaticallyRef.current = false;
                 if (geoStatus === 'complete' && geoResult.regeocode) {
                   const cleanLabel = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress, finalLng, finalLat);
@@ -637,7 +637,7 @@ export default function CreateOrderView({
           const reverseGeocodeCenter = (lng: number, lat: number) => {
             isMapMovingProgrammaticallyRef.current = true;
             map.setCenter([lng, lat]);
-            geocoder.getAddress(new AMap.LngLat(lng, lat), (geoStatus: string, geoResult: any) => {
+            geocoder.getAddress([lng, lat], (geoStatus: string, geoResult: any) => {
               isMapMovingProgrammaticallyRef.current = false;
               if (geoStatus === 'complete' && geoResult.regeocode) {
                 const cleanLabel = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress, lng, lat);
@@ -887,7 +887,7 @@ export default function CreateOrderView({
         const geocoder = new AMap.Geocoder({
           extensions: 'all'
         });
-        geocoder.getAddress(new AMap.LngLat(finalLng, finalLat), (geoStatus: string, geoResult: any) => {
+        geocoder.getAddress([finalLng, finalLat], (geoStatus: string, geoResult: any) => {
           isMapMovingProgrammaticallyRef.current = false;
           if (geoStatus === 'complete' && geoResult.regeocode) {
             const highPrecisionName = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress, finalLng, finalLat);

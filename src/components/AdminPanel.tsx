@@ -1,10 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  RecaptchaVerifier, 
-  signInWithPhoneNumber,
-  ConfirmationResult
-} from 'firebase/auth';
-import { auth } from '../lib/firebase';
 import { checkVipActive } from '../types';
 import { ALL_CITIES_FLAT } from '../constants/cities';
 import { 
@@ -134,10 +128,10 @@ export default function AdminPanel({
   const [adminTimer, setAdminTimer] = useState(0);
   const [isAdminSending, setIsAdminSending] = useState(false);
   const [isAdminLoggingIn, setIsAdminLoggingIn] = useState(false);
-  const [adminConfirmationResult, setAdminConfirmationResult] = useState<ConfirmationResult | null>(null);
+  const [adminConfirmationResult, setAdminConfirmationResult] = useState<any>(null);
   const [adminSimulatedCode, setAdminSimulatedCode] = useState('');
   const [adminLoginMode, setAdminLoginMode] = useState<'real' | 'sandbox'>('real');
-  const adminRecaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
+  const adminRecaptchaVerifierRef = useRef<any>(null);
 
   // Countdown timer handler for SMS backoff
   useEffect(() => {
@@ -258,9 +252,7 @@ export default function AdminPanel({
     ? '开发者司机'
     : (loggedInMember ? loggedInMember.role : '普通司机');
   const activeCity = loggedInMember ? loggedInMember.city : '';
-  const isAuth = isAdminAuthenticated || 
-                 (userPhone === '15509601222') || 
-                 (loggedInMember && loggedInMember.role !== '普通司机');
+  const isAuth = !!isAdminAuthenticated;
 
   // Online Applications State Managers
   const [applications, setApplications] = useState<any[]>([]);
@@ -1750,18 +1742,21 @@ export default function AdminPanel({
                 AD
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-xs font-black text-slate-200 leading-none">系统最高理员</p>
-                <p className="text-[10px] text-slate-500 font-mono truncate pt-1">admin@chauffeur.cloud</p>
+                <p className="text-xs font-black text-slate-200 leading-none">系统最高管理员</p>
+                <p className="text-[10px] text-slate-500 font-mono truncate pt-1">admin.lyheiwandaijiamax.com</p>
               </div>
             </div>
             <button
               onClick={() => {
                 setIsAdminAuthenticated(false);
                 localStorage.removeItem('isAdminAuthenticated');
-                // Trigger quick custom alert or toast
+                localStorage.removeItem('dd_user_phone');
                 setShowToast(true);
                 setToastMsg('🔒 运营安全校验已退出，重新限制面板接管');
-                setTimeout(() => setShowToast(false), 2500);
+                setTimeout(() => {
+                  setShowToast(false);
+                  window.location.reload();
+                }, 1000);
               }}
               className="text-slate-500 hover:text-rose-400 p-1.5 hover:bg-rose-500/10 rounded-xl transition-all cursor-pointer shrink-0"
               title="安全验证退出"
@@ -1883,6 +1878,24 @@ export default function AdminPanel({
             >
               <ShieldCheck className="w-4 h-4 text-amber-400" />
               <span>印 电子公章生成器</span>
+            </button>
+            <button
+              onClick={() => {
+                setIsAdminAuthenticated(false);
+                localStorage.removeItem('isAdminAuthenticated');
+                localStorage.removeItem('dd_user_phone');
+                setIsMobileMenuOpen(false);
+                setShowToast(true);
+                setToastMsg('🔒 运营安全校验已退出，重新限制面板接管');
+                setTimeout(() => {
+                  setShowToast(false);
+                  window.location.reload();
+                }, 1000);
+              }}
+              className="flex items-center space-x-2 text-left p-2.5 rounded-xl text-xs font-black text-rose-400 hover:bg-rose-500/10 border-t border-slate-800/80 mt-1 pt-2.5 cursor-pointer"
+            >
+              <Lock className="w-4 h-4 text-rose-400" />
+              <span>🔒 退出当前后台登录</span>
             </button>
           </div>
         )}

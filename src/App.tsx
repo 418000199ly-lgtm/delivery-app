@@ -28,9 +28,9 @@ import {
 import { Sparkles, CheckCircle, Database, Smartphone, Users, ShieldAlert, FileCode } from 'lucide-react';
 import AdminPanel from './components/AdminPanel';
 import LoginView from './components/LoginView';
-import { db, doc, onSnapshot, setDoc, deleteDoc, collection } from './lib/dbProxy';
+import { db, doc, onSnapshot, setDoc, deleteDoc, collection, getDoc } from './lib/dbProxy';
 import { IncomingOrderOverlay } from './components/IncomingOrderOverlay';
-import { speakText } from './utils/speech';
+import { speakText, initAudioUnlock } from './utils/speech';
 
 const getCityCenterCoords = (cityName: string): { lat: number; lng: number } => {
   const norm = (cityName || '').trim();
@@ -362,6 +362,7 @@ export default function App() {
   const [userPhone, setUserPhone] = useState<string | null>(() => {
     return localStorage.getItem('dd_user_phone');
   });
+  const [isUserDataLoaded, setIsUserDataLoaded] = useState<boolean>(false);
 
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
@@ -378,6 +379,11 @@ export default function App() {
   const [sysUpgradeUrl, setSysUpgradeUrl] = useState<string>('https://download.heiwan.com/max');
   const [sysXianyuUrl, setSysXianyuUrl] = useState<string>('https://www.goofish.com');
   const [showUpgradeModal, setShowUpgradeModal] = useState<boolean>(false);
+
+  // Initialize Audio Context & Speech Synthesis unlock listener
+  useEffect(() => {
+    initAudioUnlock();
+  }, []);
 
   // Real-time listen for system version information
   useEffect(() => {
@@ -463,6 +469,12 @@ export default function App() {
   // Load Gaode Map API script once in App.tsx to ensure background geolocation works flawlessly
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    
+    // Globally register AMap security code before loading maps script
+    (window as any)._AMapSecurityConfig = {
+      securityJsCode: '0aa3912e6a88fe59f9e5f0275524feba'
+    };
+
     const scriptId = 'amap-js-api-v2-main';
     let script = document.getElementById(scriptId) as HTMLScriptElement || document.querySelector('script[src*="webapi.amap.com"]');
     if (!script) {
@@ -706,6 +718,7 @@ export default function App() {
     // Clear calibration indicators immediately upon switching userPhone
     lastCalibratedPhoneRef.current = null;
     lastCalibratedPhoneSettingsRef.current = null;
+    setIsUserDataLoaded(false);
 
     if (userPhone) {
       const statsKey = `dd_stats_${userPhone}`;
@@ -738,7 +751,7 @@ export default function App() {
     if (!userPhone) return;
     
     const userDocRef = doc(db, 'driver_users', userPhone);
-    const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
+    const unsubscribe = onSnapshot(userDocRef, async (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         if (data) {
@@ -835,20 +848,32 @@ export default function App() {
               nextSettings.deviationWaitSec = data.deviationWaitSec;
               changed = true;
             }
+            if (changed) {
+              localStorage.setItem(`dd_settings_${userPhone}`, JSON.stringify(nextSettings));
+            }
             return changed ? nextSettings : prev;
           });
 
           // Set both calibration references to this user on successful snapshot delivery
           lastCalibratedPhoneRef.current = userPhone;
           lastCalibratedPhoneSettingsRef.current = userPhone;
+          setIsUserDataLoaded(true);
         }
       } else {
-        // Create user doc if it doesn't exist yet
-        const initialExpiry = '待激活';
+        // Create user doc if it doesn't exist yet, checking online_applications for any pre-assigned vipExpiry
+        let initialExpiry = '待激活';
+        try {
+          const appSnap = await getDoc(doc(db, 'online_applications', userPhone));
+          if (appSnap.exists() && appSnap.data()?.vipExpiry) {
+            initialExpiry = appSnap.data().vipExpiry;
+          }
+        } catch (_) {}
+
         const initialOnlineEnabled = settings.onlineOrdersEnabled || false;
         const initialCity = settings.city || '';
         const initialIsBanned = settings.isBanned || false;
-        setDoc(userDocRef, {
+        
+        await setDoc(userDocRef, {
           phoneNumber: userPhone,
           vipExpiry: initialExpiry,
           onlineOrdersEnabled: initialOnlineEnabled,
@@ -872,16 +897,25 @@ export default function App() {
           myPoints: 0,
           lastResetDate: getCurrent6AmDay(),
           updatedAt: new Date().toISOString()
-        }).then(() => {
-          // Allow writing now that initial user record is created on the server
-          lastCalibratedPhoneRef.current = userPhone;
-          lastCalibratedPhoneSettingsRef.current = userPhone;
-        }).catch(err => {
+        }, { merge: true }).catch(err => {
           console.error("Error registering driver user in firestore:", err);
         });
+
+        if (initialExpiry !== '待激活') {
+          setSettings(prev => {
+            const updated = { ...prev, vipExpiry: initialExpiry };
+            localStorage.setItem(`dd_settings_${userPhone}`, JSON.stringify(updated));
+            return updated;
+          });
+        }
+
+        lastCalibratedPhoneRef.current = userPhone;
+        lastCalibratedPhoneSettingsRef.current = userPhone;
+        setIsUserDataLoaded(true);
       }
     }, (err) => {
       console.error("Error listening to driver user changes:", err);
+      setIsUserDataLoaded(true);
     });
     
     return () => unsubscribe();
@@ -1168,36 +1202,41 @@ export default function App() {
   const handleUpdateSettings = (newSettings: ChauffeurSettings) => {
     setSettings(newSettings);
     if (userPhone) {
-      const userDocRef = doc(db, 'driver_users', userPhone);
-      setDoc(userDocRef, {
-        phoneNumber: userPhone,
-        vipExpiry: newSettings.vipExpiry || '',
-        customAppName: newSettings.customAppName || '',
-        wechatQrCode: newSettings.wechatQrCode || '',
-        alipayQrCode: newSettings.alipayQrCode || '',
-        billingTemplateName: newSettings.billingTemplateName || '',
-        voiceBroadcast: newSettings.voiceBroadcast || '',
-        accountBalance: newSettings.accountBalance ?? 0,
-        startServiceSMS: !!newSettings.startServiceSMS,
-        endServiceSMS: !!newSettings.endServiceSMS,
-        smsContent: newSettings.smsContent || '',
-        homepageColorway: newSettings.homepageColorway || 'green',
-        deviationMitigation: !!newSettings.deviationMitigation,
-        deviationKm: newSettings.deviationKm ?? 1.0,
-        deviationWaitSec: newSettings.deviationWaitSec ?? 30,
-        onlineOrdersEnabled: !!newSettings.onlineOrdersEnabled,
-        city: newSettings.city || '',
-        isBanned: !!newSettings.isBanned,
-        updatedAt: new Date().toISOString()
-      }, { merge: true }).catch(err => {
-        console.error("Error syncing user settings update to Firestore:", err);
-      });
+      localStorage.setItem(`dd_settings_${userPhone}`, JSON.stringify(newSettings));
+      if (isUserDataLoaded) {
+        const userDocRef = doc(db, 'driver_users', userPhone);
+        setDoc(userDocRef, {
+          phoneNumber: userPhone,
+          vipExpiry: newSettings.vipExpiry || '',
+          customAppName: newSettings.customAppName || '',
+          wechatQrCode: newSettings.wechatQrCode || '',
+          alipayQrCode: newSettings.alipayQrCode || '',
+          billingTemplateName: newSettings.billingTemplateName || '',
+          voiceBroadcast: newSettings.voiceBroadcast || '',
+          accountBalance: newSettings.accountBalance ?? 0,
+          startServiceSMS: !!newSettings.startServiceSMS,
+          endServiceSMS: !!newSettings.endServiceSMS,
+          smsContent: newSettings.smsContent || '',
+          homepageColorway: newSettings.homepageColorway || 'green',
+          deviationMitigation: !!newSettings.deviationMitigation,
+          deviationKm: newSettings.deviationKm ?? 1.0,
+          deviationWaitSec: newSettings.deviationWaitSec ?? 30,
+          onlineOrdersEnabled: !!newSettings.onlineOrdersEnabled,
+          city: newSettings.city || '',
+          isBanned: !!newSettings.isBanned,
+          updatedAt: new Date().toISOString()
+        }, { merge: true }).catch(err => {
+          console.error("Error syncing user settings update to Firestore:", err);
+        });
+      }
     }
   };
 
   // Active VIP Limit & State Reset Listener: automatically force-offline drivers when daily limits are exhausted,
   // and force-revert settings (customAppName, deviationMitigation) when VIP has expired or is unactivated.
   useEffect(() => {
+    if (!isUserDataLoaded) return;
+
     const isVip = checkVipActive(settings.vipExpiry);
     
     // Force offline if daily limits are exhausted
@@ -1222,7 +1261,7 @@ export default function App() {
         handleUpdateSettings(updatedSettings);
       }
     }
-  }, [settings.vipExpiry, settings.customAppName, settings.deviationMitigation, stats.todayOrders, isOnline]);
+  }, [isUserDataLoaded, settings.vipExpiry, settings.customAppName, settings.deviationMitigation, stats.todayOrders, isOnline]);
 
   // --- 3. Page Router dispatcher ---
   const renderView = () => {
@@ -1345,12 +1384,8 @@ export default function App() {
         <LoginView
           onLoginSuccess={(phone) => {
             localStorage.setItem('dd_user_phone', phone);
+            setIsUserDataLoaded(false);
             setUserPhone(phone);
-            // Sync setting with dynamic driver name
-            setSettings(prev => ({
-              ...prev,
-              customAppName: 'XX代驾'
-            }));
             triggerToast('🎉 设备签署校验通过，欢迎重新登录回一键代驾系统！');
           }}
         />
@@ -1515,6 +1550,22 @@ export default function App() {
     return false;
   };
 
+  if (isStandaloneAdmin()) {
+    return (
+      <div className="h-screen w-screen bg-[#07080b] flex flex-col overflow-hidden text-slate-200 antialiased font-sans">
+        <div className="flex-1 overflow-y-auto">
+          <AdminPanel 
+            userPhone={userPhone}
+            userRole={userRole}
+            userTeamCity={userTeamCity}
+            isAdminAuthenticated={isAdminAuthenticated}
+            setIsAdminAuthenticated={setIsAdminAuthenticated}
+          />
+        </div>
+      </div>
+    );
+  }
+
   if (isMobileOrStandalone()) {
     return (
       <div className="h-screen w-screen bg-[#f8fafc] flex flex-col overflow-hidden text-[#333333]">
@@ -1532,22 +1583,6 @@ export default function App() {
               </span>
             </div>
           )}
-        </div>
-      </div>
-    );
-  }
-
-  if (isStandaloneAdmin()) {
-    return (
-      <div className="h-screen w-screen bg-[#07080b] flex flex-col overflow-hidden text-slate-200 antialiased font-sans">
-        <div className="flex-1 overflow-y-auto">
-          <AdminPanel 
-            userPhone={userPhone}
-            userRole={userRole}
-            userTeamCity={userTeamCity}
-            isAdminAuthenticated={isAdminAuthenticated}
-            setIsAdminAuthenticated={setIsAdminAuthenticated}
-          />
         </div>
       </div>
     );
