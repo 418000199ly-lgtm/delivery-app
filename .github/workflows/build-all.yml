@@ -1,0 +1,131 @@
+name: Build Android APK & iOS IPA (巨魔/TrollStore)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch: # 支持在 GitHub Actions 页面手动点击按钮一键打包
+
+jobs:
+  # ==========================================
+  # 任务 1: 打包 Android APK
+  # ==========================================
+  build-android:
+    name: 打包 Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies & Build Web App
+        run: |
+          npm install --legacy-peer-deps --no-audit --no-fund
+          npm run build
+
+      - name: Generate Android Icons & Splash Screen Assets
+        run: |
+          node scripts/generate-icons.js || true
+
+      - name: Capacitor Sync
+        run: |
+          npx cap sync android
+
+      - name: Setup Java JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+
+      - name: Cache Gradle Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Fix Gradle Wrapper Jar
+        run: |
+          cd android
+          gradle wrapper --gradle-version 8.7 --distribution-type all
+
+      - name: Build Android APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 黑湾代驾司机端-Android-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
+
+  # ==========================================
+  # 任务 2: 打包 iOS IPA (供巨魔 TrollStore / 签名工具安装)
+  # ==========================================
+  build-ios-trollstore:
+    name: 打包 iOS IPA (巨魔/TrollStore)
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies & Build Web App
+        run: |
+          npm install --legacy-peer-deps --no-audit --no-fund
+          npm run build
+
+      - name: Add & Sync iOS Platform
+        run: |
+          npx cap add ios || true
+          npx cap sync ios
+
+      - name: Install CocoaPods
+        run: |
+          cd ios/App
+          pod install
+
+      - name: Build iOS Unsigned Release App
+        run: |
+          cd ios/App
+          xcodebuild -workspace App.xcworkspace \
+                     -scheme App \
+                     -configuration Release \
+                     -sdk iphoneos \
+                     -derivedDataPath build \
+                     CODE_SIGN_IDENTITY="" \
+                     CODE_SIGNING_REQUIRED=NO \
+                     CODE_SIGNING_ALLOWED=NO
+
+      - name: Package App into IPA for TrollStore
+        run: |
+          cd ios/App
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/App.app Payload/
+          zip -r 黑湾代驾司机端_TrollStore.ipa Payload
+
+      - name: Upload iOS IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 黑湾代驾司机端-iOS-TrollStore-IPA
+          path: ios/App/黑湾代驾司机端_TrollStore.ipa
+          retention-days: 14
