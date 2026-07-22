@@ -16,6 +16,7 @@
     "@alicloud/pop-core": "^1.8.0",
     "@capacitor/android": "^8.4.1",
     "@capacitor/core": "^8.4.1",
+    "@capacitor/ios": "^8.4.2",
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-legacy": "^6.0.1",
