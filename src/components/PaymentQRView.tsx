@@ -43,23 +43,8 @@ function cleanAndRegenerate(dataUrl: string, type: 'wechat' | 'alipay'): Promise
             resolve(dataUrl);
           });
         } else {
-          // Fallback to generating a pristine mock pay link matching original's intended type
-          const fallbackData = type === 'wechat' 
-            ? 'wxp://f2f0a1b2c3d4e5f6g7h8_Payment_Client_Active_ID17'
-            : 'https://qr.alipay.com/fkx05353_Alipay_Pristine_Payment_Active';
-          
-          QRCode.toDataURL(fallbackData, {
-            errorCorrectionLevel: 'H',
-            margin: 2,
-            width: 450,
-            color: {
-              dark: '#000000',
-              light: '#ffffff'
-            }
-          }).then(resolve).catch((err) => {
-            console.error('QRCode fallback generation failed in view', err);
-            resolve(dataUrl);
-          });
+          // Use user's uploaded image directly if jsQR can't scan payload
+          resolve(dataUrl);
         }
       } catch (err) {
         console.error('Failed in cleanAndRegenerate processing', err);
@@ -95,7 +80,7 @@ export default function PaymentQRView({
       setIsProcessing(true);
       
       // 1. WeChat
-      const rawWechat = settings?.wechatQrCode;
+      const rawWechat = settings?.wechatQrCode?.trim();
       if (rawWechat) {
         if (rawWechat.startsWith('data:image/png;base64,') && !rawWechat.includes('ID.17') && !rawWechat.includes('svg')) {
           setWechatClean(rawWechat);
@@ -108,25 +93,11 @@ export default function PaymentQRView({
           }
         }
       } else {
-        try {
-          const defaultQrText = 'wxp://f2f0a1b2c3d4e5f6g7h8_Payment_Client_Active_ID17';
-          const clean = await QRCode.toDataURL(defaultQrText, {
-            errorCorrectionLevel: 'H',
-            margin: 2,
-            width: 450,
-            color: {
-              dark: '#000000',
-              light: '#ffffff'
-            }
-          });
-          setWechatClean(clean);
-        } catch (e) {
-          console.error(e);
-        }
+        setWechatClean('');
       }
 
       // 2. Alipay
-      const rawAlipay = settings?.alipayQrCode;
+      const rawAlipay = settings?.alipayQrCode?.trim();
       if (rawAlipay) {
         if (rawAlipay.startsWith('data:image/png;base64,') && !rawAlipay.includes('ID.17') && !rawAlipay.includes('svg')) {
           setAlipayClean(rawAlipay);
@@ -139,21 +110,7 @@ export default function PaymentQRView({
           }
         }
       } else {
-        try {
-          const defaultQrText = 'https://qr.alipay.com/fkx05353_Alipay_Pristine_Payment_Active';
-          const clean = await QRCode.toDataURL(defaultQrText, {
-            errorCorrectionLevel: 'H',
-            margin: 2,
-            width: 450,
-            color: {
-              dark: '#000000',
-              light: '#ffffff'
-            }
-          });
-          setAlipayClean(clean);
-        } catch (e) {
-          console.error(e);
-        }
+        setAlipayClean('');
       }
       
       setIsProcessing(false);
@@ -219,26 +176,43 @@ export default function PaymentQRView({
             
             <div className="w-full max-w-[220px] aspect-square flex items-center justify-center shrink-0 mb-4 animate-in fade-in zoom-in-95" data-purpose="qr-code-display">
               {isWechat ? (
-                wechatClean ? (
-                  <img src={wechatClean} alt="Wechat Pay QR" className="w-full h-full object-contain" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-gray-100/50 rounded-lg animate-pulse text-gray-400 text-xs text-center font-semibold">
-                    ⏳ 正在安全生成微信二维码...
-                  </div>
-                )
-              ) : (
-                settings?.alipayQrCode ? (
-                  alipayClean ? (
-                    <img src={alipayClean} alt="Alipay QR" className="w-full h-full object-contain" />
+                settings?.wechatQrCode && settings.wechatQrCode.trim() !== '' ? (
+                  wechatClean ? (
+                    <img src={wechatClean} alt="微信收款码" className="w-full h-full object-contain" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center bg-gray-100/50 rounded-lg animate-pulse text-gray-400 text-xs text-center font-semibold">
-                      ⏳ 正在安全生成支付宝二维码...
+                      ⏳ 正在载入微信收款码...
                     </div>
                   )
                 ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center bg-gray-50 text-gray-500 text-xs text-center font-semibold px-3 py-2 border border-dashed border-gray-250 rounded-lg">
-                    请设置并上传
-                    <div className="text-[10px] text-gray-400 font-normal mt-0.5">支付宝收款二维码</div>
+                  <div className="w-full h-full flex flex-col items-center justify-center bg-gray-50/90 text-gray-600 text-center px-3 py-4 border-2 border-dashed border-gray-300 rounded-2xl shadow-inner gap-2">
+                    <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center text-amber-500 border border-amber-200 shrink-0">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                    </div>
+                    <span className="text-sm font-bold text-gray-800">请在设置里上传收款码</span>
+                    <span className="text-[11px] text-gray-400 font-normal">首页 ➔ 设置 ➔ 上传微信收款码</span>
+                  </div>
+                )
+              ) : (
+                settings?.alipayQrCode && settings.alipayQrCode.trim() !== '' ? (
+                  alipayClean ? (
+                    <img src={alipayClean} alt="支付宝收款码" className="w-full h-full object-contain" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-gray-100/50 rounded-lg animate-pulse text-gray-400 text-xs text-center font-semibold">
+                      ⏳ 正在载入支付宝收款码...
+                    </div>
+                  )
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center bg-gray-50/90 text-gray-600 text-center px-3 py-4 border-2 border-dashed border-gray-300 rounded-2xl shadow-inner gap-2">
+                    <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center text-amber-500 border border-amber-200 shrink-0">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                    </div>
+                    <span className="text-sm font-bold text-gray-800">请在设置里上传收款码</span>
+                    <span className="text-[11px] text-gray-400 font-normal">首页 ➔ 设置 ➔ 上传支付宝收款码</span>
                   </div>
                 )
               )}

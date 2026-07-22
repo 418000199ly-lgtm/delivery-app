@@ -45,23 +45,8 @@ export function regenerateQRCode(dataUrl: string, type: 'wechat' | 'alipay'): Pr
             resolve(dataUrl);
           });
         } else {
-          // Fallback to generating a pristine mock pay link matching original's intended type
-          const fallbackData = type === 'wechat' 
-            ? 'wxp://f2f0a1b2c3d4e5f6g7h8_Payment_Client_Active_ID17'
-            : 'https://qr.alipay.com/fkx05353_Alipay_Pristine_Payment_Active';
-          
-          QRCode.toDataURL(fallbackData, {
-            errorCorrectionLevel: 'H',
-            margin: 2,
-            width: 450,
-            color: {
-              dark: '#000000',
-              light: '#ffffff'
-            }
-          }).then(resolve).catch((err) => {
-            console.error('QRCode fallback generation failed', err);
-            resolve(dataUrl);
-          });
+          // Use user's uploaded image directly if jsQR can't scan payload
+          resolve(dataUrl);
         }
       } catch (err) {
         console.error('Failed in regenerateQRCode processing', err);
