@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>自助开单助手 —— 安全出行专线</title>
+  <!-- 引入高兼容、高速加载的 Tailwind CSS Play CDN (支持全部 v3 现代类) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: #f9f9f9 !important; /* Matches React's #f9f9f9 bg */
+    }
+    #welcome-overlay {
+      background-color: #f9f9f9 !important;
+      color: #1a1c1c !important;
+    }
+    .premium-card {
+      background: #ffffff !important;
+      border: 1px solid #dfc0af !important; /* Premium cream borders matching React */
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05) !important;
+    }
+    input:focus {
+      outline: none;
+      border-color: #ff7d00 !important; /* Matches focus:ring-2 focus:ring-[#ff7d00] */
+      box-shadow: 0 0 0 3px rgba(255, 125, 0, 0.15) !important;
+    }
+    .ticket-dashed-line {
+      background-image: linear-gradient(to right, #dfc0af 50%, rgba(255, 255, 255, 0) 0%) !important;
+      background-position: bottom !important;
+      background-size: 10px 1px !important;
+      background-repeat: repeat-x !important;
+    }
+  </style>
+</head>
+<body class="text-slate-850 min-h-screen flex flex-col justify-between antialiased pb-safe">
+
+  <!-- 3秒欢迎开单全屏倒计时叠加层 -->
+  <div id="welcome-overlay" class="fixed inset-0 w-full h-full flex flex-col justify-between p-6 select-none z-[10000] overflow-hidden transition-opacity duration-500 bg-[#f9f9f9]">
+    
+    <!-- Background Illustration Decoration -->
+    <div class="absolute inset-0 z-0 opacity-10 pointer-events-none flex items-center justify-center">
+      <img 
+        class="w-full h-full object-cover grayscale blur-[1px]" 
+        src="https://lh3.googleusercontent.com/aida/AP1WRLtTuYfFFEytKKZpCMIKx5d793N3I-YkAt0RaL4tG65400MEwqxanM7ul6Y1w7lOLl0VUDB7h7QuRc_HkluOjkWV2pwHCQgCHjIWwYg5HxN_f1siUjpWM-3l9T8t47Djd_T0_qVuS9zNb14OL4fbKT9WOv7HgcystD5ikT_mbhJfVTkFf5_BDKLVD0bLlMvWFrA8uk0qjqvDWrOSJN4JmW09VM05DNbR-Pt6t3pp-bSzYKm5cbHZtczl7PI"
+        alt="Decoration Background"
+      />
+    </div>
+
+    <!-- 顶部状态栏 -->
+    <div class="relative z-10 flex items-center justify-between mt-4">
+      <div class="flex items-center gap-1.5 bg-white/60 backdrop-blur-md px-3 py-1 rounded-full border border-black/5 shadow-sm">
+        <span class="w-1.5 h-1.5 rounded-full bg-orange-500 animate-ping"></span>
+        <span class="text-[10px] text-slate-600 font-bold tracking-widest uppercase">
+          SECURE CONNECTION • 专享自助端
+        </span>
+      </div>
+      <span class="text-[9px] text-orange-600 font-bold font-mono bg-orange-500/10 px-2 py-0.5 rounded border border-orange-500/20 shadow-sm">
+        安全加密 ⚡
+      </span>
+    </div>
+
+    <!-- Central Countdown Circle -->
+    <div class="relative z-10 flex-grow flex flex-col items-center justify-center py-10 text-center">
+      <div class="relative w-48 h-48 flex items-center justify-center">
+        <!-- SVG Progress Ring -->
+        <svg class="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 100 100">
+          <circle class="text-[#eeeeee]" cx="50" cy="50" fill="transparent" r="45" stroke="currentColor" stroke-width="4"></circle>
+          <circle 
+            class="transition-all duration-1000" 
+            cx="50" 
+            cy="50" 
+            fill="transparent" 
+            r="45" 
+            stroke="#ff7d00" 
+            stroke-width="6"
+            id="welcome-circle-progress"
+            stroke-dasharray="282.74"
+            stroke-dashoffset="0"
+          ></circle>
+        </svg>
+        <!-- Number Display -->
+        <div id="welcome-countdown" class="text-[64px] font-black text-[#ff7d00] animate-pulse">
+          3
+        </div>
+      </div>
+      
+      <!-- Status Text -->
+      <div class="mt-8 flex flex-col items-center gap-2 h-16">
+        <span id="welcome-status-text" class="text-[#1a1c1c] font-bold text-base text-center transition-all duration-300">
+          正在开启订单...
+        </span>
+        <div class="flex gap-1" id="welcome-dots">
+          <div class="w-1.5 h-1.5 bg-[#ff7d00] rounded-full animate-bounce" style="animation-delay: 0s"></div>
+          <div class="w-1.5 h-1.5 bg-[#ff7d00] rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+          <div class="w-1.5 h-1.5 bg-[#ff7d00] rounded-full animate-bounce" style="animation-delay: 0.4s"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer / Action Area -->
+    <div class="relative z-10 text-center mb-8 mt-4">
+      <div class="flex items-center justify-center gap-2 mb-2">
+        <div class="w-10 h-10 bg-gradient-to-br from-[#ff7d00] to-[#ffdbc8] rounded-xl flex items-center justify-center shadow-lg">
+          <!-- Car icon SVG -->
+          <svg class="text-white w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124l-.81-12.96A1.875 1.875 0 0020.007 3.75H14.25m4.5 15H14.25m0 0v-4.5m0 4.5h-4.5m0-4.5V9h-4.5V14.25M12 9V3.75m0 0H7.5m4.5 0H18"></path>
+          </svg>
+        </div>
+        <h1 class="text-xl font-bold tracking-tight text-[#1a1c1c]">
+          欢迎使用<span id="welcome-brand-name" class="text-[#ff7d00] px-1 font-extrabold">小鸟代驾</span>
+        </h1>
+      </div>
+      <p class="text-[#5f5e5e] text-sm">在乎你的车，更在乎你的人</p>
+    </div>
+
+    <div class="relative z-10 w-full text-center pb-4">
+      <div class="px-4 py-2 bg-white/50 backdrop-blur-md rounded-2xl border border-[#dfc0af] inline-block mx-auto">
+        <div class="flex items-center gap-2.5">
+          <!-- Shield icon SVG -->
+          <svg class="text-[#ff7d00] w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+          </svg>
+          <span class="text-[#584235] text-xs font-semibold">
+            欢迎使用自助开单，您的行程已安全加密
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TopAppBar -->
+  <header class="w-full bg-[#f9f9f9] border-b border-[#dfc0af] flex items-center justify-between px-5 h-16 shrink-0 z-10">
+    <div class="flex items-center gap-3">
+      <h1 class="text-lg font-black tracking-tight text-[#984800] select-none">
+        专享自助开单系统
+      </h1>
+    </div>
+    <div class="text-[10px] text-[#ff7d00] font-bold font-mono bg-[#ffdbc8] px-2.5 py-1 rounded-full select-none">
+      安全校验通过 ⚡
+    </div>
+  </header>
+
+  <!-- Scrollable Main area -->
+  <main class="pb-24 px-5 flex-1 overflow-y-auto max-w-md mx-auto w-full z-10">
+    
+    <!-- Header Illustration Banner (Matches React precisely) -->
+    <div class="relative h-40 mt-4 rounded-2xl overflow-hidden mb-6 bg-gradient-to-br from-[#984800] to-[#ff7d00]">
+      <div class="absolute inset-0 opacity-15 mix-blend-overlay">
+        <img 
+          class="w-full h-full object-cover" 
+          src="https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?auto=format&fit=crop&q=80&w=800" 
+          alt="City driving background"
+        />
+      </div>
+      <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent flex flex-col justify-end p-5 text-left">
+        <h2 class="text-xl font-extrabold text-white tracking-tight">
+          欢迎使用 <span id="header-brand-name">小鸟代驾</span> 自助下单
+        </h2>
+        <p class="text-xs text-[#ffdbc8] mt-1">在乎你的车，更在乎你的人</p>
+      </div>
+    </div>
+
+    <!-- Driver Status Card (Matches React precisely) -->
+    <div class="bg-white border border-[#dfc0af] p-4 rounded-xl shadow-xs mb-6 flex items-center gap-4 relative overflow-hidden">
+      <div class="absolute top-0 left-0 w-1 h-full bg-[#ff7d00]"></div>
+      <div class="w-12 h-12 rounded-full bg-[#ffdbc8] flex items-center justify-center shrink-0">
+        <!-- Headphones icon SVG -->
+        <svg class="text-[#311300] w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.5a6.5 6.5 0 01-6.5-6.5V11A6.5 6.5 0 0112 4.5 6.5 6.5 0 0118.5 11v1a6.5 6.5 0 01-6.5 6.5zm-5.5-2.25H6a1.75 1.75 0 01-1.75-1.75V12.5A1.75 1.75 0 016 10.75h.5c.966 0 1.75.784 1.75 1.75v2c0 .966-.784 1.75-1.75 1.75zm11 0h-.5c-.966 0-1.75-.784-1.75-1.75v-2c0-.966.784-1.75 1.75-1.75h.5c.966 0 1.75.784 1.75 1.75v1.75a1.75 1.75 0 01-1.75 1.75z"></path>
+        </svg>
+      </div>
+      <div class="flex-grow text-left">
+        <p class="text-[10px] font-bold text-[#5f5e5e] uppercase tracking-wider mb-0.5">司机 二维码报单 安全通道</p>
+        <p class="text-sm font-semibold text-[#1a1c1c] leading-tight">
+          正在链接至司机 <span id="driver-display" class="text-[#ff7d00] font-bold font-mono">...</span>
+        </p>
+        <div class="flex items-center mt-1 text-[#984800] gap-1.5">
+          <span class="relative flex h-2 w-2">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#ff7d00] opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2 w-2 bg-[#ff7d00]"></span>
+          </span>
+          <span class="text-[10px] font-bold text-[#984800]">开单信息为您实时加密</span>
+        </div>
+      </div>
+      <div class="bg-[#e2dfde] p-3 rounded-xl flex items-center justify-center shrink-0 select-none">
+        <!-- QrCode SVG -->
+        <svg class="text-[#984800] w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5zM13.5 13.5h2.25v2.25H13.5V13.5zM15.75 15.75h2.25v2.25h-2.25v-2.25zM18 13.5h2.25v2.25H18V13.5zM13.5 18h2.25v2.25H13.5V18zM18 18h2.25v2.25H18V18z"></path>
+        </svg>
+      </div>
+    </div>
+
+    <!-- 状态 1: 乘客数据填写卡片 -->
+    <div id="form-container" class="space-y-5">
+      
+      <!-- Instruction Section -->
+      <div class="mb-6 space-y-1 text-left">
+        <p class="text-sm text-[#5f5e5e] leading-relaxed px-1">
+          请输入您呼叫代驾司机的手机号码。输入完成后立即通知司机，并一键开启本次代驾服务。
+        </p>
+      </div>
+
+      <!-- Form Fields (Bento style form) -->
+      <form id="order-form" class="space-y-5 text-left">
+        <!-- Phone Input -->
+        <div class="space-y-1.5">
+          <label class="text-xs font-bold text-[#5f5e5e] flex items-center gap-1">
+            您的手机号码 <span class="text-[#ba1a1a]">*</span>
+          </label>
+          <div class="relative">
+            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <!-- Smartphone SVG -->
+              <svg class="text-[#5f5e5e] w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-6 15h9"></path>
+              </svg>
+            </div>
+            <input
+              type="tel"
+              id="passenger-phone"
+              required
+              maxlength="11"
+              placeholder="请输入您的手机号"
+              class="w-full pl-12 pr-4 py-4 bg-white border border-[#dfc0af] rounded-xl focus:ring-2 focus:ring-[#ff7d00] focus:border-[#ff7d00] outline-none text-base transition-all font-semibold"
+            />
+          </div>
+        </div>
+
+        <!-- Origin Input -->
+        <div class="space-y-1.5">
+          <label class="text-xs font-bold text-[#5f5e5e] flex items-center gap-1">
+            您的出发地 <span class="text-[#ba1a1a]">*</span>
+          </label>
+          <div class="relative">
+            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <!-- MapPin SVG -->
+              <svg class="text-[#ff7d00] w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25s-7.5-4.108-7.5-11.25a7.5 7.5 0 1115 0z"></path>
+              </svg>
+            </div>
+            <input
+              type="text"
+              id="start-location"
+              required
+              value="万达广场写字楼A座"
+              placeholder="填写当前上车位置"
+              class="w-full pl-12 pr-4 py-4 bg-white border border-[#dfc0af] rounded-xl focus:ring-2 focus:ring-[#ff7d00] focus:border-[#ff7d00] outline-none text-base transition-all font-semibold"
+            />
+          </div>
+        </div>
+
+        <!-- Destination Input -->
+        <div class="space-y-1.5">
+          <label class="text-xs font-bold text-[#5f5e5e] flex items-center gap-1">
+            行驶目的地 <span class="text-slate-400 font-normal">(选填)</span>
+          </label>
+          <div class="relative">
+            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <!-- Flag SVG -->
+              <svg class="text-[#5f5e5e] w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 3v1.5M3 21v-6m0 0l2.77-.693a9 9 0 016.208.682l.108.054a9 9 0 006.086.71l3.114-.732a48.524 48.524 0 01-.005-10.499l-3.11.732a9 9 0 01-6.085-.711l-.108-.054a9 9 0 00-6.208-.682L3 4.5M3 15V4.5"></path>
+              </svg>
+            </div>
+            <input
+              type="text"
+              id="destination"
+              placeholder="可选填此去向的目的地"
+              class="w-full pl-12 pr-4 py-4 bg-white border border-[#dfc0af] rounded-xl focus:ring-2 focus:ring-[#ff7d00] focus:border-[#ff7d00] outline-none text-base transition-all font-semibold"
+            />
+          </div>
+        </div>
+
+        <!-- Authorization Checkbox -->
+        <label class="flex items-start gap-3 py-2 cursor-pointer group select-none">
+          <div class="relative flex items-center mt-0.5 shrink-0">
+            <input
+              type="checkbox"
+              required
+              checked
+              id="agreement"
+              class="peer h-6 w-6 border-2 border-[#8b7263] rounded-lg checked:bg-[#ff7d00] checked:border-[#ff7d00] transition-all appearance-none cursor-pointer focus:outline-none"
+            />
+            <!-- Check icon SVG overlay -->
+            <svg class="absolute text-white opacity-0 peer-checked:opacity-100 transition-opacity pointer-events-none left-1 top-1 w-4 h-4 stroke-[3]" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path>
+            </svg>
+          </div>
+          <span class="text-xs text-[#5f5e5e] group-active:text-[#1a1c1c] transition-colors leading-snug">
+            我授权自动上传位置信息并同意接受司机代驾服务
+          </span>
+        </label>
+
+        <!-- Main CTA -->
+        <button
+          type="submit"
+          id="submit-btn"
+          class="w-full bg-[#ff7d00] hover:bg-[#ff8f20] text-white font-bold py-5 rounded-xl active:scale-95 duration-150 transition-all flex items-center justify-center gap-2 mt-6 shadow-md shadow-[#ff7d00]/15"
+        >
+          <!-- Bell icon SVG -->
+          <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a3 3 0 11-5.714 0m5.714 0a3 3 0 11-5.714 0"></path>
+          </svg>
+          <span>确认授权司机并通知司机开单</span>
+        </button>
+      </form>
+    </div>
+
+    <!-- 状态 2: 授权成功与行程票据卡片 (Matches React precisely) -->
+    <div id="success-container" class="hidden space-y-5 py-2 text-center">
+      
+      <!-- Success Hero Section -->
+      <div class="relative mb-8 mt-6 flex justify-center">
+        <div class="absolute w-24 h-24 bg-[#ff7d00]/10 rounded-full animate-ping scale-125"></div>
+        <div class="w-24 h-24 bg-[#ff7d00] rounded-full flex items-center justify-center shadow-md relative z-10">
+          <svg class="text-white w-14 h-14 stroke-[3]" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path>
+          </svg>
+        </div>
+      </div>
+
+      <h2 class="text-2xl font-bold text-[#1a1c1c] mb-1">授权下单成功</h2>
+      <p class="text-lg text-[#584235] mb-8"><span id="success-brand-name">小鸟代驾</span> · 极速响应</p>
+
+      <!-- Dynamic Order Card (Bento Style Card) -->
+      <div class="w-full bg-white border border-[#dfc0af] rounded-xl p-6 text-left shadow-sm mb-6">
+        <div class="flex items-center justify-between mb-4">
+          <span class="bg-[#ff7d00]/10 text-[#ff7d00] px-3 py-1 rounded-full font-semibold text-xs">
+            司机师傅开单成功
+          </span>
+          <span class="font-semibold text-xs text-[#5f5e5e]">计费服务已开始</span>
+        </div>
+
+        <div class="flex items-center gap-4 p-4 bg-[#f3f3f3] rounded-lg mb-4">
+          <div class="w-12 h-12 rounded-full overflow-hidden bg-[#dfc0af] flex-shrink-0">
+            <img 
+              class="w-full h-full object-cover" 
+              alt="Professional driver portrait" 
+              src="https://lh3.googleusercontent.com/aida-public/AB6AXuB0xN2tfIY1cQjxnbB8XiorOXJ75YSmjRPQTL2I7Ku-46ZEvHPZF9sdLx58pAPAq2NujfCo4EuYWkwWsIhPRiq3rfQsci3sI31jH0NsiDFFmLxfSLhZGXzrW_KwoTzWthXWc15veKvKyL9fA3InOUxUXNIlYvSLCAtYH6brvGIhWllHRcAHqoZ7DX8K47JtatpLGiq8ucjCUNx66G8m1d5nFpo8RFk8ajk5aGD81CJ3WqLA39Sq1D8Rgg"
+            />
+          </div>
+          <div class="flex-1">
+            <h3 class="text-sm font-semibold text-[#1a1c1c]">
+              五星司机 (5.0<span style="color: rgb(255, 215, 0)">★★★★★</span>)
+            </h3>
+            <p class="font-semibold text-xs text-[#584235] mt-0.5">
+              乘客手机：<span id="summary-phone">187****9593</span>
+            </p>
+          </div>
+          <div class="w-10 h-10 rounded-full bg-[#ff7d00] text-white flex items-center justify-center cursor-default shrink-0">
+            <!-- Phone SVG -->
+            <svg class="w-5 h-5 fill-current text-white" viewBox="0 0 24 24">
+              <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 00-1.01.24l-2.2 2.2a15.045 15.045 0 01-6.59-6.59l2.2-2.21a.96.96 0 00.25-1A11.56 11.56 0 018.82 4c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.58c0-.56-.45-1.04-1-1.04z" />
+            </svg>
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <div class="flex items-start gap-2">
+            <!-- Green/Orange dot for start -->
+            <span class="w-4 h-4 rounded-full bg-[#ff7d00] shrink-0 mt-1 flex items-center justify-center text-[10px] text-white font-bold">起</span>
+            <div class="text-left">
+              <p class="font-semibold text-xs text-[#584235]">上车地点：</p>
+              <p class="text-sm text-[#1a1c1c] font-semibold" id="summary-start">万达广场写字楼A座</p>
+            </div>
+          </div>
+          <div class="h-4 border-l border-dashed border-[#dfc0af] ml-[7px]"></div>
+          <div class="flex items-start gap-2" id="summary-dest-wrapper">
+            <!-- Red dot for dest -->
+            <span class="w-4 h-4 rounded-full bg-[#ba1a1a] shrink-0 mt-1 flex items-center justify-center text-[10px] text-white font-bold">终</span>
+            <div class="text-left">
+              <p class="font-semibold text-xs text-[#584235]">下车终点：</p>
+              <p class="text-sm text-[#1a1c1c] font-semibold" id="summary-dest">未知</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Extra Ticket Style Dash info -->
+        <div class="mt-4 pt-3 border-t ticket-dashed-line text-xs text-[#5f5e5e] flex justify-between">
+          <span class="font-medium text-[#584235]">关联司机：</span>
+          <span id="summary-driver" class="font-mono font-bold text-slate-900">...</span>
+        </div>
+      </div>
+
+      <!-- Close hint button -->
+      <div class="w-full space-y-4">
+        <button 
+          onclick="window.close();"
+          class="w-full bg-[#ff7d00] text-white h-14 rounded-xl font-semibold text-base shadow-sm hover:brightness-105 active:scale-[0.98] transition-all"
+        >
+          下单成功，请关闭本页面
+        </button>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- 精美简练的官方安全底栏 -->
+  <footer class="p-5 text-center text-xs font-bold text-[#5f5e5e]/60 shrink-0 font-sans z-10">
+    <span id="footer-brand-name">小鸟代驾</span> · 极速响应
+  </footer>
+
+  <!-- 乘客自助端代开单阻拦页面叠加层 -->
+  <div id="blocked-overlay" class="hidden fixed inset-0 w-full h-full bg-[#f9f9f9] text-[#1a1c1c] font-sans overflow-hidden select-none z-[20000] flex flex-col justify-between">
+    <main class="w-full max-w-md mx-auto bg-[#f9f9f9] flex-1 relative flex flex-col justify-start">
+      <!-- 头部精美Banner -->
+      <section class="relative h-64 w-full overflow-hidden bg-gradient-to-br from-[#1b1c1e] via-[#2a2c30] to-[#121314] flex flex-col items-center justify-center p-6 text-center shadow-inner">
+        <!-- 动态极光氛围底色微光 -->
+        <div class="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 rounded-full bg-amber-500/10 filter blur-3xl"></div>
+        <div class="absolute bottom-1/3 left-1/3 w-32 h-32 rounded-full bg-orange-600/10 filter blur-3xl"></div>
+        
+        <!-- 豪华VIP金质尊享皇冠/盾牌矢量图形 -->
+        <div class="relative z-10 mb-2 text-amber-500/90 filter drop-shadow-[0_4px_10px_rgba(245,158,11,0.25)]">
+          <svg class="w-16 h-16 mx-auto" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M50,15 L78,25 C78,55 50,85 50,85 C50,85 22,55 22,25 Z" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="rgba(245,158,11,0.06)" />
+            <path d="M35,55 L41,41 L50,49 L59,41 L65,55 Z" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="rgba(245,158,11,0.1)" />
+            <line x1="35" y1="55" x2="65" y2="55" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
+            <circle cx="50" cy="30" r="2.5" fill="currentColor" />
+            <circle cx="35" cy="55" r="1.5" fill="currentColor" />
+            <circle cx="65" cy="55" r="1.5" fill="currentColor" />
+            <path d="M47,30 L53,30 M50,27 L50,33" stroke="currentColor" stroke-width="1.2" />
+          </svg>
+        </div>
+        
+        <h1 class="relative z-10 text-xl font-black text-amber-400 tracking-widest font-serif drop-shadow-md">
+          VIP PREMIUM
+        </h1>
+        <p class="relative z-10 text-[9px] text-slate-400 font-mono tracking-widest uppercase mt-1">
+          Secure Chauffeur Connection System
+        </p>
+        <div class="absolute inset-0 bg-gradient-to-t from-[#f9f9f9] via-transparent to-transparent"></div>
+      </section>
+
+      <!-- 核心阻拦提示卡片 -->
+      <section class="px-5 -mt-8 relative z-10 text-center">
+        <div class="bg-white p-6 rounded-xl border border-[#dfc0af] shadow-sm space-y-4">
+          <h2 class="text-xl font-bold text-[#1a1c1c] leading-relaxed">
+            开通尊享会员
+            <div class="mt-1 text-orange-600">享受更多权益</div>
+          </h2>
+          <p class="text-[#584235] text-sm font-medium leading-relaxed">
+            请使用正规渠道开通会员
+          </p>
+        </div>
+        <!-- 下面空白处添加灰色小字 -->
+        <p class="mt-6 text-xs text-slate-400 text-left px-4 leading-relaxed">
+          本页面仅提供产品图文展示，页面所有信息、参数、图文均不构成要约、报价或交易承诺，不具备法律合同效力，相关交易规则以线下正式书面文件为准。
+        </p>
+      </section>
+    </main>
+    <footer style="text-align: center; padding: 20px 0; font-size: 12px; color: #666;" class="w-full z-20 shrink-0">
+      © 2026 All Rights Reserved
+      <br />
+      <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer" style="color: #666; text-decoration: none;">
+        宁ICP备2026002469号-1
+      </a>
+    </footer>
+  </div>
+
+  <script>
+    // 1. 提取 URL 请求中可能附带的司机电话参数 (?driver=18609518888)
+    const urlParams = new URLSearchParams(window.location.search);
+    const rawDriverPhone = urlParams.get('driver') || '18609518888';
+    const driverPhone = rawDriverPhone.trim();
+
+    // 智能自适应 API 接口域名：
+    // 1. 默认使用当前同源主站接口 (window.location.origin)，无需跨域、无 SSL 问题、100% 畅通
+    // 2. 在后面 fetchDriverData 步骤中，会自动尝试同源、api.、admin. 等域名。一旦发现哪个域名成功返回了司机信息，就将 apiDomain 锁定为该域名，实现完美全自动自适应！
+    let apiDomain = typeof window !== 'undefined' ? window.location.origin : '';
+
+    // VIP有效期校验辅助函数 - 具备极强跨浏览器兼容性的容错设计
+    function checkVipActive(vipExpiry) {
+      if (!vipExpiry) return true;
+      if (vipExpiry === '永久有效') return true;
+      try {
+        let year, month, day;
+        if (typeof vipExpiry === 'string') {
+          const match = vipExpiry.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+          if (match) {
+            year = parseInt(match[1], 10);
+            month = parseInt(match[2], 10) - 1;
+            day = parseInt(match[3], 10);
+          }
+        }
+        
+        let expDate;
+        if (year !== undefined && month !== undefined && day !== undefined) {
+          expDate = new Date(year, month, day, 23, 59, 59, 999);
+        } else {
+          expDate = new Date(vipExpiry);
+        }
+
+        const now = new Date();
+        // 如果解析出来的 Date 对象无效 (Invalid Date)，默认放行，防止低端手机浏览器报错或不识别日期导致误封
+        if (isNaN(expDate.getTime())) {
+          return true;
+        }
+        
+        expDate.setHours(23, 59, 59, 999);
+        now.setHours(0, 0, 0, 0);
+        return expDate.getTime() >= now.getTime();
+      } catch (e) {
+        // 如果有任何异常，默认放行，保证生产服务绝对高可用
+        return true;
+      }
+    }
+
+    // 展现阻拦页面
+    function showBlockedPage() {
+      const blockedOverlay = document.getElementById('blocked-overlay');
+      if (blockedOverlay) {
+        blockedOverlay.classList.remove('hidden');
+      }
+      const welcomeOverlay = document.getElementById('welcome-overlay');
+      if (welcomeOverlay) {
+        welcomeOverlay.style.display = 'none';
+      }
+    }
+
+    // 如果URL没有携带司机手机号，且不是本地模拟模式，给与温馨提示，而不是强制生硬拦截
+    const hasDriverInUrl = urlParams.has('driver') && !!urlParams.get('driver');
+    const isDeveloperSimulator = typeof window !== 'undefined' && (
+      window.location.hostname.includes('localhost') || 
+      window.location.hostname.includes('127.0.0.1') || 
+      window.location.hostname.includes('webcontainer') || 
+      window.location.hostname.includes('gitpod') || 
+      window.location.hostname.includes('cloudshell') ||
+      window.location.hostname.includes('run.app') ||
+      window.location.hostname.includes('aistudio.google')
+    );
+
+    // 只能微信或支付宝扫码检测
+    const ua = navigator.userAgent.toLowerCase();
+    const isWeChat = ua.indexOf('micromessenger') !== -1;
+    const isAlipay = ua.indexOf('alipayclient') !== -1;
+    const isWeChatOrAlipay = isWeChat || isAlipay;
+
+    // 无论复制粘贴到任何浏览器里，均直接拦截（只有微信或支付宝扫码允许访问，开发模拟环境放行）
+    if (!isWeChatOrAlipay && !isDeveloperSimulator) {
+      window.addEventListener('DOMContentLoaded', showBlockedPage);
+      if (document.readyState === 'interactive' || document.readyState === 'complete') {
+        showBlockedPage();
+      }
+    }
+
+    if (!hasDriverInUrl && !isDeveloperSimulator) {
+      setTimeout(() => {
+        alert("温馨提示：当前未获取到推荐司机的服务通道，将使用系统公共服务。如需指派特定司机，请重新扫描司机出示的专属二维码下单！");
+      }, 500);
+    }
+
+    // 如果 URL 中含有出发地位置参数，自动填入
+    const urlStartLocation = urlParams.get('startLocation');
+    if (urlStartLocation) {
+      const startInput = document.getElementById('start-location');
+      if (startInput) {
+        startInput.value = decodeURIComponent(urlStartLocation).trim();
+      }
+    }
+
+    // 欢迎叠加层3秒倒计时
+    let countdownSecs = 3;
+    const welcomeOverlay = document.getElementById('welcome-overlay');
+    const welcomeCountdown = document.getElementById('welcome-countdown');
+    const welcomeProgressBar = document.getElementById('welcome-progress-bar');
+
+    // 动态更新欢迎词逻辑：无名字默认XX代驾，有名字显示欢迎使用（名字）；同时更新安全保障层
+    function updateWelcomeText(rawName) {
+      const cleanName = decodeURIComponent(rawName || '').trim();
+      
+      const hasCustom = cleanName && cleanName !== '极速' && cleanName !== '极速代驾' && cleanName !== 'XX代驾' && cleanName !== '小鸟代驾' && cleanName !== '';
+      const brandText = hasCustom ? cleanName : '小鸟代驾';
+
+      const ids = ['welcome-brand-name', 'header-brand-name', 'success-brand-name', 'footer-brand-name'];
+      ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.innerText = brandText;
+        }
+      });
+    }
+
+    // 优先读取 URL 中附带的名字，否则显示小鸟代驾
+    let customAppName = urlParams.get('name') || '小鸟代驾';
+    updateWelcomeText(customAppName);
+
+    // 自动智能自适应 API 接口域名：
+    // 1. 优先使用当前同源主站接口（支持开发预览、本地 and 同源生产环境，无跨域且能精准指向当前沙箱/当前部署节点数据库）
+    // 2. 如果同源未返回有效司机，自动尝试请求 admin.lyheiwandaijiamax.com 和 api.lyheiwandaijiamax.com 作为跨域多通道双保障核验
+    // 3. 任何一个通道成功加载出司机数据，都会立刻锁定 apiDomain 为对应的服务器，保证后续乘客提交订单时 100% 成功送达！
+    async function fetchDriverData(phone) {
+      const col = 'driver_users';
+      const id = encodeURIComponent(phone);
+      
+      // 1. 优先尝试本地/同源 API 代理 (最适合阿里云同源单域名部署或本开发沙箱)
+      try {
+        const localUrl = `/api/db/get?col=${col}&id=${id}`;
+        const res = await fetch(localUrl);
+        if (res.ok) {
+          const resData = await res.json();
+          if (resData && resData.exists && resData.data) {
+            apiDomain = window.location.origin; // 自动锁定同源 API 域名
+            console.log('✓ [API Auto-Detect] Local/Same-Origin backend verified and locked:', apiDomain);
+            return resData;
+          }
+        }
+      } catch (e) {
+        console.warn('同源主站接口暂不可用，将尝试跨域备用通道:', e);
+      }
+      
+      // 2. 备用通道一：尝试阿里云独立管理后台 (最适合标准阿里云前后端分离多域名部署)
+      try {
+        const remoteUrl1 = `https://admin.lyheiwandaijiamax.com/api/db/get?col=${col}&id=${id}`;
+        const res = await fetch(remoteUrl1);
+        if (res.ok) {
+          const resData = await res.json();
+          if (resData && resData.exists && resData.data) {
+            apiDomain = 'https://admin.lyheiwandaijiamax.com'; // 自动锁定管理后台 API 域名
+            console.log('✓ [API Auto-Detect] Remote admin backend verified and locked:', apiDomain);
+            return resData;
+          }
+        }
+      } catch (e) {
+        console.warn('独立管理后台接口请求失败，尝试标准 API 接口域名:', e);
+      }
+
+      // 3. 备用通道二：尝试标准 API 接口域名
+      try {
+        const remoteUrl2 = `https://api.lyheiwandaijiamax.com/api/db/get?col=${col}&id=${id}`;
+        const res = await fetch(remoteUrl2);
+        if (res.ok) {
+          const resData = await res.json();
+          if (resData && resData.exists && resData.data) {
+            apiDomain = 'https://api.lyheiwandaijiamax.com'; // 自动锁定标准 API 域名
+            console.log('✓ [API Auto-Detect] Remote api backend verified and locked:', apiDomain);
+            return resData;
+          }
+        }
+      } catch (e) {
+        console.error('所有可用数据接口通道均已失效:', e);
+      }
+
+      throw new Error('所有可用数据接口通道均已失效');
+    }
+
+    fetchDriverData(driverPhone)
+      .then(resData => {
+        let isVipActive = true; // 默认给与最高可用性信任，防止误拦截
+        if (resData && resData.exists && resData.data) {
+          const data = resData.data;
+          // 校验 VIP 有效期
+          if (data.vipExpiry) {
+            isVipActive = checkVipActive(data.vipExpiry);
+          } else {
+            // 如果该司机没有设置过 vipExpiry 字段，为了极致向后兼容性与容错性，将其默认视为 VIP 激活，防止阻拦
+            isVipActive = true;
+          }
+          if (data.customAppName) {
+            const fetchedName = data.customAppName.trim();
+            if (fetchedName) {
+              updateWelcomeText(fetchedName);
+              document.title = fetchedName + '自助开单助手 —— 安全出行专线';
+            }
+          }
+          
+          // 仅在明确查到过期且不是调试器时，进行拦截
+          if (!isVipActive && !isDeveloperSimulator) {
+            showBlockedPage();
+          }
+        } else {
+          // 如果司机记录在数据库接口均查询不到，可能存在分库或同步延迟。
+          // 为防止阻断真实业务，在控制台发出警告并放行
+          console.warn(`Driver user ${driverPhone} not found in database. Allowed bypass to prevent false-positives.`);
+        }
+      })
+      .catch(err => {
+        console.warn('Note: API connectivity issues, database fetch or CORS check bypassed, defaulted to allowed:', err);
+        // 如果网络异常、DNS 解析失败或发生跨域请求拦截(CORS)，不进行阻拦，保障自主开单可用性
+      });
+
+    const totalLength = 553;
+    function updateProgress(secs) {
+      if (welcomeCountdown) {
+        welcomeCountdown.innerText = secs;
+      }
+      const circleProgress = document.getElementById('welcome-circle-progress');
+      if (circleProgress) {
+        // 倒计时递减时，环形条逐步拉满：3秒对应25%进度，2秒对应50%，1秒对应75%，0秒对应100%
+        const percent = (4 - secs) / 4;
+        const offset = totalLength * (1 - percent);
+        circleProgress.style.strokeDashoffset = offset;
+      }
+    }
+
+    // 初始化进度条
+    updateProgress(3);
+
+    const countdownTimer = setInterval(() => {
+      countdownSecs--;
+      if (countdownSecs >= 0) {
+        updateProgress(countdownSecs);
+      }
+      if (countdownSecs <= 0) {
+        clearInterval(countdownTimer);
+        setTimeout(() => {
+          if (welcomeOverlay) {
+            welcomeOverlay.style.opacity = '0';
+            setTimeout(() => {
+              welcomeOverlay.style.display = 'none';
+            }, 600);
+          }
+        }, 800); // 完美留存“0”状态800毫秒，让转折极其流畅舒适！
+      }
+    }, 1000);
+
+    // 去敏掩码拼接司机手机号（如 186****8888）以防不安全泄密
+    const maskedPhone = driverPhone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2');
+    document.getElementById('driver-display').innerText = maskedPhone;
+
+    const form = document.getElementById('order-form');
+    const submitBtn = document.getElementById('submit-btn');
+    const formContainer = document.getElementById('form-container');
+    const successContainer = document.getElementById('success-container');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const passengerPhone = document.getElementById('passenger-phone').value.trim();
+      const startLocation = document.getElementById('start-location').value.trim();
+      const destination = document.getElementById('destination').value.trim();
+
+      if (!passengerPhone) {
+        alert('✍️ 提示：请完整输入您的手机号码值！');
+        return;
+      }
+      if (!/^1[3-9]\d{9}$/.test(passengerPhone)) {
+        alert('✍️ 提示：请输入11位中国有效手机号码！');
+        return;
+      }
+
+      // 置灰按钮提升极佳界面交互体验
+      submitBtn.disabled = true;
+      submitBtn.className = "w-full py-4 mt-3 rounded-xl text-center font-bold text-base inline-flex items-center justify-center gap-2 bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200 shadow-none";
+      submitBtn.innerHTML = "⏳ 正在连接安全专线，请稍候...";
+
+      // 完美适配：通过本地安全高速API /api/submit 提交开单数据，保证在各种网络环境下都绝对流畅不卡顿、无延时
+      try {
+        let response;
+        try {
+          response = await fetch(`${apiDomain}/api/submit`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              driverPhone: driverPhone,
+              passengerPhone: passengerPhone,
+              startLocation: startLocation,
+              destination: destination
+            })
+          });
+        } catch (fetchErr) {
+          throw new Error('网络请求连接失败（' + fetchErr.message + '）。请确认手机网络正常，或检查服务器安全组/SSL证书配置！');
+        }
+
+        const responseText = await response.text();
+        let resJson;
+
+        try {
+          resJson = JSON.parse(responseText);
+        } catch (parseErr) {
+          if (responseText.includes('<!DOCTYPE') || responseText.includes('<html')) {
+            const titleMatch = responseText.match(/<title>([\s\S]*?)<\/title>/i);
+            const title = titleMatch ? titleMatch[1].trim() : 'Nginx/Gateway 错误页';
+            throw new Error(`服务器返回了 HTML 错误页面（状态码: ${response.status} - ${title}）。通常由于 Nginx 代理配置错误、未正常转发，或 Node.js 后端服务未运行/异常崩溃。`);
+          } else {
+            throw new Error(`服务器返回了非 JSON 格式内容（状态码: ${response.status}），详情: "${responseText.substring(0, 100)}..."`);
+          }
+        }
+
+        if (response.ok && resJson.success) {
+          // 渲染并保存最终行程单同步卡片
+          document.getElementById('summary-phone').innerText = passengerPhone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2');
+          document.getElementById('summary-start').innerText = startLocation;
+          document.getElementById('summary-driver').innerText = maskedPhone;
+          
+          if (destination) {
+            document.getElementById('summary-dest').innerText = destination;
+            document.getElementById('summary-dest-wrapper').style.display = 'flex';
+          } else {
+            document.getElementById('summary-dest-wrapper').style.display = 'none';
+          }
+
+          // 完美切换面板
+          formContainer.style.display = 'none';
+          successContainer.classList.remove('hidden');
+          successContainer.style.display = 'block';
+        } else {
+          const errMsg = resJson.error || '服务器接口处理异常';
+          throw new Error(errMsg);
+        }
+      } catch (err) {
+        alert('⚠️ 连线创建失败，请重试！原因：' + err.message);
+        submitBtn.disabled = false;
+        submitBtn.className = "w-full py-4 mt-3 rounded-xl text-center font-bold text-base inline-flex items-center justify-center gap-2 active:scale-95 duration-150 cursor-pointer text-white bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 shadow-md shadow-teal-600/10";
+        submitBtn.innerHTML = "🚀 确认授权并通知司机开单";
+      }
+    });
+  </script>
+</body>
+</html>

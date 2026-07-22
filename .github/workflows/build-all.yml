@@ -99,22 +99,36 @@ jobs:
           npx cap add ios || true
           npx cap sync ios
 
-      - name: Install CocoaPods
+      - name: Install CocoaPods (If Podfile exists)
         run: |
-          cd ios/App
-          pod install
+          if [ -f "ios/App/Podfile" ]; then
+            cd ios/App && pod install
+          else
+            echo "No Podfile found, skipping CocoaPods install (using SPM)."
+          fi
 
       - name: Build iOS Unsigned Release App
         run: |
           cd ios/App
-          xcodebuild -workspace App.xcworkspace \
-                     -scheme App \
-                     -configuration Release \
-                     -sdk iphoneos \
-                     -derivedDataPath build \
-                     CODE_SIGN_IDENTITY="" \
-                     CODE_SIGNING_REQUIRED=NO \
-                     CODE_SIGNING_ALLOWED=NO
+          if [ -d "App.xcworkspace" ]; then
+            xcodebuild -workspace App.xcworkspace \
+                       -scheme App \
+                       -configuration Release \
+                       -sdk iphoneos \
+                       -derivedDataPath build \
+                       CODE_SIGN_IDENTITY="" \
+                       CODE_SIGNING_REQUIRED=NO \
+                       CODE_SIGNING_ALLOWED=NO
+          else
+            xcodebuild -project App.xcodeproj \
+                       -scheme App \
+                       -configuration Release \
+                       -sdk iphoneos \
+                       -derivedDataPath build \
+                       CODE_SIGN_IDENTITY="" \
+                       CODE_SIGNING_REQUIRED=NO \
+                       CODE_SIGNING_ALLOWED=NO
+          fi
 
       - name: Package App into IPA for TrollStore
         run: |
