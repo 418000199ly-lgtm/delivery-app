@@ -117,18 +117,26 @@ jobs:
                        -configuration Release \
                        -sdk iphoneos \
                        -derivedDataPath build \
-                       CODE_SIGN_IDENTITY="" \
+                       CODE_SIGN_STYLE="Manual" \
+                       CODE_SIGN_IDENTITY="-" \
                        CODE_SIGNING_REQUIRED=NO \
-                       CODE_SIGNING_ALLOWED=NO
+                       CODE_SIGNING_ALLOWED=YES \
+                       AD_HOC_CODE_SIGNING_ALLOWED=YES \
+                       DEVELOPMENT_TEAM="" \
+                       PROVISIONING_PROFILE_SPECIFIER=""
           else
             xcodebuild -project App.xcodeproj \
                        -scheme App \
                        -configuration Release \
                        -sdk iphoneos \
                        -derivedDataPath build \
-                       CODE_SIGN_IDENTITY="" \
+                       CODE_SIGN_STYLE="Manual" \
+                       CODE_SIGN_IDENTITY="-" \
                        CODE_SIGNING_REQUIRED=NO \
-                       CODE_SIGNING_ALLOWED=NO
+                       CODE_SIGNING_ALLOWED=YES \
+                       AD_HOC_CODE_SIGNING_ALLOWED=YES \
+                       DEVELOPMENT_TEAM="" \
+                       PROVISIONING_PROFILE_SPECIFIER=""
           fi
 
       - name: Package App into IPA for TrollStore
