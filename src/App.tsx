@@ -632,9 +632,27 @@ export default function App() {
   }, [userPhone, isOnline, settings?.city]);
 
   const handleLogout = () => {
-    localStorage.removeItem('dd_user_phone');
+    // Clear all settings keys from localStorage
+    try {
+      localStorage.removeItem('dd_user_phone');
+      localStorage.removeItem('dd_settings');
+      if (userPhone) {
+        localStorage.removeItem(`dd_settings_${userPhone}`);
+      }
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('dd_settings') || key.startsWith('dd_stats'))) {
+          localStorage.removeItem(key);
+        }
+      }
+    } catch (_) {}
+
     setUserPhone(null);
-    setSettings(DEFAULT_SETTINGS);
+    setSettings({
+      ...DEFAULT_SETTINGS,
+      wechatQrCode: '',
+      alipayQrCode: ''
+    });
     setStats({ todayOrders: 0, todayIncome: 0.00, myPoints: 0, lastResetDate: getCurrent6AmDay() });
     setCurrentView('home');
     triggerToast('您的司机端安全会话已安全退出断开！');
@@ -735,12 +753,26 @@ export default function App() {
       const cachedSettings = localStorage.getItem(settingsKey);
       if (cachedSettings) {
         try {
-          setSettings(JSON.parse(cachedSettings));
-        } catch (_) {}
+          const parsed = JSON.parse(cachedSettings);
+          setSettings({
+            ...parsed,
+            wechatQrCode: '',
+            alipayQrCode: ''
+          });
+        } catch (_) {
+          setSettings({
+            ...DEFAULT_SETTINGS,
+            customAppName: '一键代驾',
+            wechatQrCode: '',
+            alipayQrCode: ''
+          });
+        }
       } else {
         setSettings({
           ...DEFAULT_SETTINGS,
-          customAppName: '一键代驾'
+          customAppName: '一键代驾',
+          wechatQrCode: '',
+          alipayQrCode: ''
         });
       }
     }
@@ -798,14 +830,6 @@ export default function App() {
             }
             if (data.customAppName !== undefined && prev.customAppName !== data.customAppName) {
               nextSettings.customAppName = data.customAppName;
-              changed = true;
-            }
-            if (data.wechatQrCode !== undefined && prev.wechatQrCode !== data.wechatQrCode) {
-              nextSettings.wechatQrCode = data.wechatQrCode;
-              changed = true;
-            }
-            if (data.alipayQrCode !== undefined && prev.alipayQrCode !== data.alipayQrCode) {
-              nextSettings.alipayQrCode = data.alipayQrCode;
               changed = true;
             }
             if (data.billingTemplateName !== undefined && prev.billingTemplateName !== data.billingTemplateName) {
@@ -880,8 +904,6 @@ export default function App() {
           city: initialCity,
           isBanned: initialIsBanned,
           customAppName: settings.customAppName || '',
-          wechatQrCode: settings.wechatQrCode || '',
-          alipayQrCode: settings.alipayQrCode || '',
           billingTemplateName: settings.billingTemplateName || '',
           voiceBroadcast: settings.voiceBroadcast || '',
           accountBalance: settings.accountBalance || 0,
@@ -1209,8 +1231,6 @@ export default function App() {
           phoneNumber: userPhone,
           vipExpiry: newSettings.vipExpiry || '',
           customAppName: newSettings.customAppName || '',
-          wechatQrCode: newSettings.wechatQrCode || '',
-          alipayQrCode: newSettings.alipayQrCode || '',
           billingTemplateName: newSettings.billingTemplateName || '',
           voiceBroadcast: newSettings.voiceBroadcast || '',
           accountBalance: newSettings.accountBalance ?? 0,
@@ -1386,6 +1406,15 @@ export default function App() {
             localStorage.setItem('dd_user_phone', phone);
             setIsUserDataLoaded(false);
             setUserPhone(phone);
+            // Reset QR codes in state and localStorage upon login so user must re-upload in settings
+            setSettings(prev => {
+              const next = { ...prev, wechatQrCode: '', alipayQrCode: '' };
+              try {
+                localStorage.setItem(`dd_settings_${phone}`, JSON.stringify(next));
+                localStorage.setItem('dd_settings', JSON.stringify(next));
+              } catch (_) {}
+              return next;
+            });
             triggerToast('🎉 设备签署校验通过，欢迎重新登录回一键代驾系统！');
           }}
         />
