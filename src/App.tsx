@@ -1154,6 +1154,7 @@ export default function App() {
           amount: amount,
           startLocation: currentTrip.startLocation || '未定位起点',
           endLocation: currentTrip.endLocation || '未定位终点',
+          passengerPhone: currentTrip.passengerPhone ? currentTrip.passengerPhone.trim() : '',
           type: currentTrip.orderType || (currentTrip.isOnlineOrder ? '乘客下单' : '报单'),
           status: '已支付'
         };

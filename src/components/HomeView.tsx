@@ -37,7 +37,8 @@ import {
   UserX,
   Check,
   Loader2,
-  Briefcase
+  Briefcase,
+  Phone
 } from 'lucide-react';
 import { ChauffeurSettings, DriverStats, TripState, BillingRules, checkVipActive } from '../types';
 import DriverIllustration from './DriverIllustration';
@@ -150,6 +151,14 @@ export default function HomeView({
   const [redeemCode, setRedeemCode] = useState('');
   const [isMatching, setIsMatching] = useState(false);
   const [modalMessage, setModalMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [toastMsg, setToastMsg] = useState<string>('');
+
+  const triggerToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => {
+      setToastMsg('');
+    }, 2500);
+  };
 
   // Custom App Name states
   const [isEditingName, setIsEditingName] = useState(false);
@@ -486,6 +495,7 @@ export default function HomeView({
         amount: 30.65,
         startLocation: '银川市兴庆区融媒体中心',
         endLocation: '融创城·学院里1号楼',
+        passengerPhone: '18795886688',
         type: '后台指派订单',
         status: '已支付'
       },
@@ -495,6 +505,7 @@ export default function HomeView({
         amount: 28.85,
         startLocation: '中国建设银行(银川湖滨东街支行)',
         endLocation: '银帝·云和家园-东北门',
+        passengerPhone: '',
         type: '乘客下单',
         status: '已支付'
       },
@@ -504,6 +515,7 @@ export default function HomeView({
         amount: 27.25,
         startLocation: '晨旭托管中心公园华府',
         endLocation: '玺云台北区',
+        passengerPhone: '13995112233',
         type: '报单',
         status: '已支付'
       }
@@ -1557,6 +1569,13 @@ export default function HomeView({
 
   return (
     <div className="flex-1 flex flex-col justify-between h-full select-none bg-slate-100">
+      
+      {/* Toast Alert */}
+      {toastMsg && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[250] bg-slate-900/95 text-white px-5 py-2.5 rounded-2xl text-xs font-bold shadow-2xl border border-slate-700 animate-in fade-in zoom-in pointer-events-none">
+          {toastMsg}
+        </div>
+      )}
       
       {/* 1. Header (Dark Navy Section - Custom colorways supported) */}
       <div className={`pt-6 pb-12 px-6 rounded-b-[32px] shadow-lg relative transition-all duration-300 ${
@@ -3719,78 +3738,108 @@ export default function HomeView({
                 <p className="text-xs text-slate-400 font-bold">暂无历史接单记录</p>
               </div>
             ) : (
-              driverOrders.map((order, idx) => (
-                <div 
-                  key={order.id || idx} 
-                  className="relative overflow-hidden rounded-2xl bg-red-600 dark:bg-red-700/80"
-                >
-                  {/* Absolute Delete Button behind */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteOrder(order.id);
-                    }}
-                    className="absolute right-0 top-0 bottom-0 w-20 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white flex flex-col items-center justify-center space-y-1 transition-all z-0 delete-btn-container"
-                  >
-                    <Trash2 className="w-4.5 h-4.5 text-white animate-bounce duration-1000" />
-                    <span className="text-[10px] font-black tracking-wider text-white">删除</span>
-                  </button>
+              driverOrders.map((order, idx) => {
+                const rawPhone = (order.passengerPhone || order.phone || '').trim();
+                const hasPhone = Boolean(rawPhone && rawPhone !== '无' && rawPhone !== '未填写');
 
-                   {/* Clickable content wrapper */}
+                return (
                   <div 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (swipedOrderId === order.id) {
-                        setSwipedOrderId(null);
-                      } else {
-                        setSwipedOrderId(order.id);
-                      }
-                    }}
-                    style={{ 
-                      transform: swipedOrderId === order.id ? 'translateX(-80px)' : 'translateX(0px)'
-                    }}
-                    className="bg-white dark:bg-zinc-900 relative rounded-2xl border border-slate-100 dark:border-zinc-800 p-5 shadow-xs hover:border-teal-500/30 z-10 select-none cursor-pointer transition-transform duration-300 ease-out"
+                    key={order.id || idx} 
+                    className="relative overflow-hidden rounded-2xl bg-red-600 dark:bg-red-700/80"
                   >
-                    {/* Timeline path line (green to orange vertical line) */}
-                    <div className="absolute left-[25px] top-[74px] bottom-[74px] w-[1px] bg-slate-100 dark:bg-zinc-800 z-0 pointer-events-none"></div>
+                    {/* Absolute Delete Button behind */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteOrder(order.id);
+                      }}
+                      className="absolute right-0 top-0 bottom-0 w-20 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white flex flex-col items-center justify-center space-y-1 transition-all z-0 delete-btn-container"
+                    >
+                      <Trash2 className="w-4.5 h-4.5 text-white animate-bounce duration-1000" />
+                      <span className="text-[10px] font-black tracking-wider text-white">删除</span>
+                    </button>
 
-                    {/* Header info */}
-                    <div className="flex justify-between items-center mb-3.5 pb-2.5 border-b border-slate-50 dark:border-zinc-800/50 pointer-events-none">
-                      <div className="flex items-center text-slate-400 dark:text-slate-500 text-xs font-semibold">
-                        <Clock className="w-3.5 h-3.5 mr-1.5" />
-                        <span>{order.timeStr}</span>
-                      </div>
-                      <div className="flex items-center text-xs font-extrabold text-slate-500 dark:text-slate-400">
-                        <span>¥{Number(order.amount).toFixed(2)} 已支付</span>
-                        <ChevronRight className="w-3.5 h-3.5 text-slate-300 ml-0.5" />
-                      </div>
-                    </div>
+                     {/* Clickable content wrapper */}
+                    <div 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (swipedOrderId === order.id) {
+                          setSwipedOrderId(null);
+                        } else {
+                          setSwipedOrderId(order.id);
+                        }
+                      }}
+                      style={{ 
+                        transform: swipedOrderId === order.id ? 'translateX(-80px)' : 'translateX(0px)'
+                      }}
+                      className="bg-white dark:bg-zinc-900 relative rounded-2xl border border-slate-100 dark:border-zinc-800 p-5 shadow-xs hover:border-teal-500/30 z-10 select-none cursor-pointer transition-transform duration-300 ease-out"
+                    >
+                      {/* Timeline path line (green to orange vertical line) */}
+                      <div className="absolute left-[25px] top-[74px] bottom-[115px] w-[1px] bg-slate-100 dark:bg-zinc-800 z-0 pointer-events-none"></div>
 
-                    {/* Locations */}
-                    <div className="space-y-4 mb-4 relative z-10 pointer-events-none">
-                      <div className="flex items-start">
-                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 mt-1 mr-3.5 flex-shrink-0 shadow-sm shadow-emerald-400/50"></div>
-                        <span className="font-bold text-slate-700 dark:text-slate-200 text-xs leading-normal">
-                          {order.startLocation}
+                      {/* Header info */}
+                      <div className="flex justify-between items-center mb-3.5 pb-2.5 border-b border-slate-50 dark:border-zinc-800/50 pointer-events-none">
+                        <div className="flex items-center text-slate-400 dark:text-slate-500 text-xs font-semibold">
+                          <Clock className="w-3.5 h-3.5 mr-1.5" />
+                          <span>{order.timeStr}</span>
+                        </div>
+                        <div className="flex items-center text-xs font-extrabold text-slate-500 dark:text-slate-400">
+                          <span>¥{Number(order.amount).toFixed(2)} 已支付</span>
+                          <ChevronRight className="w-3.5 h-3.5 text-slate-300 ml-0.5" />
+                        </div>
+                      </div>
+
+                      {/* Locations */}
+                      <div className="space-y-4 mb-3 relative z-10 pointer-events-none">
+                        <div className="flex items-start">
+                          <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 mt-1 mr-3.5 flex-shrink-0 shadow-sm shadow-emerald-400/50"></div>
+                          <span className="font-bold text-slate-700 dark:text-slate-200 text-xs leading-normal">
+                            {order.startLocation}
+                          </span>
+                        </div>
+                        <div className="flex items-start">
+                          <div className="w-2.5 h-2.5 rounded-full bg-orange-400 mt-1 mr-3.5 flex-shrink-0 shadow-sm shadow-orange-400/50"></div>
+                          <span className="font-bold text-slate-700 dark:text-slate-200 text-xs leading-normal">
+                            {order.endLocation}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Customer Phone & Dial Button Component */}
+                      <div className="my-3 py-2 px-3 bg-slate-50 dark:bg-zinc-800/50 rounded-xl border border-slate-100 dark:border-zinc-800 flex items-center justify-between z-20">
+                        <div className="flex items-center text-xs font-bold text-slate-700 dark:text-slate-200 truncate mr-2">
+                          <Phone className="w-3.5 h-3.5 mr-1.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                          <span className="truncate">
+                            电话：{hasPhone ? rawPhone : '客户的手机号码（无）'}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (hasPhone) {
+                              window.location.href = `tel:${rawPhone}`;
+                            } else {
+                              triggerToast('无手机号码');
+                            }
+                          }}
+                          className="flex items-center space-x-1 px-2.5 py-1 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white rounded-lg text-xs font-bold shadow-xs transition-all shrink-0 cursor-pointer pointer-events-auto"
+                        >
+                          <Phone className="w-3 h-3 text-white" />
+                          <span>拨打电话</span>
+                        </button>
+                      </div>
+
+                      {/* Tags */}
+                      <div className="flex items-center justify-between pointer-events-none">
+                        <span className="inline-block px-2.5 py-0.5 border border-slate-200 dark:border-zinc-700/80 rounded-md text-[10px] font-extrabold text-slate-500 dark:text-slate-400 bg-slate-50/50 dark:bg-zinc-900/50">
+                          {order.type === '企业单' ? '报单' : (order.type === '特惠代驾' ? '乘客下单' : (order.type === '后台指派订单' ? '商户代叫订单' : (order.type || '报单')))}
                         </span>
                       </div>
-                      <div className="flex items-start">
-                        <div className="w-2.5 h-2.5 rounded-full bg-orange-400 mt-1 mr-3.5 flex-shrink-0 shadow-sm shadow-orange-400/50"></div>
-                        <span className="font-bold text-slate-700 dark:text-slate-200 text-xs leading-normal">
-                          {order.endLocation}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Tags */}
-                    <div className="flex items-center justify-between pointer-events-none">
-                      <span className="inline-block px-2.5 py-0.5 border border-slate-200 dark:border-zinc-700/80 rounded-md text-[10px] font-extrabold text-slate-500 dark:text-slate-400 bg-slate-50/50 dark:bg-zinc-900/50">
-                        {order.type === '企业单' ? '报单' : (order.type === '特惠代驾' ? '乘客下单' : (order.type === '后台指派订单' ? '商户代叫订单' : (order.type || '报单')))}
-                      </span>
                     </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </main>
         </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MapPin, Navigation, ChevronRight, Clock, ShieldCheck, X, PlusCircle, MinusCircle, CheckCircle, Phone } from 'lucide-react';
 import { TripState, ChauffeurSettings, BillingRules, checkVipActive } from '../types';
+import NavigationView from './NavigationView';
 
 const SUGGESTED_DESTINATIONS = [
   '银川火车站',
@@ -73,6 +74,7 @@ export default function ActiveTripView({
   // Modal / Interaction states
   const [showRulesModal, setShowRulesModal] = useState(false);
   const [showDestModal, setShowDestModal] = useState(false);
+  const [showNavigationView, setShowNavigationView] = useState(false);
   const [tempDest, setTempDest] = useState(trip.endLocation || '');
   const [showSystemToast, setShowSystemToast] = useState(false);
   const [toastText, setToastText] = useState('');
@@ -361,10 +363,10 @@ export default function ActiveTripView({
     triggerToast('修改目的地成功！实时计费规则自动匹配。');
   };
 
-  // Simulate navigation click trigger
+  // Navigation click trigger
   const handleSimulateNavigation = (e?: React.MouseEvent | React.TouchEvent) => {
     if (e) e.stopPropagation();
-    // 导航按钮现在暂时不开发，只作为展示用，无任何功能效果
+    setShowNavigationView(true);
   };
 
   // Handle dial phone action
@@ -563,26 +565,26 @@ export default function ActiveTripView({
           </div>
 
           {/* Phone Call Button */}
-          <div 
+          <button 
+            type="button"
             onClick={handleMakePhoneCall}
-            onTouchStart={handleMakePhoneCall}
-            className="absolute top-4 left-4 bg-white rounded-xl p-2 shadow-md flex flex-col items-center justify-center w-11 h-11 cursor-pointer active:scale-95 transition-transform select-none" 
+            className="absolute top-4 left-4 z-30 bg-white rounded-xl shadow-md flex items-center justify-center w-11 h-11 cursor-pointer active:scale-95 transition-transform select-none border border-slate-100 pointer-events-auto" 
             data-purpose="phone-button"
+            title="拨打电话"
           >
-            <Phone className="h-4.5 w-4.5 text-[#26a69a] pointer-events-none" />
-            <span className="text-[9px] text-[#26a69a] mt-0.5 font-extrabold tracking-wider pointer-events-none select-none">电话</span>
-          </div>
+            <Phone className="h-5 w-5 text-[#26a69a] pointer-events-none" />
+          </button>
 
           {/* Navigation Button */}
-          <div 
+          <button 
+            type="button"
             onClick={handleSimulateNavigation}
-            onTouchStart={handleSimulateNavigation}
-            className="absolute top-4 right-4 bg-white rounded-xl p-2 shadow-md flex flex-col items-center justify-center w-11 h-11 cursor-pointer active:scale-95 transition-transform select-none" 
+            className="absolute top-4 right-4 z-30 bg-white rounded-xl shadow-md flex items-center justify-center w-11 h-11 cursor-pointer active:scale-95 transition-transform select-none border border-slate-100 pointer-events-auto" 
             data-purpose="nav-button"
+            title="开启高德地图导航"
           >
-            <Navigation className="h-4.5 w-4.5 text-[#26a69a] transform rotate-45 pointer-events-none" />
-            <span className="text-[9px] text-[#26a69a] mt-0.5 font-extrabold tracking-wider pointer-events-none select-none">导航</span>
-          </div>
+            <Navigation className="h-5 w-5 text-[#26a69a] transform rotate-45 pointer-events-none" />
+          </button>
 
           {/* Price & Duration Info Display */}
           <div className="text-center relative z-10 py-2">
@@ -984,6 +986,16 @@ export default function ActiveTripView({
             </button>
           </div>
         </div>
+      )}
+
+      {/* FULLSCREEN GAODE DRIVING NAVIGATION VIEW */}
+      {showNavigationView && (
+        <NavigationView
+          destination={(!trip.endLocation || trip.endLocation === '待指定安全目的地' || trip.endLocation === '未完成安全目的地设定' || trip.endLocation === '请填写目的地（选填）') ? '银川火车站' : trip.endLocation}
+          startLocation={trip.startLocation}
+          registeredCity={settings.city || '银川市'}
+          onClose={() => setShowNavigationView(false)}
+        />
       )}
 
     </div>

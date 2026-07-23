@@ -599,8 +599,8 @@ export default function CreateOrderView({
         const cachedLng = localStorage.getItem('dd_bg_driver_coords_lng');
         const hasCached = cachedLat && cachedLng;
 
-        const cachedZoom = localStorage.getItem('dd_map_zoom');
-        const initialZoom = cachedZoom ? Number(cachedZoom) : 17; // Default to 17 for highly detailed shop/street level view as in user screenshot
+        // Fixed scale level 18: high-precision street & building block view as shown in user screenshot (图片gd)
+        const initialZoom = 18;
 
         const initialCenter = driverCoords && !isDefaultYinchuanCoords(driverCoords)
           ? [driverCoords.lng, driverCoords.lat]
@@ -623,12 +623,6 @@ export default function CreateOrderView({
         mapInstanceRef.current = map;
         setMapLoaded(true);
 
-        // Keep track of zoom changes so we can restore the user's preferred zoom on next open
-        map.on('zoomend', () => {
-          const currentZoom = map.getZoom();
-          localStorage.setItem('dd_map_zoom', currentZoom.toString());
-        });
-
         AMap.plugin(['AMap.Geocoder', 'AMap.Geolocation', 'AMap.Driving'], () => {
           const geocoder = new AMap.Geocoder({
             extensions: 'all'
@@ -636,7 +630,12 @@ export default function CreateOrderView({
 
           const reverseGeocodeCenter = (lng: number, lat: number) => {
             isMapMovingProgrammaticallyRef.current = true;
-            map.setCenter([lng, lat]);
+            if (typeof map.setZoomAndCenter === 'function') {
+              map.setZoomAndCenter(18, [lng, lat]);
+            } else {
+              map.setZoom(18);
+              map.setCenter([lng, lat]);
+            }
             geocoder.getAddress([lng, lat], (geoStatus: string, geoResult: any) => {
               isMapMovingProgrammaticallyRef.current = false;
               if (geoStatus === 'complete' && geoResult.regeocode) {
@@ -755,10 +754,19 @@ export default function CreateOrderView({
           }
 
           const updateAddressFromMapCenter = () => {
+            // LOCK DEPARTURE ADDRESS IF DESTINATION IS SET:
+            // If a destination exists, do not overwrite startLocation when user moves or drags the map!
+            if (destinationRef.current && destinationRef.current.trim() !== '') {
+              return;
+            }
+
             const center = map.getCenter();
             const lng = center.getLng ? center.getLng() : center.lng;
             const lat = center.getLat ? center.getLat() : center.lat;
             geocoder.getAddress(center, (geocodestatus: string, geocoderesult: any) => {
+              if (destinationRef.current && destinationRef.current.trim() !== '') {
+                return;
+              }
               if (geocodestatus === 'complete' && geocoderesult.regeocode) {
                 const cleanLabel = getHighPrecisionLocationName(geocoderesult.regeocode, geocoderesult.regeocode.formattedAddress, lng, lat);
                 setStartLocation(cleanLabel);
@@ -881,7 +889,12 @@ export default function CreateOrderView({
 
     const runReverseGeocoding = (finalLng: number, finalLat: number) => {
       isMapMovingProgrammaticallyRef.current = true;
-      map.setCenter([finalLng, finalLat]);
+      if (typeof map.setZoomAndCenter === 'function') {
+        map.setZoomAndCenter(18, [finalLng, finalLat]);
+      } else {
+        map.setZoom(18);
+        map.setCenter([finalLng, finalLat]);
+      }
       
       AMap.plugin('AMap.Geocoder', () => {
         const geocoder = new AMap.Geocoder({
@@ -951,13 +964,14 @@ export default function CreateOrderView({
   const [routeDistance, setRouteDistance] = useState<number | null>(null);
   const drivingInstanceRef = useRef<any>(null);
   const ridingInstanceRef = useRef<any>(null);
+  const lastPlannedRouteKeyRef = useRef<string>('');
 
   useEffect(() => {
     const AMap = (window as any).AMap;
     const map = mapInstanceRef.current;
     if (!AMap || !map || !mapLoaded) return;
 
-    if (!startLocation || !destination) {
+    if (!startLocation || !destination || !destination.trim()) {
       if (drivingInstanceRef.current) {
         try { drivingInstanceRef.current.clear(); } catch (_) {}
       }
@@ -965,6 +979,14 @@ export default function CreateOrderView({
         try { ridingInstanceRef.current.clear(); } catch (_) {}
       }
       setRouteDistance(null);
+      lastPlannedRouteKeyRef.current = '';
+      return;
+    }
+
+    const currentRouteKey = `${startLocation.trim()}|${destination.trim()}|${activeOnlineOrder?.id || ''}`;
+    if (lastPlannedRouteKeyRef.current === currentRouteKey) {
+      // Route already planned once for this exact departure and destination pair.
+      // Do NOT re-plan infinitely when moving/dragging the map!
       return;
     }
 
@@ -1004,6 +1026,7 @@ export default function CreateOrderView({
                 }, 1500);
 
                 if (status === 'complete' && result.routes && result.routes[0]) {
+                  lastPlannedRouteKeyRef.current = currentRouteKey;
                   const distanceMeters = result.routes[0].distance;
                   const distanceKm = Number((distanceMeters / 1000).toFixed(2));
                   setRouteDistance(distanceKm);
@@ -1046,6 +1069,7 @@ export default function CreateOrderView({
                 }, 1500);
 
                 if (status === 'complete' && result.routes && result.routes[0]) {
+                  lastPlannedRouteKeyRef.current = currentRouteKey;
                   const distanceMeters = result.routes[0].distance;
                   const distanceKm = Number((distanceMeters / 1000).toFixed(2));
                   setRouteDistance(distanceKm);
@@ -1060,7 +1084,7 @@ export default function CreateOrderView({
           }
         });
       }
-    }, 100);
+    }, 150);
 
     return () => clearTimeout(delayDebounce);
   }, [startLocation, destination, mapLoaded, registeredCity, activeOnlineOrder, driverCoords]);
@@ -1284,7 +1308,8 @@ export default function CreateOrderView({
     }
 
     // Generate new robust trip state
-    const targetDestination = destination.trim() || '待指定安全目的地';
+    const userEnteredDest = destination.trim();
+    const targetDestination = userEnteredDest || '请填写目的地（选填）';
     const targetPhone = phoneNumber.trim();
     const startingFeeApplied = Number((baseStartingPrice * weatherMultiplier).toFixed(2));
     const finalEstimatedBaseFee = routeDistance !== null ? Number((estimatedPriceSubtotal * weatherMultiplier).toFixed(2)) : startingFeeApplied;
@@ -1303,7 +1328,7 @@ export default function CreateOrderView({
         passengerPhone: targetPhone,
         // The actual trip is from the passenger's pickup location to the passenger's end location
         startLocation: activeOnlineOrder.startLocation || startLocation,
-        endLocation: activeOnlineOrder.destination || targetDestination,
+        endLocation: userEnteredDest || activeOnlineOrder.destination || targetDestination,
         startTimestamp: Date.now(),
         currentDistance: 0.0,
         currentWaitingTime: 0,
@@ -1489,8 +1514,8 @@ export default function CreateOrderView({
         <div className="flex-grow"></div>
 
         {/* Map Action Buttons (Floating above the bottom sheet) */}
-        <div className="w-full px-4 mb-4 flex justify-between items-end gap-2 pointer-events-auto" data-purpose="map-tools">
-          <div className="flex gap-2">
+        <div className="w-full px-4 mb-4 flex justify-between items-end gap-2 pointer-events-none" data-purpose="map-tools">
+          <div className="flex gap-2 pointer-events-auto">
             <button 
               onClick={() => alert(`当前代驾规则模板：${billingRules.templateName}`)}
               className="bg-white px-3.5 py-2 rounded-xl text-xs font-bold shadow-md flex items-center gap-1 active:scale-95 transition-transform text-gray-800"
@@ -1515,7 +1540,7 @@ export default function CreateOrderView({
               </svg>
             </button>
           </div>
-          <div className="flex flex-col items-center gap-2">
+          <div className="flex flex-col items-center gap-2 pointer-events-auto">
             {/* Zoom Controls Panel stacked vertically above the re-center button */}
             <div className="flex flex-col bg-white rounded-xl shadow-md overflow-hidden border border-gray-100 shrink-0">
               <button

@@ -7,6 +7,8 @@
  * 3. 100% Volume gain mapping to Android System Media Volume (adjustable via phone side buttons)
  */
 
+import { getBaseApiUrl } from '../lib/dbProxy';
+
 let currentAudio: HTMLAudioElement | null = null;
 let audioContext: AudioContext | null = null;
 let isUnlocked = false;
@@ -40,12 +42,18 @@ export function initAudioUnlock() {
       source.start(0);
     }
 
-    // 2. Unlock SpeechSynthesis
+    // 2. Unlock SpeechSynthesis safely without throwing on empty string
     if ('speechSynthesis' in window) {
-      window.speechSynthesis.resume();
-      const dummyUtter = new SpeechSynthesisUtterance('');
-      dummyUtter.volume = 0;
-      window.speechSynthesis.speak(dummyUtter);
+      try {
+        window.speechSynthesis.resume();
+        const dummyUtter = new SpeechSynthesisUtterance(' ');
+        dummyUtter.volume = 0.001;
+        dummyUtter.onerror = () => {};
+        dummyUtter.onend = () => {};
+        window.speechSynthesis.speak(dummyUtter);
+      } catch (e) {
+        // Ignore dummy unlock error
+      }
     }
 
     isUnlocked = true;
@@ -86,9 +94,11 @@ export function speakText(text: string, onEnd?: () => void) {
   stopSpeaking();
 
   const encodedText = encodeURIComponent(text);
+  const baseUrl = getBaseApiUrl();
 
-  // Multi-provider TTS stream URL candidates
+  // Multi-provider TTS stream URL candidates (including server proxy)
   const ttsProviders = [
+    `${baseUrl}/api/tts?text=${encodedText}`,
     `https://dict.youdao.com/dictvoice?audio=${encodedText}&type=1`,
     `https://tts.baidu.com/text2audio?cuid=baike&lan=zh&ctp=1&padd=&spd=5&ptm=0&tex=${encodedText}`,
     `https://fanyi.baidu.com/gettts?lan=zh&text=${encodedText}&spd=5&source=web`
@@ -121,7 +131,7 @@ function playAudioStream(url: string, onEnd?: () => void, onError?: () => void) 
     const audio = new Audio();
     audio.crossOrigin = 'anonymous';
     audio.src = url;
-    audio.volume = 1.0; // 100% volume -> mapped directly to Android media volume
+    audio.volume = 1.0; // 100% volume -> mapped directly to Android/iOS media volume
     audio.muted = false;
 
     currentAudio = audio;
@@ -159,7 +169,7 @@ function playAudioStream(url: string, onEnd?: () => void, onError?: () => void) 
       });
     }
   } catch (err) {
-    console.error('[Speech Engine] Exception in playAudioStream:', err);
+    console.warn('[Speech Engine] Exception in playAudioStream:', err);
     if (onError) onError();
   }
 }
@@ -196,7 +206,7 @@ function fallbackToLocalSpeechSynthesis(text: string, onEnd?: () => void) {
       };
 
       utter.onerror = (e) => {
-        console.error('❌ [Speech Engine] Local SpeechSynthesis failed:', e);
+        console.warn('⚠️ [Speech Engine] Local SpeechSynthesis unavailable or cancelled:', e?.error || e);
         cleanup();
         playChimeAlert(onEnd);
       };
@@ -204,7 +214,7 @@ function fallbackToLocalSpeechSynthesis(text: string, onEnd?: () => void) {
       window.speechSynthesis.speak(utter);
       console.log('🎙️ [Speech Engine] Speaking via local SpeechSynthesis engine');
     } catch (e) {
-      console.error('❌ [Speech Engine] Local SpeechSynthesis exception:', e);
+      console.warn('⚠️ [Speech Engine] Local SpeechSynthesis exception:', e);
       playChimeAlert(onEnd);
     }
   } else {

@@ -410,6 +410,41 @@ async function startServer() {
     });
   });
 
+  // High-reliability Chinese TTS audio proxy endpoint
+  app.get('/api/tts', async (req, res) => {
+    const text = String(req.query.text || '');
+    if (!text) {
+      return res.status(400).send('Text parameter is required');
+    }
+    const encodedText = encodeURIComponent(text);
+    const urls = [
+      `https://dict.youdao.com/dictvoice?audio=${encodedText}&type=1`,
+      `https://tts.baidu.com/text2audio?cuid=baike&lan=zh&ctp=1&padd=&spd=5&ptm=0&tex=${encodedText}`,
+      `https://fanyi.baidu.com/gettts?lan=zh&text=${encodedText}&spd=5&source=web`
+    ];
+
+    for (const ttsUrl of urls) {
+      try {
+        const response = await fetch(ttsUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://fanyi.baidu.com/'
+          }
+        });
+        if (response.ok) {
+          const contentType = response.headers.get('content-type') || 'audio/mpeg';
+          const buffer = await response.arrayBuffer();
+          res.setHeader('Content-Type', contentType);
+          res.setHeader('Cache-Control', 'public, max-age=86400');
+          return res.send(Buffer.from(buffer));
+        }
+      } catch (err) {
+        // Continue to next provider
+      }
+    }
+    return res.status(502).send('TTS providers unavailable');
+  });
+
   // --- WECHAT SCAN LOGIN ENDPOINTS ---
 
   // 1. Initialize a WeChat scan login session
