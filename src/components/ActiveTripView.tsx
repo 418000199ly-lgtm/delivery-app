@@ -222,15 +222,15 @@ export default function ActiveTripView({
     let watchId: number | null = null;
 
     const handlePositionUpdate = (lng: number, lat: number, accuracy: number, speed: number | null = null) => {
-      // 1. Filter out poor accuracy positioning (WiFi / coarse cell tower backup) to prevent jumps when stationary
-      if (accuracy > 35) {
-        console.log(`⚠️ [GPS Tracker] Coarse position filtered out due to poor accuracy: ${accuracy}m`);
+      // 1. Filter out poor accuracy positioning (WiFi / coarse cell tower / indoor GPS bounce > 25m)
+      if (accuracy > 25) {
+        console.log(`⚠️ [GPS Tracker] Coarse/indoor position filtered out due to accuracy: ${accuracy}m`);
         return;
       }
 
-      // 2. Speed-based static check (if hardware provides speed in m/s)
-      if (speed !== null && speed !== undefined && speed >= 0 && speed < 0.5) {
-        console.log(`⚡ [GPS Tracker] Hardware speed indicates static/stationary state (${speed.toFixed(2)} m/s), ignoring movement noise`);
+      // 2. Hardware speed-based static check (if sensor provides speed in m/s, < 0.8 m/s = < 2.88 km/h is stationary)
+      if (speed !== null && speed !== undefined && speed >= 0 && speed < 0.8) {
+        console.log(`⚡ [GPS Tracker] Hardware speed indicates static/stationary state (${speed.toFixed(2)} m/s), ignoring indoor drift`);
         return;
       }
 
@@ -243,7 +243,16 @@ export default function ActiveTripView({
         return;
       }
 
-      // Calculate physical distance from last valid anchor point
+      const dt = (now - lastCoordsRef.current.timestamp) / 1000; // seconds elapsed
+
+      // If app was paused or long interval passed (> 120s), reset anchor to current position without adding jump distance
+      if (dt > 120) {
+        console.log('⚡ [GPS Tracker] Re-anchoring GPS reference position after long interval (> 120s)');
+        lastCoordsRef.current = { lng, lat, timestamp: now };
+        return;
+      }
+
+      // Calculate physical displacement distance from last valid anchor point
       const distanceInMeters = getDistance(
         lastCoordsRef.current.lng,
         lastCoordsRef.current.lat,
@@ -251,40 +260,38 @@ export default function ActiveTripView({
         lat
       );
 
-      console.log(`⚡ [GPS Tracker] Calculated anchor step distance: ${distanceInMeters.toFixed(2)}m (Accuracy: ${accuracy}m, Speed: ${speed ?? 'N/A'} m/s)`);
+      const calculatedSpeed = dt > 0 ? distanceInMeters / dt : 0; // m/s
 
-      // 3. GPS Stationary Jitter & Static Drift Suppression
-      // - If distance from anchor is < 12 meters, treat as stationary drift / red light wobble, ignore it completely.
-      // - If distance from anchor is less than accuracy error margin (distanceInMeters < accuracy * 0.7), ignore it.
-      if (distanceInMeters < 12) {
-        console.log('⚡ [GPS Tracker] Static GPS drift filtered out (< 12m from anchor)');
+      console.log(`⚡ [GPS Tracker] Displacement: ${distanceInMeters.toFixed(2)}m (Accuracy: ${accuracy}m, Speed: ${speed ?? 'N/A'}, CalcSpeed: ${(calculatedSpeed * 3.6).toFixed(1)} km/h)`);
+
+      // 3. Ultra-Robust Stationary Jitter & Indoor Drift Suppression
+      // - If displacement < 25 meters AND calculated speed < 1.2 m/s (< 4.3 km/h), treat as indoor/static drift.
+      // - If displacement is less than the location accuracy radius (distanceInMeters < accuracy), treat as GPS noise.
+      if (distanceInMeters < 25 && calculatedSpeed < 1.2) {
+        console.log('⚡ [GPS Tracker] Static indoor GPS drift filtered out (< 25m & low speed)');
         return;
       }
 
-      if (distanceInMeters < accuracy * 0.7) {
-        console.log(`⚡ [GPS Tracker] Displacement inside accuracy margin filtered out (${distanceInMeters.toFixed(1)}m < ${(accuracy * 0.7).toFixed(1)}m)`);
+      if (distanceInMeters < accuracy) {
+        console.log(`⚡ [GPS Tracker] Displacement inside accuracy margin filtered out (${distanceInMeters.toFixed(1)}m < ${accuracy.toFixed(1)}m)`);
         return;
       }
 
-      // Calculate speed over elapsed time to suppress anomalous teleports
-      const dt = (now - lastCoordsRef.current.timestamp) / 1000;
-      if (dt > 0) {
-        const calculatedSpeed = distanceInMeters / dt; // m/s
-        if (calculatedSpeed > 50 || distanceInMeters > 1500) { // > 180 km/h or > 1.5km single jump
-          console.warn(`⚠️ [GPS Tracker] Anomalous GPS teleport filtered out (Speed: ${calculatedSpeed.toFixed(1)} m/s, Dist: ${distanceInMeters.toFixed(0)}m)`);
-          lastCoordsRef.current = { lng, lat, timestamp: now }; // Reset anchor to new spot without adding mileage
-          return;
-        }
+      // 4. Anomalous Teleport / High Speed Jump Guard
+      if (calculatedSpeed > 45 || distanceInMeters > 1000) { // > 162 km/h or > 1.0 km single jump
+        console.warn(`⚠️ [GPS Tracker] Anomalous GPS teleport filtered out (Speed: ${(calculatedSpeed * 3.6).toFixed(1)} km/h, Dist: ${distanceInMeters.toFixed(0)}m)`);
+        lastCoordsRef.current = { lng, lat, timestamp: now }; // Reset anchor to new spot without adding bogus mileage
+        return;
       }
 
-      // 4. Accumulate distance in kilometers
+      // 5. Accumulate real movement distance in kilometers
       const addedKm = distanceInMeters / 1000;
       preciseDistanceRef.current += addedKm;
 
       // Keep exact to 0.01 km
       const nextDist = Math.max(0, Number(preciseDistanceRef.current.toFixed(2)));
 
-      console.log(`⚡ [GPS Tracker] Calculated cumulative mileage: ${nextDist} km (Precise float: ${preciseDistanceRef.current.toFixed(4)} km)`);
+      console.log(`⚡ [GPS Tracker] Real vehicular movement detected! Cumulative distance: ${nextDist} km (+${distanceInMeters.toFixed(1)}m)`);
 
       const currentTripValue = tripRef.current;
       if (nextDist !== currentTripValue.currentDistance) {

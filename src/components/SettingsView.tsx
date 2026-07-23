@@ -5,7 +5,7 @@ import QRCode from 'qrcode';
 import { ChauffeurSettings, checkVipActive } from '../types';
 import { db, doc, getDoc, updateDoc, getBaseApiUrl } from '../lib/dbProxy';
 import { MOCK_ALBUM_PHOTOS } from '../utils/mockImages';
-import { speakText, initAudioUnlock } from '../utils/speech';
+import { speakText, stopSpeaking, initAudioUnlock } from '../utils/speech';
 
 export function regenerateQRCode(dataUrl: string, type: 'wechat' | 'alipay'): Promise<string> {
   return new Promise((resolve) => {
@@ -781,7 +781,9 @@ export default function SettingsView({
     onUpdateSettings({ ...settings, voiceBroadcast: next });
     if (next === '开单语音播报') {
       initAudioUnlock();
-      speakText('已开启开单语音播报，播报音量已同步您的手机侧边音量按键。');
+      speakText('已开启开单语音播报');
+    } else {
+      stopSpeaking();
     }
   };
 
@@ -864,34 +866,16 @@ export default function SettingsView({
           </button>
 
           {/* Voice broadcast changer */}
-          <div className="w-full py-3.5 px-4 flex flex-col space-y-2 bg-white">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-gray-700">语音播报状态</span>
-              <div className="flex items-center space-x-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    initAudioUnlock();
-                    speakText('语音播报测试成功！音量已自动同步您手机侧边按键设置的媒体音量。');
-                  }}
-                  className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 text-xs font-bold flex items-center space-x-1 border border-teal-200/80 active:scale-95 transition-all cursor-pointer"
-                >
-                  <Volume2 className="w-3.5 h-3.5 text-teal-600 animate-pulse" />
-                  <span>测试语音</span>
-                </button>
-                <button 
-                  type="button"
-                  onClick={toggleVoiceBroadcast}
-                  className="flex items-center space-x-1 text-teal-600 font-semibold py-1 px-1.5 hover:bg-gray-100 rounded-md transition-colors"
-                >
-                  <span className="text-xs">{settings.voiceBroadcast}</span>
-                  <ChevronRight className="w-4 h-4 text-teal-400" />
-                </button>
-              </div>
-            </div>
-            <p className="text-[11px] text-gray-400 leading-tight">
-              💡 提示：无需先点击屏幕，在上方点击【测试语音】即可直接激活并测试播报！播报音量完全跟随您手机侧边按键（媒体音量）大小，按手机侧边音量上键即可随时调大声音。
-            </p>
+          <div className="w-full py-3.5 px-4 flex items-center justify-between bg-white">
+            <span className="text-sm font-semibold text-gray-700">语音播报状态</span>
+            <button 
+              type="button"
+              onClick={toggleVoiceBroadcast}
+              className="flex items-center space-x-1 text-teal-600 font-semibold py-1 px-2.5 hover:bg-teal-50 rounded-lg border border-teal-100 transition-colors cursor-pointer"
+            >
+              <span className="text-xs font-bold">{settings.voiceBroadcast}</span>
+              <ChevronRight className="w-4 h-4 text-teal-400" />
+            </button>
           </div>
 
         </div>

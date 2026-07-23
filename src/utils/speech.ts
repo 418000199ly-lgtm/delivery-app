@@ -1,10 +1,11 @@
 /**
  * Ultra-Robust Android WebView & Mobile Audio Engine for Driver App
  * 
- * Direct User Gesture Audio Unlock & Volume Syncing:
- * 1. Synchronously unlocks Web Audio Context & SpeechSynthesis directly in click handlers (e.g. 'Test Voice' button)
- * 2. Multi-provider online TTS stream (Google Translate TTS / Youdao / Baidu) with local SpeechSynthesis fallback
- * 3. 100% Volume gain mapping to Android & iOS System Media Volume (adjustable via phone side buttons)
+ * Direct User Gesture Audio Unlock & Zero-Latency Local SpeechSynthesis:
+ * 1. Synchronously unlocks Web Audio Context & SpeechSynthesis directly in user gestures
+ * 2. Primary: Local Native SpeechSynthesis (0ms delay, instant Chinese speech on iOS Safari & Android WebViews)
+ * 3. Secondary: Multi-provider online TTS stream fallback with timeout
+ * 4. Absolute Fallback: Web Audio API Tri-tone Notification Chime
  */
 
 import { getBaseApiUrl } from '../lib/dbProxy';
@@ -13,7 +14,7 @@ let currentAudio: HTMLAudioElement | null = null;
 let audioContext: AudioContext | null = null;
 let isUnlocked = false;
 
-// Cached SpeechSynthesis voices for Android WebViews
+// Cached SpeechSynthesis voices for Android WebViews & iOS
 let cachedVoices: SpeechSynthesisVoice[] = [];
 
 function refreshVoices() {
@@ -37,7 +38,6 @@ if (typeof window !== 'undefined') {
 
 /**
  * Directly unlocks Audio Context and SpeechSynthesis within the user gesture execution context.
- * Calling this directly in onClick (such as clicking "Test Voice") activates audio immediately.
  */
 export function initAudioUnlock() {
   if (typeof window === 'undefined') return;
@@ -60,7 +60,7 @@ export function initAudioUnlock() {
       source.start(0);
     }
 
-    // 2. Unlock SpeechSynthesis safely without throwing on empty string
+    // 2. Unlock SpeechSynthesis safely without throwing
     if ('speechSynthesis' in window) {
       try {
         refreshVoices();
@@ -76,13 +76,12 @@ export function initAudioUnlock() {
     }
 
     isUnlocked = true;
-    console.log('🔊 [Audio Engine] Audio Context directly unlocked via user action!');
   } catch (e) {
     console.warn('[Audio Engine] Audio unlock attempt error:', e);
   }
 }
 
-// Auto register document click fallback listeners
+// Auto register document touch/click fallback listeners
 if (typeof window !== 'undefined') {
   const events = ['click', 'touchstart', 'touchend', 'pointerdown'];
   const handleUserGesture = () => {
@@ -93,7 +92,88 @@ if (typeof window !== 'undefined') {
 }
 
 /**
- * Main Voice Speech Function with Multi-Stream Failover & Volume Normalization
+ * Primary Local Native SpeechSynthesis (0ms Latency on iOS & Android)
+ */
+function speakWithLocalSynthesis(text: string, onEnd?: () => void, onErrorFallback?: () => void): boolean {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+    return false;
+  }
+
+  try {
+    refreshVoices();
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.resume();
+
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = 'zh-CN';
+    utter.volume = 1.0;
+    utter.rate = 1.0;
+    utter.pitch = 1.0;
+
+    const voices = cachedVoices.length > 0 ? cachedVoices : window.speechSynthesis.getVoices();
+    if (voices && voices.length > 0) {
+      const zhVoice = voices.find(v => 
+        v.lang.includes('zh') || 
+        v.lang.includes('CN') || 
+        v.lang.includes('cmn') || 
+        v.name.includes('Chinese') || 
+        v.name.includes('中文') ||
+        v.name.toLowerCase().includes('mandarin') ||
+        v.name.includes('Google') ||
+        v.name.includes('Siri') ||
+        v.name.includes('Tingting') ||
+        v.name.includes('Meijia')
+      );
+      if (zhVoice) {
+        utter.voice = zhVoice;
+      }
+    }
+
+    const activeSet = (window as any)._activeUtterances;
+    if (activeSet) {
+      activeSet.add(utter);
+    }
+
+    let hasEndedOrErrored = false;
+    const cleanup = () => {
+      if (activeSet) {
+        activeSet.delete(utter);
+      }
+    };
+
+    utter.onstart = () => {
+      console.log('⚡ [Speech Engine] Local SpeechSynthesis started playing instantly!');
+    };
+
+    utter.onend = () => {
+      if (hasEndedOrErrored) return;
+      hasEndedOrErrored = true;
+      cleanup();
+      if (onEnd) onEnd();
+    };
+
+    utter.onerror = (err) => {
+      console.warn('⚠️ [Speech Engine] Local SpeechSynthesis error:', err);
+      if (hasEndedOrErrored) return;
+      hasEndedOrErrored = true;
+      cleanup();
+      if (onErrorFallback) {
+        onErrorFallback();
+      } else {
+        if (onEnd) onEnd();
+      }
+    };
+
+    window.speechSynthesis.speak(utter);
+    return true;
+  } catch (e) {
+    console.warn('⚠️ [Speech Engine] Exception initiating local SpeechSynthesis:', e);
+    return false;
+  }
+}
+
+/**
+ * Main Voice Speech Function with Zero-Latency Local-First Execution
  * 
  * @param text The Chinese text to speak
  * @param onEnd Callback function when speech finishes
@@ -112,34 +192,51 @@ export function speakText(text: string, onEnd?: () => void) {
   // Stop previous speech/audio
   stopSpeaking();
 
+  // STEP 1: Attempt local native SpeechSynthesis FIRST (0ms latency, works offline on iOS & Android)
+  const localInitiated = speakWithLocalSynthesis(text, onEnd, () => {
+    console.warn('⚠️ [Speech Engine] Local synthesis error, trying online TTS backup...');
+    tryOnlineTTSProviders(text, onEnd);
+  });
+
+  if (localInitiated) {
+    console.log('🎙️ [Speech Engine] Initiated instant local SpeechSynthesis.');
+    return;
+  }
+
+  // STEP 2: Fallback to online TTS providers if SpeechSynthesis is completely unsupported
+  console.warn('⚠️ [Speech Engine] Local SpeechSynthesis not supported, trying online TTS backup...');
+  tryOnlineTTSProviders(text, onEnd);
+}
+
+/**
+ * Online TTS Stream Fallback
+ */
+function tryOnlineTTSProviders(text: string, onEnd?: () => void) {
   const encodedText = encodeURIComponent(text);
   const baseUrl = getBaseApiUrl();
 
-  // Multi-provider TTS stream URL candidates (including high-availability Google Translate Mandarin Chinese TTS)
   const ttsProviders = [
-    `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodedText}&tl=zh-CN&client=tw-ob`,
+    `${baseUrl}/api/tts?text=${encodedText}`,
     `https://dict.youdao.com/dictvoice?audio=${encodedText}&type=1`,
-    `https://tts.baidu.com/text2audio?cuid=baike&lan=zh&ctp=1&padd=&spd=5&ptm=0&tex=${encodedText}`,
-    `${baseUrl}/api/tts?text=${encodedText}`
+    `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodedText}&tl=zh-CN&client=tw-ob`
   ];
 
   let providerIndex = 0;
 
-  const tryNextTTSProvider = () => {
+  const tryNext = () => {
     if (providerIndex < ttsProviders.length) {
       const url = ttsProviders[providerIndex];
       providerIndex++;
       playAudioStream(url, onEnd, () => {
-        console.warn(`⚠️ [Speech Engine] Stream provider ${providerIndex} failed, trying fallback...`);
-        tryNextTTSProvider();
+        tryNext();
       });
     } else {
-      console.warn('⚠️ [Speech Engine] Online streams unreachable. Falling back to local SpeechSynthesis...');
-      fallbackToLocalSpeechSynthesis(text, onEnd);
+      console.warn('⚠️ [Speech Engine] Online streams unreachable. Playing chime alert.');
+      playChimeAlert(onEnd);
     }
   };
 
-  tryNextTTSProvider();
+  tryNext();
 }
 
 /**
@@ -148,9 +245,8 @@ export function speakText(text: string, onEnd?: () => void) {
 function playAudioStream(url: string, onEnd?: () => void, onError?: () => void) {
   try {
     const audio = new Audio();
-    // Note: DO NOT set audio.crossOrigin = 'anonymous' as it triggers CORS preflight errors in Android WebView on remote audio media streams
     audio.src = url;
-    audio.volume = 1.0; // 100% volume -> mapped directly to Android/iOS media volume
+    audio.volume = 1.0;
     audio.muted = false;
 
     currentAudio = audio;
@@ -190,71 +286,6 @@ function playAudioStream(url: string, onEnd?: () => void, onError?: () => void) 
   } catch (err) {
     console.warn('[Speech Engine] Exception in playAudioStream:', err);
     if (onError) onError();
-  }
-}
-
-/**
- * Fallback to browser's SpeechSynthesis API with explicit Chinese Voice Selection for Android WebViews
- */
-function fallbackToLocalSpeechSynthesis(text: string, onEnd?: () => void) {
-  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-    try {
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.resume();
-
-      const utter = new SpeechSynthesisUtterance(text);
-      utter.lang = 'zh-CN';
-      utter.volume = 1.0;
-      utter.rate = 1.0;
-      utter.pitch = 1.0;
-
-      // Android WebView Fix: Explicitly select a Chinese voice if available
-      refreshVoices();
-      const voices = cachedVoices.length > 0 ? cachedVoices : window.speechSynthesis.getVoices();
-      if (voices && voices.length > 0) {
-        const zhVoice = voices.find(v => 
-          v.lang.includes('zh') || 
-          v.lang.includes('CN') || 
-          v.lang.includes('cmn') || 
-          v.name.includes('Chinese') || 
-          v.name.includes('中文') ||
-          v.name.toLowerCase().includes('mandarin')
-        );
-        if (zhVoice) {
-          utter.voice = zhVoice;
-        }
-      }
-
-      const activeSet = (window as any)._activeUtterances;
-      if (activeSet) {
-        activeSet.add(utter);
-      }
-
-      const cleanup = () => {
-        if (activeSet) {
-          activeSet.delete(utter);
-        }
-      };
-
-      utter.onend = () => {
-        cleanup();
-        if (onEnd) onEnd();
-      };
-
-      utter.onerror = (e) => {
-        console.warn('⚠️ [Speech Engine] Local SpeechSynthesis unavailable or cancelled:', e?.error || e);
-        cleanup();
-        playChimeAlert(onEnd);
-      };
-
-      window.speechSynthesis.speak(utter);
-      console.log('🎙️ [Speech Engine] Speaking via local SpeechSynthesis engine');
-    } catch (e) {
-      console.warn('⚠️ [Speech Engine] Local SpeechSynthesis exception:', e);
-      playChimeAlert(onEnd);
-    }
-  } else {
-    playChimeAlert(onEnd);
   }
 }
 
@@ -328,3 +359,4 @@ export function stopSpeaking() {
     } catch (e) {}
   }
 }
+
