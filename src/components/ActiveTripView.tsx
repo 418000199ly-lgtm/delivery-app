@@ -510,7 +510,7 @@ export default function ActiveTripView({
       )}
 
       {/* BEGIN: MainHeader */}
-      <header className="bg-[#3d465e] text-white pt-6 pb-4 px-4 flex items-center justify-between sticky top-0 z-50 shrink-0">
+      <header className="bg-[#3d465e] text-white header-safe-pt pb-4 px-4 flex items-center justify-between sticky top-0 z-50 shrink-0">
         <div className="w-10"></div>
         <h1 className="text-base font-semibold tracking-wide">实时计费中</h1>
         <button 
@@ -774,7 +774,7 @@ export default function ActiveTripView({
           id="active-destination-search-page"
         >
           {/* Header */}
-          <div className="bg-gray-700 border-b border-gray-600 px-4 py-7 flex items-center justify-between shrink-0">
+          <div className="bg-gray-700 border-b border-gray-600 px-4 header-safe-pt pb-4 flex items-center justify-between shrink-0">
             <button 
               onClick={() => setShowDestinationSearch(false)}
               className="text-white hover:text-gray-200 p-1 rounded-full active:scale-95 transition-all cursor-pointer flex items-center gap-1"

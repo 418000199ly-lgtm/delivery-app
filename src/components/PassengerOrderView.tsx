@@ -389,7 +389,7 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
     return (
       <div className="w-full h-full min-h-full flex flex-col bg-[#f9f9f9] text-[#1a1c1c] font-sans overflow-y-auto select-none relative z-[10000] items-center">
         {/* TopAppBar Shell */}
-        <header className="w-full top-0 sticky bg-[#f9f9f9] border-b border-[#dfc0af] flex items-center justify-between px-5 h-14 z-50 shrink-0">
+        <header className="w-full top-0 sticky bg-[#f9f9f9] border-b border-[#dfc0af] flex items-center justify-between px-5 header-safe-pt pb-2 min-h-14 z-50 shrink-0">
           <div className="flex items-center gap-4">
             <button 
               onClick={() => {

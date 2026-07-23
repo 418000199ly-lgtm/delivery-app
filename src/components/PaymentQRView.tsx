@@ -126,7 +126,7 @@ export default function PaymentQRView({
   return (
     <div className="flex-1 flex flex-col justify-between h-full bg-[#F8FAFC] text-[#333333] select-none font-sans overflow-hidden">
       {/* HEADER */}
-      <header className="bg-[#3B4257] text-white px-4 py-2.5 flex items-center justify-between sticky top-0 z-50 shrink-0">
+      <header className="bg-[#3B4257] text-white px-4 header-safe-pt pb-2.5 flex items-center justify-between sticky top-0 z-50 shrink-0">
         <div className="flex items-center">
           <button 
             type="button"

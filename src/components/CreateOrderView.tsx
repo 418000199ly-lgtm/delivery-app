@@ -1434,7 +1434,7 @@ export default function CreateOrderView({
       {/* END: MapBackground */}
 
       {/* BEGIN: NavigationHeader (Floating top panel bar) */}
-      <header className="relative p-4 flex justify-between items-start z-10 pointer-events-none">
+      <header className="relative p-4 header-safe-pt flex justify-between items-start z-10 pointer-events-none">
         <button 
           onClick={onNavigateBack}
           className="bg-white rounded-full p-2.5 shadow-lg active:scale-90 transition-transform pointer-events-auto" 

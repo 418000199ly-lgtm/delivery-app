@@ -829,7 +829,7 @@ export default function SettingsView({
     <div className="flex-1 flex flex-col h-full bg-slate-100 select-none overflow-hidden relative">
       
       {/* 1. Top navigation */}
-      <div className="bg-[#273046] h-14 min-h-14 flex items-center justify-between px-4 text-white shadow-md z-10">
+      <div className="bg-[#273046] header-safe-pt pb-2 min-h-14 flex items-center justify-between px-4 text-white shadow-md z-10">
         <button 
           onClick={onClose}
           className="p-1 px-1.5 rounded-lg hover:bg-white/10 text-white transition-colors"
@@ -1121,7 +1121,7 @@ export default function SettingsView({
         <div className="absolute inset-0 bg-[#F1F5F9] flex flex-col z-50 animate-in fade-in slide-in-from-right duration-200">
           
           {/* Header (Matching Image 2 / 4) */}
-          <div className="bg-[#273046] h-14 min-h-14 flex items-center justify-between px-4 text-white shadow-md z-14 shrink-0">
+          <div className="bg-[#273046] header-safe-pt pb-2 min-h-14 flex items-center justify-between px-4 text-white shadow-md z-14 shrink-0">
             <button 
               onClick={() => {
                 if (isPhotoAlbumOpen) {
@@ -1581,7 +1581,7 @@ export default function SettingsView({
       {activeDoc !== 'none' && (
         <div className="absolute inset-0 bg-slate-50 flex flex-col z-50 animate-in slide-in-from-right duration-200">
           {/* Top navigation header */}
-          <div className="bg-[#273046] h-14 min-h-14 flex items-center justify-between px-4 text-white shadow-md">
+          <div className="bg-[#273046] header-safe-pt pb-2 min-h-14 flex items-center justify-between px-4 text-white shadow-md">
             <button 
               onClick={() => setActiveDoc('none')}
               className="p-1 px-1.5 rounded-lg hover:bg-white/10 text-white transition-colors flex items-center"

@@ -52,7 +52,7 @@ export default function TripCostView({
     <div className="flex-1 flex flex-col justify-between h-full bg-slate-100 select-none">
       
       {/* 1. Top Bar Navigation Panel */}
-      <div className="bg-[#273046] h-14 min-h-14 flex items-center justify-between px-4 text-white shadow-md z-10">
+      <div className="bg-[#273046] header-safe-pt pb-2 min-h-14 flex items-center justify-between px-4 text-white shadow-md z-10">
         <button 
           onClick={onNavigateBack}
           className="p-1 px-1.5 rounded-lg hover:bg-white/10 text-white transition-colors flex items-center"

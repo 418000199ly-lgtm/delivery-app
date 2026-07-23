@@ -1578,7 +1578,7 @@ export default function HomeView({
       )}
       
       {/* 1. Header (Dark Navy Section - Custom colorways supported) */}
-      <div className={`pt-6 pb-12 px-6 rounded-b-[32px] shadow-lg relative transition-all duration-300 ${
+      <div className={`header-safe-pt pb-12 px-6 rounded-b-[32px] shadow-lg relative transition-all duration-300 ${
         settings.homepageColorway === 'blue' ? 'bg-[#1e3a8a]' :
         settings.homepageColorway === 'slate' ? 'bg-[#334155]' : 'bg-[#273046]'
       }`}>
@@ -2113,7 +2113,7 @@ export default function HomeView({
       {showMessagesModal && (
         <div id="system-messages-modal" className="absolute inset-0 bg-slate-50 z-50 flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300">
           {/* Page Toolbar Header */}
-          <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white py-4 px-4 flex items-center justify-between shrink-0 shadow-md">
+          <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white header-safe-pt pb-4 px-4 flex items-center justify-between shrink-0 shadow-md">
             <div className="flex items-center space-x-3">
               <button 
                 onClick={() => {
@@ -2228,7 +2228,7 @@ export default function HomeView({
       {showDispatchModal && (
         <div className="absolute inset-0 bg-slate-50 z-50 flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300">
           {/* Page Toolbar Header */}
-          <div className="bg-slate-900 text-white py-3.5 px-4 flex items-center justify-between shrink-0 border-b border-slate-800">
+          <div className="bg-slate-900 text-white header-safe-pt pb-3.5 px-4 flex items-center justify-between shrink-0 border-b border-slate-800">
             <div className="flex items-center space-x-2">
               <div className="w-8 h-8 rounded-full bg-teal-500/10 flex items-center justify-center border border-teal-500/20 text-teal-400">
                 <Users className="w-4 h-4" />
@@ -2540,7 +2540,7 @@ export default function HomeView({
       {showMerchantDispatchModal && (
         <div className="absolute inset-0 bg-[#0a0c16] z-50 flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300">
           {/* Page Toolbar Header */}
-          <div className="bg-slate-950 text-white py-3.5 px-4 flex items-center justify-between shrink-0 border-b border-slate-800">
+          <div className="bg-slate-950 text-white header-safe-pt pb-3.5 px-4 flex items-center justify-between shrink-0 border-b border-slate-800">
             <div className="flex items-center space-x-2">
               <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center border border-indigo-500/25 text-indigo-400">
                 <Briefcase className="w-4 h-4" />
@@ -2581,7 +2581,7 @@ export default function HomeView({
       {showVipPurchaseModal && (
         <div className="absolute inset-0 bg-slate-50 z-50 flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300">
           {/* Page Toolbar Header */}
-          <div className="bg-slate-900 text-white py-3.5 px-4 flex items-center justify-between shrink-0 border-b border-slate-800 animate-fade-in">
+          <div className="bg-slate-900 text-white header-safe-pt pb-3.5 px-4 flex items-center justify-between shrink-0 border-b border-slate-800 animate-fade-in">
             <div className="flex items-center space-x-2">
               <div className="w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center border border-amber-500/20 text-amber-400">
                 <Crown className="w-4 h-4" />
@@ -2836,7 +2836,7 @@ export default function HomeView({
       {showBuyPage && (
         <div className="absolute inset-0 bg-slate-50 z-50 flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300">
           {/* Header */}
-          <div className="bg-slate-900 text-white py-3.5 px-4 flex items-center justify-between shrink-0 border-b border-slate-800">
+          <div className="bg-slate-900 text-white header-safe-pt pb-3.5 px-4 flex items-center justify-between shrink-0 border-b border-slate-800">
             <div className="flex items-center space-x-2">
               <div className="w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center border border-amber-500/20 text-amber-400">
                 <Crown className="w-4 h-4 animate-pulse" />
@@ -2952,7 +2952,7 @@ export default function HomeView({
       {showOnlineAppModal && (
         <div className="absolute inset-0 bg-slate-50 z-50 flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300">
           {/* Page Toolbar Header */}
-          <div className="bg-slate-900 text-white py-3 px-4 flex items-center justify-between shrink-0 border-b border-slate-800">
+          <div className="bg-slate-900 text-white header-safe-pt pb-3 px-4 flex items-center justify-between shrink-0 border-b border-slate-800">
             <div className="flex items-center space-x-2">
               <div className="w-8 h-8 rounded-full bg-teal-500/10 flex items-center justify-center border border-teal-500/20 text-teal-400">
                 <Globe className="w-4 h-4" />
@@ -3471,7 +3471,7 @@ export default function HomeView({
       {showCitySelector && (
         <div className="absolute inset-0 bg-slate-50 z-[100] flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300">
           {/* Header */}
-          <div className="bg-slate-900 text-white py-3 px-4 flex items-center justify-between shrink-0 border-b border-slate-800">
+          <div className="bg-slate-900 text-white header-safe-pt pb-3 px-4 flex items-center justify-between shrink-0 border-b border-slate-800">
             <div className="flex items-center space-x-2">
               <MapPin className="w-4.5 h-4.5 text-teal-400" />
               <div className="text-left">
@@ -3697,7 +3697,7 @@ export default function HomeView({
       {showOrderHistory && (
         <div className="absolute inset-0 bg-slate-50 dark:bg-zinc-950 z-[110] flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300 select-none">
           {/* Header */}
-          <header className="sticky top-0 z-10 bg-white dark:bg-zinc-900 border-b border-slate-200 dark:border-zinc-800 px-4 h-16 flex items-center justify-between shrink-0">
+          <header className="sticky top-0 z-10 bg-white dark:bg-zinc-900 border-b border-slate-200 dark:border-zinc-800 px-4 header-safe-pt pb-3 flex items-center justify-between shrink-0">
             <button 
               onClick={() => setShowOrderHistory(false)}
               className="w-10 h-10 flex items-center justify-start text-slate-600 dark:text-slate-300 active:scale-95 transition-all"

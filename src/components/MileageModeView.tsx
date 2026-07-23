@@ -591,7 +591,7 @@ export default function MileageModeView({
       <div className="flex-1 flex flex-col justify-between h-full bg-slate-50 select-none overflow-hidden text-gray-800">
         
         {/* Editor Head */}
-        <header className="sticky top-0 z-50 bg-[#353b50] text-[#ffffff]" data-purpose="edit-header">
+        <header className="sticky top-0 z-50 bg-[#353b50] text-[#ffffff] header-safe-pt pb-1" data-purpose="edit-header">
           <div className="h-12 flex items-center justify-between px-4">
             <button 
               onClick={() => setEditingRule(null)}
@@ -1771,9 +1771,7 @@ export default function MileageModeView({
     <div className="flex-1 flex flex-col justify-between h-full bg-white select-none overflow-hidden relative">
       
       {/* 2. Top HeaderSection with logo colors */}
-      <header className="sticky top-0 z-50 bg-[#353b50] text-[#ffffff]" data-purpose="page-navigation">
-        {/* iOS Status Bar Placeholder (empty height to match user HTML design) */}
-        <div className="h-4 flex items-center justify-between px-6 text-xs font-semibold"></div>
+      <header className="sticky top-0 z-50 bg-[#353b50] text-[#ffffff] header-safe-pt pb-1" data-purpose="page-navigation">
         
         {/* Title Bar */}
         <div className="h-12 flex items-center justify-between px-4 relative">
