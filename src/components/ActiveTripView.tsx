@@ -207,7 +207,7 @@ export default function ActiveTripView({
   }, [isWaiting]);
 
   // Real-time GPS high-precision tracking & AMap mileage calculation
-  const lastCoordsRef = useRef<{ lng: number, lat: number } | null>(null);
+  const lastCoordsRef = useRef<{ lng: number; lat: number; timestamp: number } | null>(null);
   const preciseDistanceRef = useRef<number>(trip.currentDistance);
 
   // Synchronize precise distance ref if trip currentDistance is adjusted from outside/manually (e.g., manual corrections)
@@ -221,21 +221,29 @@ export default function ActiveTripView({
   useEffect(() => {
     let watchId: number | null = null;
 
-    const handlePositionUpdate = (lng: number, lat: number, accuracy: number) => {
-      // 1. Filter out poor accuracy positioning (WiFi / coarse cell tower backup) to prevent jumps
-      if (accuracy > 80) {
+    const handlePositionUpdate = (lng: number, lat: number, accuracy: number, speed: number | null = null) => {
+      // 1. Filter out poor accuracy positioning (WiFi / coarse cell tower backup) to prevent jumps when stationary
+      if (accuracy > 35) {
         console.log(`⚠️ [GPS Tracker] Coarse position filtered out due to poor accuracy: ${accuracy}m`);
         return;
       }
 
-      if (!lastCoordsRef.current) {
-        // Set initial point
-        lastCoordsRef.current = { lng, lat };
-        console.log('⚡ [GPS Tracker] Initialized reference GPS position:', lastCoordsRef.current);
+      // 2. Speed-based static check (if hardware provides speed in m/s)
+      if (speed !== null && speed !== undefined && speed >= 0 && speed < 0.5) {
+        console.log(`⚡ [GPS Tracker] Hardware speed indicates static/stationary state (${speed.toFixed(2)} m/s), ignoring movement noise`);
         return;
       }
 
-      // Calculate the physical distance from last known point
+      const now = Date.now();
+
+      if (!lastCoordsRef.current) {
+        // Set initial anchor point
+        lastCoordsRef.current = { lng, lat, timestamp: now };
+        console.log('⚡ [GPS Tracker] Initialized reference GPS anchor position:', lastCoordsRef.current);
+        return;
+      }
+
+      // Calculate physical distance from last valid anchor point
       const distanceInMeters = getDistance(
         lastCoordsRef.current.lng,
         lastCoordsRef.current.lat,
@@ -243,21 +251,33 @@ export default function ActiveTripView({
         lat
       );
 
-      console.log(`⚡ [GPS Tracker] Calculated step distance: ${distanceInMeters.toFixed(2)}m (Accuracy: ${accuracy}m)`);
+      console.log(`⚡ [GPS Tracker] Calculated anchor step distance: ${distanceInMeters.toFixed(2)}m (Accuracy: ${accuracy}m, Speed: ${speed ?? 'N/A'} m/s)`);
 
-      // 2. GPS Stationary Jitter & Static Drift Suppression
-      // - If distance is < 3.5 meters, count as static drift / red light wait, ignore it.
-      // - If distance is > 1000 meters in a single update (~120km/h for typical update intervals), count as a bad GPS jump, ignore it.
-      if (distanceInMeters < 3.5) {
-        console.log('⚡ [GPS Tracker] Static GPS drift filtered out (< 3.5m)');
-        return;
-      }
-      if (distanceInMeters > 1000) {
-        console.warn('⚠️ [GPS Tracker] Anomalous GPS jump filtered out (> 1000m)');
+      // 3. GPS Stationary Jitter & Static Drift Suppression
+      // - If distance from anchor is < 12 meters, treat as stationary drift / red light wobble, ignore it completely.
+      // - If distance from anchor is less than accuracy error margin (distanceInMeters < accuracy * 0.7), ignore it.
+      if (distanceInMeters < 12) {
+        console.log('⚡ [GPS Tracker] Static GPS drift filtered out (< 12m from anchor)');
         return;
       }
 
-      // 3. Accumulate distance in kilometers
+      if (distanceInMeters < accuracy * 0.7) {
+        console.log(`⚡ [GPS Tracker] Displacement inside accuracy margin filtered out (${distanceInMeters.toFixed(1)}m < ${(accuracy * 0.7).toFixed(1)}m)`);
+        return;
+      }
+
+      // Calculate speed over elapsed time to suppress anomalous teleports
+      const dt = (now - lastCoordsRef.current.timestamp) / 1000;
+      if (dt > 0) {
+        const calculatedSpeed = distanceInMeters / dt; // m/s
+        if (calculatedSpeed > 50 || distanceInMeters > 1500) { // > 180 km/h or > 1.5km single jump
+          console.warn(`⚠️ [GPS Tracker] Anomalous GPS teleport filtered out (Speed: ${calculatedSpeed.toFixed(1)} m/s, Dist: ${distanceInMeters.toFixed(0)}m)`);
+          lastCoordsRef.current = { lng, lat, timestamp: now }; // Reset anchor to new spot without adding mileage
+          return;
+        }
+      }
+
+      // 4. Accumulate distance in kilometers
       const addedKm = distanceInMeters / 1000;
       preciseDistanceRef.current += addedKm;
 
@@ -279,8 +299,8 @@ export default function ActiveTripView({
         });
       }
 
-      // Advance last coordinate ref
-      lastCoordsRef.current = { lng, lat };
+      // Advance last coordinate anchor
+      lastCoordsRef.current = { lng, lat, timestamp: now };
     };
 
     if (typeof window !== 'undefined' && navigator.geolocation) {
@@ -291,6 +311,7 @@ export default function ActiveTripView({
           const rawLng = pos.coords.longitude;
           const rawLat = pos.coords.latitude;
           const accuracy = pos.coords.accuracy || 10;
+          const speed = pos.coords.speed;
 
           // Convert coordinates from WGS-84 (GPS) to GCJ-02 (Gaode GCJ02) for consistent mapping and routing
           const AMap = (window as any).AMap;
@@ -300,17 +321,17 @@ export default function ActiveTripView({
                 if (convertStatus === 'complete' && convertResult.locations && convertResult.locations[0]) {
                   const finalLng = convertResult.locations[0].lng;
                   const finalLat = convertResult.locations[0].lat;
-                  handlePositionUpdate(finalLng, finalLat, accuracy);
+                  handlePositionUpdate(finalLng, finalLat, accuracy, speed);
                 } else {
-                  handlePositionUpdate(rawLng, rawLat, accuracy);
+                  handlePositionUpdate(rawLng, rawLat, accuracy, speed);
                 }
               });
             } catch (err) {
               console.warn('⚠️ [GPS Tracker] Coordinate GCJ02 conversion error, fallback to raw WGS84:', err);
-              handlePositionUpdate(rawLng, rawLat, accuracy);
+              handlePositionUpdate(rawLng, rawLat, accuracy, speed);
             }
           } else {
-            handlePositionUpdate(rawLng, rawLat, accuracy);
+            handlePositionUpdate(rawLng, rawLat, accuracy, speed);
           }
         },
         (err) => {
@@ -366,6 +387,15 @@ export default function ActiveTripView({
   // Navigation click trigger
   const handleSimulateNavigation = (e?: React.MouseEvent | React.TouchEvent) => {
     if (e) e.stopPropagation();
+    const dest = trip.endLocation ? trip.endLocation.trim() : '';
+    const isDestEmpty = !dest || 
+                        dest === '待指定安全目的地' || 
+                        dest === '未完成安全目的地设定' || 
+                        dest === '请填写目的地（选填）';
+    if (isDestEmpty) {
+      triggerToast('请输入目的地');
+      return;
+    }
     setShowNavigationView(true);
   };
 

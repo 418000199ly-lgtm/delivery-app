@@ -3,8 +3,8 @@
  * 
  * Direct User Gesture Audio Unlock & Volume Syncing:
  * 1. Synchronously unlocks Web Audio Context & SpeechSynthesis directly in click handlers (e.g. 'Test Voice' button)
- * 2. Multi-provider online TTS stream (Youdao / Baidu) with local SpeechSynthesis fallback
- * 3. 100% Volume gain mapping to Android System Media Volume (adjustable via phone side buttons)
+ * 2. Multi-provider online TTS stream (Google Translate TTS / Youdao / Baidu) with local SpeechSynthesis fallback
+ * 3. 100% Volume gain mapping to Android & iOS System Media Volume (adjustable via phone side buttons)
  */
 
 import { getBaseApiUrl } from '../lib/dbProxy';
@@ -13,8 +13,26 @@ let currentAudio: HTMLAudioElement | null = null;
 let audioContext: AudioContext | null = null;
 let isUnlocked = false;
 
+// Cached SpeechSynthesis voices for Android WebViews
+let cachedVoices: SpeechSynthesisVoice[] = [];
+
+function refreshVoices() {
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    try {
+      cachedVoices = window.speechSynthesis.getVoices();
+    } catch (e) {}
+  }
+}
+
 if (typeof window !== 'undefined') {
   (window as any)._activeUtterances = (window as any)._activeUtterances || new Set();
+  
+  if ('speechSynthesis' in window) {
+    refreshVoices();
+    if (window.speechSynthesis.onvoiceschanged !== undefined) {
+      window.speechSynthesis.onvoiceschanged = refreshVoices;
+    }
+  }
 }
 
 /**
@@ -45,6 +63,7 @@ export function initAudioUnlock() {
     // 2. Unlock SpeechSynthesis safely without throwing on empty string
     if ('speechSynthesis' in window) {
       try {
+        refreshVoices();
         window.speechSynthesis.resume();
         const dummyUtter = new SpeechSynthesisUtterance(' ');
         dummyUtter.volume = 0.001;
@@ -96,12 +115,12 @@ export function speakText(text: string, onEnd?: () => void) {
   const encodedText = encodeURIComponent(text);
   const baseUrl = getBaseApiUrl();
 
-  // Multi-provider TTS stream URL candidates (including server proxy)
+  // Multi-provider TTS stream URL candidates (including high-availability Google Translate Mandarin Chinese TTS)
   const ttsProviders = [
-    `${baseUrl}/api/tts?text=${encodedText}`,
+    `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodedText}&tl=zh-CN&client=tw-ob`,
     `https://dict.youdao.com/dictvoice?audio=${encodedText}&type=1`,
     `https://tts.baidu.com/text2audio?cuid=baike&lan=zh&ctp=1&padd=&spd=5&ptm=0&tex=${encodedText}`,
-    `https://fanyi.baidu.com/gettts?lan=zh&text=${encodedText}&spd=5&source=web`
+    `${baseUrl}/api/tts?text=${encodedText}`
   ];
 
   let providerIndex = 0;
@@ -129,7 +148,7 @@ export function speakText(text: string, onEnd?: () => void) {
 function playAudioStream(url: string, onEnd?: () => void, onError?: () => void) {
   try {
     const audio = new Audio();
-    audio.crossOrigin = 'anonymous';
+    // Note: DO NOT set audio.crossOrigin = 'anonymous' as it triggers CORS preflight errors in Android WebView on remote audio media streams
     audio.src = url;
     audio.volume = 1.0; // 100% volume -> mapped directly to Android/iOS media volume
     audio.muted = false;
@@ -175,7 +194,7 @@ function playAudioStream(url: string, onEnd?: () => void, onError?: () => void) 
 }
 
 /**
- * Fallback to browser's SpeechSynthesis API
+ * Fallback to browser's SpeechSynthesis API with explicit Chinese Voice Selection for Android WebViews
  */
 function fallbackToLocalSpeechSynthesis(text: string, onEnd?: () => void) {
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -188,6 +207,23 @@ function fallbackToLocalSpeechSynthesis(text: string, onEnd?: () => void) {
       utter.volume = 1.0;
       utter.rate = 1.0;
       utter.pitch = 1.0;
+
+      // Android WebView Fix: Explicitly select a Chinese voice if available
+      refreshVoices();
+      const voices = cachedVoices.length > 0 ? cachedVoices : window.speechSynthesis.getVoices();
+      if (voices && voices.length > 0) {
+        const zhVoice = voices.find(v => 
+          v.lang.includes('zh') || 
+          v.lang.includes('CN') || 
+          v.lang.includes('cmn') || 
+          v.name.includes('Chinese') || 
+          v.name.includes('中文') ||
+          v.name.toLowerCase().includes('mandarin')
+        );
+        if (zhVoice) {
+          utter.voice = zhVoice;
+        }
+      }
 
       const activeSet = (window as any)._activeUtterances;
       if (activeSet) {

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Wifi, Volume2, VolumeX, Compass, Map, X, ArrowLeft, RotateCcw } from 'lucide-react';
+import { speakText, stopSpeaking } from '../utils/speech';
 
 interface NavigationViewProps {
   destination: string;
@@ -44,16 +45,8 @@ export default function NavigationView({
 
   // Speak voice instruction helper
   const speakVoice = (text: string) => {
-    if (!isVoiceOn || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-    try {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'zh-CN';
-      utterance.rate = 1.0;
-      window.speechSynthesis.speak(utterance);
-    } catch (e) {
-      console.warn('Speech synthesis unavailable:', e);
-    }
+    if (!isVoiceOn || typeof window === 'undefined') return;
+    speakText(text);
   };
 
   useEffect(() => {
@@ -458,9 +451,7 @@ export default function NavigationView({
                 speakVoice('语音播报已开启');
                 showToast('🔊 智能导航语音播报已开启');
               } else {
-                if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-                  window.speechSynthesis.cancel();
-                }
+                stopSpeaking();
                 showToast('🔇 语音播报已静音');
               }
             }}

@@ -418,6 +418,7 @@ async function startServer() {
     }
     const encodedText = encodeURIComponent(text);
     const urls = [
+      `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodedText}&tl=zh-CN&client=tw-ob`,
       `https://dict.youdao.com/dictvoice?audio=${encodedText}&type=1`,
       `https://tts.baidu.com/text2audio?cuid=baike&lan=zh&ctp=1&padd=&spd=5&ptm=0&tex=${encodedText}`,
       `https://fanyi.baidu.com/gettts?lan=zh&text=${encodedText}&spd=5&source=web`
