@@ -3,10 +3,9 @@
  * 
  * Direct User Gesture Audio Unlock & Multi-Engine Chinese Speech Synthesis:
  * 1. Unlocks Web Audio Context & HTML5 Audio media channel on first user interaction
- * 2. Primary: Local Native SpeechSynthesis (0ms delay with Android keep-alive resume loop & voice detection)
- * 3. Secondary: Web Audio API fetched ArrayBuffer decoding for online Chinese TTS streams
- * 4. Tertiary: Multi-provider HTML5 Audio stream fallback
- * 5. Fallback: Web Audio Tri-tone Chime
+ * 2. Primary: Local Native SpeechSynthesis (Android WebView IPC delay fix + zh-CN voice routing)
+ * 3. Secondary: Multi-provider Chinese TTS audio streaming with 'no-referrer' headers for Android WebViews
+ * 4. Fallback: Web Audio Tri-tone Chime
  */
 
 import { getBaseApiUrl } from '../lib/dbProxy';
@@ -22,12 +21,16 @@ let isUnlocked = false;
 // Cached SpeechSynthesis voices for Android WebViews & iOS
 let cachedVoices: SpeechSynthesisVoice[] = [];
 
-function refreshVoices() {
+function refreshVoices(): SpeechSynthesisVoice[] {
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     try {
-      cachedVoices = window.speechSynthesis.getVoices();
+      const v = window.speechSynthesis.getVoices();
+      if (v && v.length > 0) {
+        cachedVoices = v;
+      }
     } catch (e) {}
   }
+  return cachedVoices;
 }
 
 if (typeof window !== 'undefined') {
@@ -69,6 +72,7 @@ export function initAudioUnlock() {
     if (!unlockedAudioElement) {
       try {
         const a = new Audio(SILENT_MP3);
+        a.setAttribute('referrerpolicy', 'no-referrer');
         a.volume = 0.01;
         const p = a.play();
         if (p !== undefined) {
@@ -119,7 +123,7 @@ function speakWithLocalSynthesis(text: string, onEnd?: () => void, onErrorFallba
   }
 
   try {
-    refreshVoices();
+    const voices = refreshVoices();
     window.speechSynthesis.cancel();
     window.speechSynthesis.resume();
 
@@ -129,30 +133,57 @@ function speakWithLocalSynthesis(text: string, onEnd?: () => void, onErrorFallba
     utter.rate = 1.0;
     utter.pitch = 1.0;
 
-    const voices = cachedVoices.length > 0 ? cachedVoices : window.speechSynthesis.getVoices();
     if (voices && voices.length > 0) {
-      const zhVoice = voices.find(v => {
+      // Filter out Google TTS voices when running in mainland China to avoid GFW connection timeouts
+      const nonGoogleVoices = voices.filter(v => {
         const lang = (v.lang || '').toLowerCase();
         const name = (v.name || '').toLowerCase();
-        return (
-          lang.includes('zh') || 
-          lang.includes('cn') || 
-          lang.includes('cmn') || 
-          lang.includes('chi') || 
-          lang.includes('zho') || 
-          name.includes('chinese') || 
-          name.includes('中文') ||
-          name.includes('mandarin') ||
-          name.includes('google') ||
-          name.includes('xiaoxiao') ||
-          name.includes('yunyang') ||
-          name.includes('siri') ||
-          name.includes('tingting') ||
-          name.includes('meijia')
-        );
+        const uri = (v.voiceURI || '').toLowerCase();
+        return !name.includes('google') && !lang.includes('google') && !uri.includes('google');
       });
+
+      const targetPool = nonGoogleVoices.length > 0 ? nonGoogleVoices : voices;
+
+      // Domestic Chinese brand keywords (iFlytek, Huawei, Xiaomi, OPPO, Vivo, Honor, Samsung, etc.)
+      const domesticBrandKeywords = [
+        'iflytek', 'xfyun', '讯飞', 'xunfei', 'flytek',
+        'huawei', 'hiai', 'celia', '小艺', '华为',
+        'xiaomi', 'xiaoai', '小爱', 'miui', '小米',
+        'oppo', 'vivo', 'heytap', 'breeno', '小布', 'coloros', 'funtouch',
+        'honor', 'yoyo', '荣耀',
+        'samsung', 'bixby', '三星',
+        'baidu', 'sinovoice', 'sogou', '搜狗', 'xiaoxiao', 'yunyang', 'siri', 'tingting', 'meijia'
+      ];
+
+      // 1. Try to find a domestic brand specific Chinese voice
+      let zhVoice = targetPool.find(v => {
+        const lang = (v.lang || '').toLowerCase();
+        const name = (v.name || '').toLowerCase();
+        const isZh = lang.includes('zh') || lang.includes('cn') || lang.includes('cmn') || lang.includes('chi') || name.includes('chinese') || name.includes('中文');
+        return isZh && domesticBrandKeywords.some(kw => name.includes(kw) || lang.includes(kw));
+      });
+
+      // 2. Fallback to any Chinese voice in the target pool
+      if (!zhVoice) {
+        zhVoice = targetPool.find(v => {
+          const lang = (v.lang || '').toLowerCase();
+          const name = (v.name || '').toLowerCase();
+          return (
+            lang.includes('zh') || 
+            lang.includes('cn') || 
+            lang.includes('cmn') || 
+            lang.includes('chi') || 
+            lang.includes('zho') || 
+            name.includes('chinese') || 
+            name.includes('中文') ||
+            name.includes('mandarin')
+          );
+        });
+      }
+
       if (zhVoice) {
         utter.voice = zhVoice;
+        console.log('🎙️ [Speech Engine] Selected native voice:', zhVoice.name, '(', zhVoice.lang, ')');
       }
     }
 
@@ -163,11 +194,16 @@ function speakWithLocalSynthesis(text: string, onEnd?: () => void, onErrorFallba
 
     let hasEndedOrErrored = false;
     let keepAliveTimer: any = null;
+    let fallbackTimeout: any = null;
 
     const cleanup = () => {
       if (keepAliveTimer) {
         clearInterval(keepAliveTimer);
         keepAliveTimer = null;
+      }
+      if (fallbackTimeout) {
+        clearTimeout(fallbackTimeout);
+        fallbackTimeout = null;
       }
       if (activeSet) {
         activeSet.delete(utter);
@@ -176,6 +212,10 @@ function speakWithLocalSynthesis(text: string, onEnd?: () => void, onErrorFallba
 
     utter.onstart = () => {
       console.log('⚡ [Speech Engine] Local SpeechSynthesis started playing on Android/iOS!');
+      if (fallbackTimeout) {
+        clearTimeout(fallbackTimeout);
+        fallbackTimeout = null;
+      }
       // Android keep-alive fix: call resume periodically so Android WebView doesn't pause TTS
       keepAliveTimer = setInterval(() => {
         if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -187,7 +227,7 @@ function speakWithLocalSynthesis(text: string, onEnd?: () => void, onErrorFallba
         } else {
           cleanup();
         }
-      }, 1500);
+      }, 1200);
     };
 
     utter.onend = () => {
@@ -209,15 +249,32 @@ function speakWithLocalSynthesis(text: string, onEnd?: () => void, onErrorFallba
       }
     };
 
-    // Slight timeout after cancel ensures Android WebView IPC speech engine receives the utterance reliably
+    // If local SpeechSynthesis on Android takes more than 1.8s to start, fallback to online stream
+    fallbackTimeout = setTimeout(() => {
+      if (!hasEndedOrErrored) {
+        console.warn('⚠️ [Speech Engine] SpeechSynthesis start timeout on Android, falling back to audio stream...');
+        hasEndedOrErrored = true;
+        cleanup();
+        try {
+          window.speechSynthesis.cancel();
+        } catch (e) {}
+        if (onErrorFallback) onErrorFallback();
+      }
+    }, 1800);
+
+    // 180ms delay allows Android native SpeechSynthesizer IPC service to process previous cancel()
     setTimeout(() => {
       try {
         window.speechSynthesis.resume();
         window.speechSynthesis.speak(utter);
       } catch (e) {
-        if (onErrorFallback) onErrorFallback();
+        if (!hasEndedOrErrored && onErrorFallback) {
+          hasEndedOrErrored = true;
+          cleanup();
+          onErrorFallback();
+        }
       }
-    }, 60);
+    }, 180);
 
     return true;
   } catch (e) {
@@ -246,58 +303,20 @@ export function speakText(text: string, onEnd?: () => void) {
   // Stop previous speech/audio
   stopSpeaking();
 
-  // STEP 1: Attempt local native SpeechSynthesis FIRST (0ms latency, works on iOS & Android)
+  // STEP 1: Attempt local native SpeechSynthesis FIRST (works on iOS & Android WebViews)
   const localInitiated = speakWithLocalSynthesis(text, onEnd, () => {
     console.warn('⚠️ [Speech Engine] Local synthesis error/unavailable, trying online TTS backup...');
     tryOnlineTTSProviders(text, onEnd);
   });
 
   if (localInitiated) {
-    console.log('🎙️ [Speech Engine] Initiated instant local SpeechSynthesis.');
+    console.log('🎙️ [Speech Engine] Initiated local SpeechSynthesis utterance.');
     return;
   }
 
   // STEP 2: Fallback to online TTS providers
   console.warn('⚠️ [Speech Engine] Local SpeechSynthesis not supported, trying online TTS backup...');
   tryOnlineTTSProviders(text, onEnd);
-}
-
-/**
- * Try online TTS stream with Web Audio decoding first, then HTML5 Audio element fallback
- */
-async function playTTSWebAudioOrElement(url: string, onEnd?: () => void, onError?: () => void) {
-  // Try Web Audio API fetch + decodeAudioData first (bypasses HTML5 audio element gesture lock on Android)
-  try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (AudioCtx) {
-      if (!audioContext) {
-        audioContext = new AudioCtx();
-      }
-      if (audioContext.state === 'suspended') {
-        await audioContext.resume();
-      }
-
-      const response = await fetch(url, { mode: 'cors' });
-      if (response.ok) {
-        const arrayBuffer = await response.arrayBuffer();
-        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-        const source = audioContext.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(audioContext.destination);
-        source.onended = () => {
-          if (onEnd) onEnd();
-        };
-        source.start(0);
-        console.log('⚡ [Speech Engine] Web Audio TTS played successfully on Android!');
-        return;
-      }
-    }
-  } catch (err) {
-    console.warn('[Speech Engine] Web Audio decode failed, trying HTML5 Audio element fallback:', err);
-  }
-
-  // Fallback to HTML5 Audio element
-  playAudioStream(url, onEnd, onError);
 }
 
 /**
@@ -314,11 +333,12 @@ function tryOnlineTTSProviders(text: string, onEnd?: () => void) {
     ttsProviders.push(`${baseUrl}/api/tts?text=${encodedText}`);
   }
 
+  // Direct Chinese TTS Audio Streams (with no-referrer header for Android WebView compatibility)
   ttsProviders.push(
     `https://dict.youdao.com/dictvoice?audio=${encodedText}&type=1`,
     `https://tts.baidu.com/text2audio?cuid=baike&lan=zh&ctp=1&padd=&spd=5&ptm=0&tex=${encodedText}`,
     `https://fanyi.baidu.com/gettts?lan=zh&text=${encodedText}&spd=5&source=web`,
-    `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodedText}&tl=zh-CN&client=tw-ob`
+    `https://api.oick.cn/txt/api.php?text=${encodedText}&speed=1`
   );
 
   let providerIndex = 0;
@@ -327,11 +347,11 @@ function tryOnlineTTSProviders(text: string, onEnd?: () => void) {
     if (providerIndex < ttsProviders.length) {
       const url = ttsProviders[providerIndex];
       providerIndex++;
-      playTTSWebAudioOrElement(url, onEnd, () => {
+      playAudioStream(url, onEnd, () => {
         tryNext();
       });
     } else {
-      console.warn('⚠️ [Speech Engine] Online streams unreachable. Playing chime alert.');
+      console.warn('⚠️ [Speech Engine] All online TTS streams unreachable. Playing chime alert.');
       playChimeAlert(onEnd);
     }
   };
@@ -340,11 +360,14 @@ function tryOnlineTTSProviders(text: string, onEnd?: () => void) {
 }
 
 /**
- * Plays an online audio stream URL with 100% device media volume mapping
+ * Plays an online audio stream URL with no-referrer header (critical for Android WebViews)
  */
 function playAudioStream(url: string, onEnd?: () => void, onError?: () => void) {
   try {
     const audio = new Audio();
+    // CRITICAL FOR ANDROID WEBVIEW: Set no-referrer so Youdao/Baidu CDN servers don't block file:// or capacitor:// requests
+    audio.setAttribute('referrerpolicy', 'no-referrer');
+    (audio as any).referrerPolicy = 'no-referrer';
     audio.src = url;
     audio.volume = 1.0;
     audio.muted = false;
@@ -364,7 +387,7 @@ function playAudioStream(url: string, onEnd?: () => void, onError?: () => void) 
     audio.onended = handleEnd;
 
     audio.onerror = (e) => {
-      console.warn('[Speech Engine] Audio element load error:', e);
+      console.warn('[Speech Engine] Audio element load error for URL:', url, e);
       if (currentAudio === audio) {
         currentAudio = null;
       }
@@ -374,7 +397,7 @@ function playAudioStream(url: string, onEnd?: () => void, onError?: () => void) 
     const playPromise = audio.play();
     if (playPromise !== undefined) {
       playPromise.then(() => {
-        console.log('⚡ [Speech Engine] Audio stream started successfully!');
+        console.log('⚡ [Speech Engine] Online Chinese TTS stream started playing successfully on Android!');
       }).catch((err) => {
         console.warn('⚠️ [Speech Engine] Audio play promise rejected:', err);
         if (currentAudio === audio) {
@@ -459,5 +482,6 @@ export function stopSpeaking() {
     } catch (e) {}
   }
 }
+
 
 
