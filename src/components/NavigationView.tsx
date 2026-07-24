@@ -36,6 +36,58 @@ export default function NavigationView({
   const lastRouteKeyRef = useRef<string>('');
   const currentDriverPosRef = useRef<{ lng: number; lat: number } | null>(null);
   const destinationCoordsRef = useRef<{ lng: number; lat: number } | null>(null);
+  const activeRoutePathRef = useRef<Array<[number, number]>>([]);
+  const lastRerouteTimestampRef = useRef<number>(0);
+
+  // Helper to calculate distance from point to line segment in meters
+  const distanceToSegmentMeters = (
+    pLng: number, pLat: number,
+    aLng: number, aLat: number,
+    bLng: number, bLat: number
+  ): number => {
+    const x = pLng, y = pLat;
+    const x1 = aLng, y1 = aLat;
+    const x2 = bLng, y2 = bLat;
+
+    const A = x - x1;
+    const B = y - y1;
+    const C = x2 - x1;
+    const D = y2 - y1;
+
+    const dot = A * C + B * D;
+    const lenSq = C * C + D * D;
+    let param = -1;
+    if (lenSq !== 0) param = dot / lenSq;
+
+    let xx, yy;
+    if (param < 0) {
+      xx = x1;
+      yy = y1;
+    } else if (param > 1) {
+      xx = x2;
+      yy = y2;
+    } else {
+      xx = x1 + param * C;
+      yy = y1 + param * D;
+    }
+
+    const dx = (x - xx) * 111320 * Math.cos(((y + yy) / 2) * (Math.PI / 180));
+    const dy = (y - yy) * 110574;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  const getMinDistanceToRoute = (pLng: number, pLat: number): number => {
+    const path = activeRoutePathRef.current;
+    if (!path || path.length < 2) return 0;
+    let minDist = Infinity;
+    for (let i = 0; i < path.length - 1; i++) {
+      const dist = distanceToSegmentMeters(pLng, pLat, path[i][0], path[i][1], path[i + 1][0], path[i + 1][1]);
+      if (dist < minDist) {
+        minDist = dist;
+      }
+    }
+    return minDist === Infinity ? 0 : minDist;
+  };
 
   // Trigger Toast Helper
   const showToast = (msg: string) => {
@@ -98,7 +150,7 @@ export default function NavigationView({
 
     const cleanDest = destination && destination !== '请填写目的地（选填）' && destination !== '待指定安全目的地' && destination !== '未完成安全目的地设定'
       ? destination
-      : '银川火车站';
+      : '建发大阅城';
 
     // Load Driving plugin and Geocoder plugin
     AMap.plugin(['AMap.Driving', 'AMap.Geocoder', 'AMap.Geolocation'], () => {
@@ -113,6 +165,7 @@ export default function NavigationView({
       drivingPluginRef.current = driving;
 
       const geocodeAndPlan = (originLng: number, originLat: number) => {
+        // First try searching with exact destination name in registered city
         geocoder.getLocation(cleanDest, (status: string, result: any) => {
           let destLng = originLng + 0.03;
           let destLat = originLat + 0.02;
@@ -121,10 +174,20 @@ export default function NavigationView({
             const loc = result.geocodes[0].location;
             destLng = loc.getLng ? loc.getLng() : loc.lng;
             destLat = loc.getLat ? loc.getLat() : loc.lat;
+            destinationCoordsRef.current = { lng: destLng, lat: destLat };
+            planRoute(originLng, originLat, destLng, destLat, cleanDest);
+          } else {
+            // Secondary attempt with city name prefixed to lock exact destination
+            geocoder.getLocation(`${registeredCity || '银川市'} ${cleanDest}`, (status2: string, result2: any) => {
+              if (status2 === 'complete' && result2.geocodes && result2.geocodes.length > 0) {
+                const loc2 = result2.geocodes[0].location;
+                destLng = loc2.getLng ? loc2.getLng() : loc2.lng;
+                destLat = loc2.getLat ? loc2.getLat() : loc2.lat;
+              }
+              destinationCoordsRef.current = { lng: destLng, lat: destLat };
+              planRoute(originLng, originLat, destLng, destLat, cleanDest);
+            });
           }
-
-          destinationCoordsRef.current = { lng: destLng, lat: destLat };
-          planRoute(originLng, originLat, destLng, destLat, cleanDest);
         });
       };
 
@@ -241,6 +304,23 @@ export default function NavigationView({
           setRemainingDistance(`${distKm}公里`);
           setRemainingTime(`${timeMins}分钟`);
 
+          // Extract all path points along the calculated route for off-route checking
+          if (route.steps && Array.isArray(route.steps)) {
+            const allPathPts: Array<[number, number]> = [];
+            route.steps.forEach((stepItem: any) => {
+              if (stepItem.path && Array.isArray(stepItem.path)) {
+                stepItem.path.forEach((pt: any) => {
+                  const pLng = typeof pt.getLng === 'function' ? pt.getLng() : (pt.lng ?? pt[0]);
+                  const pLat = typeof pt.getLat === 'function' ? pt.getLat() : (pt.lat ?? pt[1]);
+                  if (typeof pLng === 'number' && typeof pLat === 'number') {
+                    allPathPts.push([pLng, pLat]);
+                  }
+                });
+              }
+            });
+            activeRoutePathRef.current = allPathPts;
+          }
+
           // Extract first maneuver step
           if (route.steps && route.steps.length > 0) {
             const step = route.steps[0];
@@ -285,22 +365,22 @@ export default function NavigationView({
       mapInstanceRef.current.setCenter([lng, lat]);
     }
 
-    // Check if driver position moved significantly from planned origin (off-route reroute trigger)
-    if (destinationCoordsRef.current) {
-      const dest = destinationCoordsRef.current;
-      const lastKeyParts = lastRouteKeyRef.current.split('->');
-      if (lastKeyParts.length === 2) {
-        const [origLngStr, origLatStr] = lastKeyParts[0].split(',');
-        const origLng = parseFloat(origLngStr);
-        const origLat = parseFloat(origLatStr);
+    // Check if driver position actually deviated off the active route path
+    if (destinationCoordsRef.current && activeRoutePathRef.current.length > 1) {
+      const now = Date.now();
+      // Rate-limit re-routing: at least 20 seconds between re-routes to prevent 1-3s infinite loop
+      if (now - lastRerouteTimestampRef.current < 20000) {
+        return;
+      }
 
-        // Calculate distance from previous planned route start
-        const distFromStart = Math.sqrt(Math.pow(lng - origLng, 2) + Math.pow(lat - origLat, 2));
-        // Approximate ~0.001 deg is ~100 meters
-        if (distFromStart > 0.001) {
-          showToast('🚗 偏离原路线，正在为您重新规划路线...');
-          planRoute(lng, lat, dest.lng, dest.lat, destination);
-        }
+      const minDistToRoute = getMinDistanceToRoute(lng, lat);
+      // Only re-route if driver is > 80 meters away from ANY point on the planned route (meaning true wrong turn onto another road)
+      // Small deviations (< 80m, e.g. non-motorized lane, parallel side lane, indoor/stationary drift) are ignored
+      if (minDistToRoute > 80) {
+        lastRerouteTimestampRef.current = now;
+        const dest = destinationCoordsRef.current;
+        showToast('🚗 偏离主航路线路，正在为您重新规划路线...');
+        planRoute(lng, lat, dest.lng, dest.lat, destination || '建发大阅城');
       }
     }
   };
@@ -368,8 +448,8 @@ export default function NavigationView({
         </div>
       )}
 
-      {/* TOP DARK HUD PANEL (Matching image gd2) */}
-      <div className="relative z-20 bg-[#161d2b] text-white px-4 pt-3 pb-4 shadow-2xl border-b border-slate-800/80 shrink-0">
+      {/* TOP DARK HUD PANEL (Matching image gd2 with mobile notch/status bar safe area) */}
+      <div className="relative z-20 bg-[#161d2b] text-white px-4 pt-12 pb-4 shadow-2xl border-b border-slate-800/80 shrink-0">
         
         {/* Header Top Sub-Bar: Satellite Signal & HUD exit */}
         <div className="flex items-center justify-between mb-2">

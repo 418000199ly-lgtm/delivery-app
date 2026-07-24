@@ -681,12 +681,12 @@ export default function App() {
   }, [billingRules]);
 
   useEffect(() => {
-    localStorage.setItem('dd_settings', JSON.stringify(settings));
-    if (userPhone) {
-      if (lastCalibratedPhoneSettingsRef.current === userPhone) {
+    try {
+      localStorage.setItem('dd_settings', JSON.stringify(settings));
+      if (userPhone) {
         localStorage.setItem(`dd_settings_${userPhone}`, JSON.stringify(settings));
       }
-    }
+    } catch (_) {}
   }, [settings, userPhone]);
 
   // One-time automatic clean-up of legacy QR codes from user session/database to eliminate old center logos/text
@@ -750,30 +750,23 @@ export default function App() {
       }
 
       const settingsKey = `dd_settings_${userPhone}`;
-      const cachedSettings = localStorage.getItem(settingsKey);
+      const cachedSettings = localStorage.getItem(settingsKey) || localStorage.getItem('dd_settings');
       if (cachedSettings) {
         try {
           const parsed = JSON.parse(cachedSettings);
-          setSettings({
-            ...parsed,
-            wechatQrCode: '',
-            alipayQrCode: ''
-          });
+          setSettings(parsed);
         } catch (_) {
           setSettings({
             ...DEFAULT_SETTINGS,
-            customAppName: '一键代驾',
-            wechatQrCode: '',
-            alipayQrCode: ''
+            customAppName: '一键代驾'
           });
         }
       } else {
-        setSettings({
+        setSettings(prev => ({
           ...DEFAULT_SETTINGS,
-          customAppName: '一键代驾',
-          wechatQrCode: '',
-          alipayQrCode: ''
-        });
+          ...prev,
+          customAppName: prev.customAppName || '一键代驾'
+        }));
       }
     }
   }, [userPhone]);
@@ -1407,15 +1400,14 @@ export default function App() {
             localStorage.setItem('dd_user_phone', phone);
             setIsUserDataLoaded(false);
             setUserPhone(phone);
-            // Reset QR codes in state and localStorage upon login so user must re-upload in settings
-            setSettings(prev => {
-              const next = { ...prev, wechatQrCode: '', alipayQrCode: '' };
+            const settingsKey = `dd_settings_${phone}`;
+            const cachedSettings = localStorage.getItem(settingsKey) || localStorage.getItem('dd_settings');
+            if (cachedSettings) {
               try {
-                localStorage.setItem(`dd_settings_${phone}`, JSON.stringify(next));
-                localStorage.setItem('dd_settings', JSON.stringify(next));
+                const parsed = JSON.parse(cachedSettings);
+                setSettings(parsed);
               } catch (_) {}
-              return next;
-            });
+            }
             triggerToast('🎉 设备签署校验通过，欢迎重新登录回一键代驾系统！');
           }}
         />

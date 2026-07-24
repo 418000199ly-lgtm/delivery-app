@@ -1102,11 +1102,12 @@ export default function HomeView({
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
     const selectedPkg = [
-      { id: 'lifetime', days: 99999, price: 99.0, label: '永久会员' },
-      { id: '180days', days: 180, price: 42.9, label: '180天' },
-      { id: '90days', days: 90, price: 24.9, label: '90天' },
+      { id: 'lifetime', days: 99999, price: 158.0, label: '永久会员' },
+      { id: '365days', days: 365, price: 78.0, label: '365天' },
+      { id: '180days', days: 180, price: 45.0, label: '180天' },
+      { id: '90days', days: 90, price: 25.0, label: '90天' },
       { id: '30days', days: 30, price: 9.9, label: '30天' }
-    ][selectedVipPkgIndex];
+    ][selectedVipPkgIndex || 0];
 
     const durationDays = selectedPkg.days;
     const isForever = durationDays === 99999;
@@ -1880,11 +1881,11 @@ export default function HomeView({
               </div>
 
               <div className="text-sm font-semibold text-gray-800 mb-1.5 tracking-wide">
-                代驾系统已上线，请进行自助开单
+                代驾系统已上线，请进行自助开单，报单/二维码报单
               </div>
               
-              <div className="text-xs text-slate-500 font-sans tracking-wide max-w-[260px] leading-relaxed">
-                请点击右下角 <span className="text-teal-600 font-semibold">「报单」</span> 按钮，或扫描乘客端付款码安全开单计费
+              <div className="text-xs text-slate-500 font-sans tracking-wide max-w-[290px] leading-relaxed">
+                请点击右下角 <span className="text-teal-600 font-semibold">「报单」</span> 按钮，或乘客微信扫描司机端二维码安全开单计费
               </div>
               
               {/* Simulator Action Helper Trigger */}
@@ -1989,7 +1990,7 @@ export default function HomeView({
             <div className="bg-gradient-to-r from-amber-600 to-amber-500 text-white py-4 px-5 flex items-center justify-between">
               <div className="flex items-center space-x-1.5">
                 <Crown className="w-5 h-5 text-amber-100 animate-bounce" />
-                <span className="font-bold text-sm tracking-wide">VIP会员云端兑换</span>
+                <span className="font-bold text-sm tracking-wide">VIP 会员激活</span>
               </div>
               <button 
                 onClick={() => setShowRedeemModal(false)}
@@ -2002,18 +2003,18 @@ export default function HomeView({
             {/* Modal Body */}
             <div className="p-5 space-y-4">
               <p className="text-xs text-slate-500 leading-relaxed font-medium">
-                输入您的云端兑换码激活或延长软件VIP服务，尊享极速听单及开分配优等超值特权。
+                输入您的兑换码激活或延长软件 VIP 超值特权服务。
               </p>
               
               <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                  云端兑换码 / 充值卡号
+                  兑换码 / 充值卡号
                 </label>
                 <input 
                   type="text" 
                   value={redeemCode}
                   onChange={(e) => setRedeemCode(e.target.value)}
-                  placeholder="请输入代码卡密 (不区分大小写)" 
+                  placeholder="请输入兑换码（不区分大小写）" 
                   className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-3.5 text-xs font-semibold focus:outline-hidden focus:border-amber-500 focus:bg-white text-slate-800 transition-all font-mono"
                   disabled={isMatching}
                 />
@@ -2588,7 +2589,7 @@ export default function HomeView({
               </div>
               <div className="text-left">
                 <h3 className="font-extrabold text-xs text-white">VIP 尊享特权中心</h3>
-                <span className="text-[9px] text-slate-400 font-normal">极速订阅，解锁无限可能</span>
+                <span className="text-[9px] text-slate-400 font-normal">永久会员，收入倍增，解锁无限可能</span>
               </div>
             </div>
             <button 
@@ -2613,11 +2614,11 @@ export default function HomeView({
                     <Crown className="w-24 h-24 text-amber-500 rotate-12" />
                   </div>
                   <span className="inline-block px-2 py-0.5 rounded-full bg-amber-500 text-[8px] font-black text-slate-900 tracking-wide uppercase mb-2">
-                    {checkVipActive(settings.vipExpiry) ? 'VIP 尊享席位' : '普通特约用户'}
+                    {checkVipActive(settings.vipExpiry) ? 'VIP 尊享会员' : '普通特约用户'}
                   </span>
                   <p className="text-xs font-bold text-white">
                     {checkVipActive(settings.vipExpiry) 
-                      ? `您当前尊享 VIP 终极权益` 
+                      ? `您当前尊享 VIP 有效权益` 
                       : `您当前为普通免费额度账号`
                     }
                   </p>
@@ -2632,19 +2633,53 @@ export default function HomeView({
                 {/* Subtitle */}
                 <div className="text-left">
                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                    请选择尊享会员套餐
+                    请选择您的尊享会员套餐
                   </span>
                 </div>
 
                 {/* Pricing Grid */}
                 <div className="grid grid-cols-2 gap-3">
                   {[
-                    { id: 'lifetime', days: 99999, price: 99, label: '永久会员', dailyPrice: '终身', badge: '封顶极荐', tag: '终身无限', discountText: '全功能终身免费' },
-                    { id: '180days', days: 180, price: 42.9, label: '180 天', dailyPrice: '0.238', badge: '直降 16.5', tag: '72 折', discountText: '原价 59.4' },
-                    { id: '90days', days: 90, price: 24.9, label: '90 天', dailyPrice: '0.277', badge: '直降 4.8 元', tag: '84 折', discountText: '原价 29.7' },
-                    { id: '30days', days: 30, price: 9.9, label: '30 天', dailyPrice: '0.33', badge: '基准', tag: '日均 0.33', discountText: '无折扣' }
+                    { id: 'lifetime', days: 99999, price: 158, label: '永久会员', dailyPrice: '终身特惠', badge: '强力推荐', isFull: true, discountText: '日常 188元，限时特惠 158 元' },
+                    { id: '365days', days: 365, price: 78, label: '365 天（1 年）', dailyPrice: '0.214 元 / 天', badge: '年卡特惠', isFull: false, discountText: '0.214 元 / 天' },
+                    { id: '180days', days: 180, price: 45, label: '180 天（半年）', dailyPrice: '0.25 元 / 天', badge: '半年精选', isFull: false, discountText: '0.25 元 / 天' },
+                    { id: '90days', days: 90, price: 25, label: '90 天', dailyPrice: '0.278 元 / 天', badge: '季卡超值', isFull: false, discountText: '0.278 元 / 天' },
+                    { id: '30days', days: 30, price: 9.9, label: '30 天', dailyPrice: '0.33 元 / 天', badge: '月卡体验', isFull: false, discountText: '0.33 元 / 天' }
                   ].map((pkg, idx) => {
                     const isSelected = selectedVipPkgIndex === idx;
+                    if (pkg.isFull) {
+                      return (
+                        <button
+                          key={pkg.id}
+                          onClick={() => setSelectedVipPkgIndex(idx)}
+                          className={`text-left p-3.5 rounded-2xl border-2 transition-all relative overflow-hidden flex items-center justify-between col-span-2 cursor-pointer ${
+                            isSelected 
+                              ? 'border-amber-500 bg-amber-500/10 shadow-md shadow-amber-500/10' 
+                              : 'border-slate-200 bg-white hover:border-slate-300'
+                          }`}
+                        >
+                          <div className={`absolute top-0 right-0 text-[8px] font-bold px-2.5 py-0.5 rounded-bl-xl ${
+                            isSelected ? 'bg-amber-500 text-slate-900' : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {pkg.badge}
+                          </div>
+                          <div>
+                            <div className="flex items-center space-x-1.5">
+                              <Crown className="w-4 h-4 text-amber-500 shrink-0" />
+                              <p className="text-sm font-black text-slate-900">{pkg.label}</p>
+                            </div>
+                            <p className="text-[10px] text-amber-700 font-bold mt-1">永久会员｜日常 188元，限时特惠 158 元</p>
+                          </div>
+                          <div className="text-right">
+                            <div className="flex items-baseline justify-end space-x-0.5">
+                              <span className="text-xs font-bold text-slate-500">¥</span>
+                              <span className="text-2xl font-black text-slate-900 leading-none">158</span>
+                            </div>
+                            <span className="text-[9px] font-extrabold text-amber-600 block mt-1">🎉 终身尊享权益</span>
+                          </div>
+                        </button>
+                      );
+                    }
                     return (
                       <button
                         key={pkg.id}
@@ -2673,7 +2708,7 @@ export default function HomeView({
                             <span className="text-lg font-black text-slate-900 leading-none">{pkg.price}</span>
                           </div>
                           <span className="text-[8.5px] font-medium text-amber-600 block mt-0.5">
-                            {pkg.id === 'lifetime' ? '🎉 终身免费使用' : `日均仅 ¥${pkg.dailyPrice}`}
+                            {pkg.dailyPrice}
                           </span>
                         </div>
                       </button>
@@ -2734,7 +2769,7 @@ export default function HomeView({
                       </div>
                       <div>
                         <h4 className="text-[11px] font-bold text-slate-800">5. 不限制添加垫付额外费用</h4>
-                        <p className="text-[9.5px] text-slate-500 mt-0.5">结算费用单中支持无限制叠加各项代付红牛、高速过桥费等各类精细化款项。</p>
+                        <p className="text-[9.5px] text-slate-500 mt-0.5">结算费用单中支持无限制添加各项代付高速过桥费等各类精细化款项。</p>
                       </div>
                     </div>
                   </div>
@@ -2747,10 +2782,10 @@ export default function HomeView({
                     <span className="text-xs font-black">请购买兑换码激活会员</span>
                   </div>
                   <p className="text-[10px] text-amber-700 leading-relaxed font-bold">
-                    本版本已下线App直接在线支付渠道。请点击下方按钮或前往首页，点击 <span className="text-amber-600 font-black">「卡密兑换」</span> 按钮，通过官方客服或渠道代理商获取【VIP尊享激活兑换码】。
+                    请点击下方按钮或前往首页，点击 <span className="text-amber-600 font-black">「卡密兑换」</span> 按钮，通过官方客服或渠道代理商获取【VIP 尊享激活兑换码】。
                   </p>
                   <p className="text-[9.5px] text-amber-600 leading-relaxed">
-                    选择上方所需的会员天数套餐并获取相应兑换卡密后，输入并激活即可瞬间开启全部VIP专属品牌修改、纠偏校准与无限功能权限。
+                    选择上方所需的会员天数套餐并获取相应兑换卡密后，输入并激活即可瞬间开启全部 VIP 专属品牌修改、纠偏校准与无限功能等尊享专项权限。
                   </p>
                 </div>
 
@@ -2794,13 +2829,13 @@ export default function HomeView({
                 <div className="pb-2.5 flex justify-between items-center">
                   <span className="text-xs font-bold text-slate-400">已激活套餐:</span>
                   <span className="text-xs font-black text-slate-800">
-                    {['终身使用永久尊享会员', '180天尊享黄金会员', '90天尊享超级会员', '30天尊享体验会员'][selectedVipPkgIndex]}
+                    {['终身使用永久尊享会员', '365天尊享年度会员', '180天尊享半年会员', '90天尊享超级会员', '30天尊享体验会员'][selectedVipPkgIndex]}
                   </span>
                 </div>
                 <div className="py-2.5 flex justify-between items-center">
                   <span className="text-xs font-bold text-slate-400">支付总额:</span>
                   <span className="text-xs font-black text-emerald-600">
-                    ¥{[99.0, 42.9, 24.9, 9.9][selectedVipPkgIndex].toFixed(2)} 元
+                    ¥{[158.0, 78.0, 45.0, 25.0, 9.9][selectedVipPkgIndex].toFixed(2)} 元
                   </span>
                 </div>
                 <div className="pt-2.5 flex justify-between items-center">
@@ -2908,7 +2943,7 @@ export default function HomeView({
                   { title: '2. 轨迹无限制高精校准纠偏', desc: '一键自动纠偏校正轨迹，避免地图偏移导致的计费产生严重差错。' },
                   { title: '3. 无限使用呼客二维码创单', desc: '轻松生成报单呼叫二维码，提供乘客呼叫下单的完美流畅闭环。' },
                   { title: '4. 实时计费中无限调用导航', desc: '支持在代驾计费过程中拉起高德地图高精路线规划与智能语音。' },
-                  { title: '5. 支持添加多笔额外垫付费用', desc: '不设上限，计费结算单支持灵活添加红牛、过桥费、高速费等垫资。' }
+                  { title: '5. 支持添加多笔额外垫付费用', desc: '不设上限，计费结算单支持灵活添加过桥费、高速费等垫资。' }
                 ].map((item, index) => (
                   <div key={index} className="flex items-start space-x-3 p-3 bg-white border border-slate-150 rounded-xl">
                     <div className="w-5 h-5 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-600 shrink-0 mt-0.5">
