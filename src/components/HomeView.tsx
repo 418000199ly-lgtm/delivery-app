@@ -77,6 +77,18 @@ const filterOrdersWithinSixMonths = (orders: any[]): any[] => {
 
   return orders.filter(order => {
     if (!order) return false;
+
+    // Filter out old mock orders requested to be removed
+    if (order.id && typeof order.id === 'string' && order.id.startsWith('mock')) return false;
+    const startLoc = (order.startLocation || '').toString();
+    if (
+      startLoc.includes('融媒体中心') ||
+      startLoc.includes('湖滨东街支行') ||
+      startLoc.includes('公园华府')
+    ) {
+      return false;
+    }
+
     if (order.timestamp) {
       return new Date(order.timestamp) >= sixMonthsAgo;
     }
@@ -487,45 +499,7 @@ export default function HomeView({
         return filtered;
       }
     } catch (e) {}
-    // Seed with mock orders from the requested design
-    const defaultOrders = [
-      {
-        id: 'mock1',
-        timeStr: '05-23 00:54',
-        amount: 30.65,
-        startLocation: '银川市兴庆区融媒体中心',
-        endLocation: '融创城·学院里1号楼',
-        passengerPhone: '18795886688',
-        type: '后台指派订单',
-        status: '已支付'
-      },
-      {
-        id: 'mock2',
-        timeStr: '05-23 00:08',
-        amount: 28.85,
-        startLocation: '中国建设银行(银川湖滨东街支行)',
-        endLocation: '银帝·云和家园-东北门',
-        passengerPhone: '',
-        type: '乘客下单',
-        status: '已支付'
-      },
-      {
-        id: 'mock3',
-        timeStr: '05-22 23:17',
-        amount: 27.25,
-        startLocation: '晨旭托管中心公园华府',
-        endLocation: '玺云台北区',
-        passengerPhone: '13995112233',
-        type: '报单',
-        status: '已支付'
-      }
-    ];
-    const filteredDefault = filterOrdersWithinSixMonths(defaultOrders);
-    try {
-      const ordersKey = userPhone ? `dd_driver_orders_${userPhone}` : 'dd_driver_orders';
-      localStorage.setItem(ordersKey, JSON.stringify(filteredDefault));
-    } catch (e) {}
-    return filteredDefault;
+    return [];
   });
 
   // Sync order history whenever it is shown

@@ -249,10 +249,10 @@ function speakWithLocalSynthesis(text: string, onEnd?: () => void, onErrorFallba
       }
     };
 
-    // If local SpeechSynthesis on Android takes more than 1.8s to start, fallback to online stream
+    // If local SpeechSynthesis on Android takes more than 600ms to start, fallback to online stream immediately
     fallbackTimeout = setTimeout(() => {
       if (!hasEndedOrErrored) {
-        console.warn('⚠️ [Speech Engine] SpeechSynthesis start timeout on Android, falling back to audio stream...');
+        console.warn('⚠️ [Speech Engine] SpeechSynthesis start timeout on Huawei/Android (no native TTS response), falling back to audio stream...');
         hasEndedOrErrored = true;
         cleanup();
         try {
@@ -260,7 +260,7 @@ function speakWithLocalSynthesis(text: string, onEnd?: () => void, onErrorFallba
         } catch (e) {}
         if (onErrorFallback) onErrorFallback();
       }
-    }, 1800);
+    }, 600);
 
     // 180ms delay allows Android native SpeechSynthesizer IPC service to process previous cancel()
     setTimeout(() => {
@@ -360,12 +360,48 @@ function tryOnlineTTSProviders(text: string, onEnd?: () => void) {
 }
 
 /**
- * Plays an online audio stream URL with no-referrer header (critical for Android WebViews)
+ * Plays an online Chinese TTS audio stream URL with Web Audio API decoding + HTML5 Audio fallback
  */
-function playAudioStream(url: string, onEnd?: () => void, onError?: () => void) {
+async function playAudioStream(url: string, onEnd?: () => void, onError?: () => void) {
+  // Method 1: Web Audio API fetch + decodeAudioData (Bypasses Android HTML5 Audio autoplay gesture locks)
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (AudioCtx) {
+      if (!audioContext) {
+        audioContext = new AudioCtx();
+      }
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+      }
+
+      const res = await fetch(url, { mode: 'cors' });
+      if (res.ok) {
+        const buffer = await res.arrayBuffer();
+        const audioBuffer = await audioContext.decodeAudioData(buffer);
+        const source = audioContext.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(audioContext.destination);
+        
+        let hasTriggeredEnd = false;
+        source.onended = () => {
+          if (hasTriggeredEnd) return;
+          hasTriggeredEnd = true;
+          console.log('⚡ [Speech Engine] Played Chinese TTS stream via Web Audio API decode on Android!');
+          if (onEnd) onEnd();
+        };
+
+        source.start(0);
+        return;
+      }
+    }
+  } catch (err) {
+    console.warn('⚠️ [Speech Engine] Web Audio API fetch/decode failed, trying HTML5 Audio element:', err);
+  }
+
+  // Method 2: HTML5 Audio element fallback
   try {
     const audio = new Audio();
-    // CRITICAL FOR ANDROID WEBVIEW: Set no-referrer so Youdao/Baidu CDN servers don't block file:// or capacitor:// requests
+    audio.crossOrigin = 'anonymous';
     audio.setAttribute('referrerpolicy', 'no-referrer');
     (audio as any).referrerPolicy = 'no-referrer';
     audio.src = url;
