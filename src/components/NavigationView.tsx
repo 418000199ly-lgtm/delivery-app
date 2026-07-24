@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Wifi, Volume2, VolumeX, Compass, Map, X, ArrowLeft, RotateCcw } from 'lucide-react';
-import { speakText, stopSpeaking } from '../utils/speech';
+import { speakText, stopSpeaking, initAudioUnlock } from '../utils/speech';
 
 interface NavigationViewProps {
   destination: string;
@@ -102,6 +102,7 @@ export default function NavigationView({
   };
 
   useEffect(() => {
+    initAudioUnlock();
     const AMap = (window as any).AMap;
     if (!AMap || !mapContainerRef.current) return;
 
