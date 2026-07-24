@@ -1170,13 +1170,8 @@ export default function HomeView({
             return;
           }
         }
-        // Trigger Toggle Online
+        // Trigger Toggle Online (App.tsx onToggleOnline handles voice announcement)
         onToggleOnline(!isOnline);
-        // Play notification
-        if (settings.voiceBroadcast === '开单语音播报') {
-          const text = !isOnline ? '您已上线，点击报单创建订单' : '您已下线，期待为您下一次服务';
-          speakText(text);
-        }
       }
     }
     setSliderPos(0);
@@ -1220,13 +1215,8 @@ export default function HomeView({
               return;
             }
           }
-          // Trigger Toggle Online
+          // Trigger Toggle Online (App.tsx onToggleOnline handles voice announcement)
           onToggleOnline(!isOnline);
-          // Play notification
-          if (settings.voiceBroadcast === '开单语音播报') {
-            const text = !isOnline ? '您已上线，点击报单创建订单' : '您已下线，期待为您下一次服务';
-            speakText(text);
-          }
         }
       }
       setSliderPos(0);

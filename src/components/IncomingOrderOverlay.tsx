@@ -50,8 +50,7 @@ export function getTTSBroadcastText(
   destination: string,
   distanceText: string
 ): string {
-  const priceStr = approxPrice === '未知' ? '未知' : `${approxPrice}`;
-  return `叮，您有新订单啦！预估金额为 ${priceStr} 元。距离您：${distanceText}。起点：${startLocation}。终点：${destination}。请在三十秒内进行确认。`;
+  return `您有新的代驾订单，请及时处理！`;
 }
 
 export const IncomingOrderOverlay: React.FC<IncomingOrderOverlayProps> = ({

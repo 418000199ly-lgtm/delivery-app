@@ -278,7 +278,7 @@ export default function App() {
     const key = phone ? `dd_settings_${phone}` : 'dd_settings';
     const cached = typeof window !== 'undefined' ? (localStorage.getItem(key) || localStorage.getItem('dd_settings')) : null;
     const loaded = cached ? JSON.parse(cached) : DEFAULT_SETTINGS;
-    return { ...loaded, voiceBroadcast: '静音播报' };
+    return { ...DEFAULT_SETTINGS, ...loaded };
   });
 
   const [stats, setStats] = useState<DriverStats>(() => {
@@ -755,11 +755,10 @@ export default function App() {
       if (cachedSettings) {
         try {
           const parsed = JSON.parse(cachedSettings);
-          setSettings({ ...parsed, voiceBroadcast: '静音播报' });
+          setSettings(prev => ({ ...DEFAULT_SETTINGS, ...prev, ...parsed }));
         } catch (_) {
           setSettings({
             ...DEFAULT_SETTINGS,
-            voiceBroadcast: '静音播报',
             customAppName: '一键代驾'
           });
         }
@@ -767,7 +766,6 @@ export default function App() {
         setSettings(prev => ({
           ...DEFAULT_SETTINGS,
           ...prev,
-          voiceBroadcast: '静音播报',
           customAppName: prev.customAppName || '一键代驾'
         }));
       }

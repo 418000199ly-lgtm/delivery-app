@@ -92,7 +92,7 @@ export const DEFAULT_BILLING_RULES: BillingRules = {
 
 export const DEFAULT_SETTINGS: ChauffeurSettings = {
   billingTemplateName: '某滴代驾计费模版',
-  voiceBroadcast: '静音播报',
+  voiceBroadcast: '开单语音播报',
   accountBalance: 0.00,
   startServiceSMS: false,
   endServiceSMS: false,
