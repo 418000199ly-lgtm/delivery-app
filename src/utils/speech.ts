@@ -1,11 +1,10 @@
 /**
- * Ultra-Robust Android WebView & Mobile Audio Engine for Driver App
+ * Ultra-Robust Android & iOS Domestic Chinese Speech Engine for Driver App
  * 
- * Direct User Gesture Audio Unlock & Multi-Engine Chinese Speech Synthesis:
- * 1. Unlocks Web Audio Context & HTML5 Audio media channel on first user interaction
- * 2. Primary: Local Native SpeechSynthesis (Android WebView IPC delay fix + zh-CN voice routing)
- * 3. Secondary: Multi-provider Chinese TTS audio streaming with 'no-referrer' headers for Android WebViews
- * 4. Fallback: Web Audio Tri-tone Chime
+ * Specifically optimized for Mainland China Android phones (Huawei, iFlytek, Xiaomi, OPPO, Vivo, Honor, Samsung)
+ * 1. Native SpeechSynthesis route with Android System TTS Engine binding (iFlytek / Huawei Speech Service)
+ * 2. Multi-provider High-Availability Chinese TTS Audio Streams (Youdao, Baidu, Oick, App Server Proxy)
+ * 3. NO chime/beep prompt fallbacks (strictly speech voice output as requested)
  */
 
 import { getBaseApiUrl } from '../lib/dbProxy';
@@ -18,7 +17,7 @@ let audioContext: AudioContext | null = null;
 let unlockedAudioElement: HTMLAudioElement | null = null;
 let isUnlocked = false;
 
-// Cached SpeechSynthesis voices for Android WebViews & iOS
+// Cached SpeechSynthesis voices
 let cachedVoices: SpeechSynthesisVoice[] = [];
 
 function refreshVoices(): SpeechSynthesisVoice[] {
@@ -45,13 +44,13 @@ if (typeof window !== 'undefined') {
 }
 
 /**
- * Directly unlocks Audio Context, HTML5 Audio channel, and SpeechSynthesis within user gesture.
+ * Unlocks Audio Context, HTML5 Audio channel, and SpeechSynthesis within user gesture.
  */
 export function initAudioUnlock() {
   if (typeof window === 'undefined') return;
 
   try {
-    // 1. Unlock Web Audio Context
+    // 1. Web Audio Context Unlock
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
     if (AudioCtx) {
       if (!audioContext) {
@@ -60,7 +59,6 @@ export function initAudioUnlock() {
       if (audioContext.state === 'suspended') {
         audioContext.resume();
       }
-      // Play instant silent buffer to establish user media gesture permission
       const buffer = audioContext.createBuffer(1, 1, 22050);
       const source = audioContext.createBufferSource();
       source.buffer = buffer;
@@ -68,7 +66,7 @@ export function initAudioUnlock() {
       source.start(0);
     }
 
-    // 2. Unlock HTML5 Audio channel on Android WebView
+    // 2. HTML5 Audio Channel Unlock for Android WebViews
     if (!unlockedAudioElement) {
       try {
         const a = new Audio(SILENT_MP3);
@@ -83,7 +81,7 @@ export function initAudioUnlock() {
       } catch (e) {}
     }
 
-    // 3. Unlock SpeechSynthesis safely without throwing
+    // 3. SpeechSynthesis Engine Unlock
     if ('speechSynthesis' in window) {
       try {
         refreshVoices();
@@ -94,14 +92,12 @@ export function initAudioUnlock() {
         dummyUtter.onerror = () => {};
         dummyUtter.onend = () => {};
         window.speechSynthesis.speak(dummyUtter);
-      } catch (e) {
-        // Ignore dummy unlock error
-      }
+      } catch (e) {}
     }
 
     isUnlocked = true;
   } catch (e) {
-    console.warn('[Audio Engine] Audio unlock attempt error:', e);
+    console.warn('[Speech Engine] Audio unlock attempt error:', e);
   }
 }
 
@@ -115,7 +111,7 @@ if (typeof window !== 'undefined') {
 }
 
 /**
- * Primary Local Native SpeechSynthesis (Android WebView & iOS Optimized)
+ * Primary Native SpeechSynthesis (Fully compatible with Huawei / iFlytek / Domestic Android TTS)
  */
 function speakWithLocalSynthesis(text: string, onEnd?: () => void, onErrorFallback?: () => void): boolean {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
@@ -124,17 +120,17 @@ function speakWithLocalSynthesis(text: string, onEnd?: () => void, onErrorFallba
 
   try {
     const voices = refreshVoices();
-    window.speechSynthesis.cancel();
     window.speechSynthesis.resume();
 
     const utter = new SpeechSynthesisUtterance(text);
+    // Explicitly set language for Android System TTS Engine (iFlytek / Huawei)
     utter.lang = 'zh-CN';
     utter.volume = 1.0;
     utter.rate = 1.0;
     utter.pitch = 1.0;
 
     if (voices && voices.length > 0) {
-      // Filter out Google TTS voices when running in mainland China to avoid GFW connection timeouts
+      // Filter out Google TTS voices to avoid GFW timeouts in mainland China
       const nonGoogleVoices = voices.filter(v => {
         const lang = (v.lang || '').toLowerCase();
         const name = (v.name || '').toLowerCase();
@@ -144,7 +140,6 @@ function speakWithLocalSynthesis(text: string, onEnd?: () => void, onErrorFallba
 
       const targetPool = nonGoogleVoices.length > 0 ? nonGoogleVoices : voices;
 
-      // Domestic Chinese brand keywords (iFlytek, Huawei, Xiaomi, OPPO, Vivo, Honor, Samsung, etc.)
       const domesticBrandKeywords = [
         'iflytek', 'xfyun', '讯飞', 'xunfei', 'flytek',
         'huawei', 'hiai', 'celia', '小艺', '华为',
@@ -155,7 +150,6 @@ function speakWithLocalSynthesis(text: string, onEnd?: () => void, onErrorFallba
         'baidu', 'sinovoice', 'sogou', '搜狗', 'xiaoxiao', 'yunyang', 'siri', 'tingting', 'meijia'
       ];
 
-      // 1. Try to find a domestic brand specific Chinese voice
       let zhVoice = targetPool.find(v => {
         const lang = (v.lang || '').toLowerCase();
         const name = (v.name || '').toLowerCase();
@@ -163,7 +157,6 @@ function speakWithLocalSynthesis(text: string, onEnd?: () => void, onErrorFallba
         return isZh && domesticBrandKeywords.some(kw => name.includes(kw) || lang.includes(kw));
       });
 
-      // 2. Fallback to any Chinese voice in the target pool
       if (!zhVoice) {
         zhVoice = targetPool.find(v => {
           const lang = (v.lang || '').toLowerCase();
@@ -211,12 +204,12 @@ function speakWithLocalSynthesis(text: string, onEnd?: () => void, onErrorFallba
     };
 
     utter.onstart = () => {
-      console.log('⚡ [Speech Engine] Local SpeechSynthesis started playing on Android/iOS!');
+      console.log('⚡ [Speech Engine] Native SpeechSynthesis started playing Chinese text successfully!');
       if (fallbackTimeout) {
         clearTimeout(fallbackTimeout);
         fallbackTimeout = null;
       }
-      // Android keep-alive fix: call resume periodically so Android WebView doesn't pause TTS
+      // Android keep-alive loop
       keepAliveTimer = setInterval(() => {
         if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
           if (window.speechSynthesis.speaking) {
@@ -249,10 +242,10 @@ function speakWithLocalSynthesis(text: string, onEnd?: () => void, onErrorFallba
       }
     };
 
-    // If local SpeechSynthesis on Android takes more than 600ms to start, fallback to online stream immediately
+    // If local SpeechSynthesis on Android takes more than 400ms to start, fallback to built-in audio stream immediately
     fallbackTimeout = setTimeout(() => {
       if (!hasEndedOrErrored) {
-        console.warn('⚠️ [Speech Engine] SpeechSynthesis start timeout on Huawei/Android (no native TTS response), falling back to audio stream...');
+        console.warn('⚠️ [Speech Engine] SpeechSynthesis start timeout on Android (no native TTS response in 400ms), falling back to built-in Chinese audio stream...');
         hasEndedOrErrored = true;
         cleanup();
         try {
@@ -260,21 +253,26 @@ function speakWithLocalSynthesis(text: string, onEnd?: () => void, onErrorFallba
         } catch (e) {}
         if (onErrorFallback) onErrorFallback();
       }
-    }, 600);
+    }, 400);
 
-    // 180ms delay allows Android native SpeechSynthesizer IPC service to process previous cancel()
-    setTimeout(() => {
-      try {
-        window.speechSynthesis.resume();
-        window.speechSynthesis.speak(utter);
-      } catch (e) {
-        if (!hasEndedOrErrored && onErrorFallback) {
-          hasEndedOrErrored = true;
-          cleanup();
-          onErrorFallback();
+    // Trigger speech cleanly
+    if (window.speechSynthesis.speaking) {
+      window.speechSynthesis.cancel();
+      setTimeout(() => {
+        try {
+          window.speechSynthesis.resume();
+          window.speechSynthesis.speak(utter);
+        } catch (e) {
+          if (!hasEndedOrErrored && onErrorFallback) {
+            hasEndedOrErrored = true;
+            cleanup();
+            onErrorFallback();
+          }
         }
-      }
-    }, 180);
+      }, 50);
+    } else {
+      window.speechSynthesis.speak(utter);
+    }
 
     return true;
   } catch (e) {
@@ -284,7 +282,7 @@ function speakWithLocalSynthesis(text: string, onEnd?: () => void, onErrorFallba
 }
 
 /**
- * Main Voice Speech Function with Zero-Latency Local-First Execution
+ * Main Voice Speech Function
  * 
  * @param text The Chinese text to speak
  * @param onEnd Callback function when speech finishes
@@ -297,30 +295,29 @@ export function speakText(text: string, onEnd?: () => void) {
 
   console.log('🗣️ [Speech Engine] Speech requested:', text);
 
-  // Synchronously activate audio engine in current tick
+  // Activate audio engine in current tick
   initAudioUnlock();
 
   // Stop previous speech/audio
   stopSpeaking();
 
-  // STEP 1: Attempt local native SpeechSynthesis FIRST (works on iOS & Android WebViews)
+  // STEP 1: Attempt local native SpeechSynthesis FIRST
   const localInitiated = speakWithLocalSynthesis(text, onEnd, () => {
-    console.warn('⚠️ [Speech Engine] Local synthesis error/unavailable, trying online TTS backup...');
+    console.warn('⚠️ [Speech Engine] Local synthesis unavailable, trying online Chinese TTS stream...');
     tryOnlineTTSProviders(text, onEnd);
   });
 
   if (localInitiated) {
-    console.log('🎙️ [Speech Engine] Initiated local SpeechSynthesis utterance.');
     return;
   }
 
-  // STEP 2: Fallback to online TTS providers
-  console.warn('⚠️ [Speech Engine] Local SpeechSynthesis not supported, trying online TTS backup...');
+  // STEP 2: Fallback to online Chinese TTS providers
+  console.warn('⚠️ [Speech Engine] Local SpeechSynthesis not supported, trying online Chinese TTS stream...');
   tryOnlineTTSProviders(text, onEnd);
 }
 
 /**
- * Online TTS Stream Fallback
+ * Online Chinese TTS Stream Fallback (Multi-Provider)
  */
 function tryOnlineTTSProviders(text: string, onEnd?: () => void) {
   const encodedText = encodeURIComponent(text);
@@ -328,12 +325,12 @@ function tryOnlineTTSProviders(text: string, onEnd?: () => void) {
 
   const ttsProviders: string[] = [];
 
-  // If baseUrl is a valid remote server (not localhost/file/empty)
+  // 1. App Server Proxy endpoint
   if (baseUrl && !baseUrl.includes('localhost') && !baseUrl.startsWith('file:') && !baseUrl.startsWith('capacitor:')) {
     ttsProviders.push(`${baseUrl}/api/tts?text=${encodedText}`);
   }
 
-  // Direct Chinese TTS Audio Streams (with no-referrer header for Android WebView compatibility)
+  // 2. High-Availability Chinese TTS Audio Streams
   ttsProviders.push(
     `https://dict.youdao.com/dictvoice?audio=${encodedText}&type=1`,
     `https://tts.baidu.com/text2audio?cuid=baike&lan=zh&ctp=1&padd=&spd=5&ptm=0&tex=${encodedText}`,
@@ -351,8 +348,8 @@ function tryOnlineTTSProviders(text: string, onEnd?: () => void) {
         tryNext();
       });
     } else {
-      console.warn('⚠️ [Speech Engine] All online TTS streams unreachable. Playing chime alert.');
-      playChimeAlert(onEnd);
+      console.warn('⚠️ [Speech Engine] All online Chinese TTS streams exhausted.');
+      if (onEnd) onEnd();
     }
   };
 
@@ -363,7 +360,7 @@ function tryOnlineTTSProviders(text: string, onEnd?: () => void) {
  * Plays an online Chinese TTS audio stream URL with Web Audio API decoding + HTML5 Audio fallback
  */
 async function playAudioStream(url: string, onEnd?: () => void, onError?: () => void) {
-  // Method 1: Web Audio API fetch + decodeAudioData (Bypasses Android HTML5 Audio autoplay gesture locks)
+  // Method 1: Web Audio API fetch + decodeAudioData
   try {
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
     if (AudioCtx) {
@@ -386,7 +383,7 @@ async function playAudioStream(url: string, onEnd?: () => void, onError?: () => 
         source.onended = () => {
           if (hasTriggeredEnd) return;
           hasTriggeredEnd = true;
-          console.log('⚡ [Speech Engine] Played Chinese TTS stream via Web Audio API decode on Android!');
+          console.log('⚡ [Speech Engine] Played Chinese TTS stream via Web Audio API decode!');
           if (onEnd) onEnd();
         };
 
@@ -398,7 +395,7 @@ async function playAudioStream(url: string, onEnd?: () => void, onError?: () => 
     console.warn('⚠️ [Speech Engine] Web Audio API fetch/decode failed, trying HTML5 Audio element:', err);
   }
 
-  // Method 2: HTML5 Audio element fallback
+  // Method 2: HTML5 Audio element fallback with no-referrer
   try {
     const audio = new Audio();
     audio.crossOrigin = 'anonymous';
@@ -449,56 +446,7 @@ async function playAudioStream(url: string, onEnd?: () => void, onError?: () => 
 }
 
 /**
- * Absolute Fallback: Web Audio API Tri-tone Notification Chime
- */
-export function playChimeAlert(onEnd?: () => void) {
-  try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) {
-      if (onEnd) onEnd();
-      return;
-    }
-
-    if (!audioContext) {
-      audioContext = new AudioCtx();
-    }
-    if (audioContext.state === 'suspended') {
-      audioContext.resume();
-    }
-
-    const now = audioContext.currentTime;
-    const frequencies = [783.99, 987.77, 1046.50];
-
-    frequencies.forEach((freq, idx) => {
-      if (!audioContext) return;
-      const osc = audioContext.createOscillator();
-      const gain = audioContext.createGain();
-
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, now + idx * 0.12);
-
-      gain.gain.setValueAtTime(0, now + idx * 0.12);
-      gain.gain.linearRampToValueAtTime(0.8, now + idx * 0.12 + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.12 + 0.25);
-
-      osc.connect(gain);
-      gain.connect(audioContext.destination);
-
-      osc.start(now + idx * 0.12);
-      osc.stop(now + idx * 0.12 + 0.3);
-    });
-
-    setTimeout(() => {
-      if (onEnd) onEnd();
-    }, 600);
-  } catch (e) {
-    console.warn('[Speech Engine] Chime sound alert error:', e);
-    if (onEnd) onEnd();
-  }
-}
-
-/**
- * Stop any active broadcasts instantly
+ * Stop any active speech broadcasts instantly
  */
 export function stopSpeaking() {
   if (currentAudio) {
@@ -518,6 +466,3 @@ export function stopSpeaking() {
     } catch (e) {}
   }
 }
-
-
-

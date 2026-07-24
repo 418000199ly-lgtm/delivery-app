@@ -277,7 +277,8 @@ export default function App() {
     const phone = typeof window !== 'undefined' ? localStorage.getItem('dd_user_phone') : null;
     const key = phone ? `dd_settings_${phone}` : 'dd_settings';
     const cached = typeof window !== 'undefined' ? (localStorage.getItem(key) || localStorage.getItem('dd_settings')) : null;
-    return cached ? JSON.parse(cached) : DEFAULT_SETTINGS;
+    const loaded = cached ? JSON.parse(cached) : DEFAULT_SETTINGS;
+    return { ...loaded, voiceBroadcast: '静音播报' };
   });
 
   const [stats, setStats] = useState<DriverStats>(() => {
@@ -754,10 +755,11 @@ export default function App() {
       if (cachedSettings) {
         try {
           const parsed = JSON.parse(cachedSettings);
-          setSettings(parsed);
+          setSettings({ ...parsed, voiceBroadcast: '静音播报' });
         } catch (_) {
           setSettings({
             ...DEFAULT_SETTINGS,
+            voiceBroadcast: '静音播报',
             customAppName: '一键代驾'
           });
         }
@@ -765,6 +767,7 @@ export default function App() {
         setSettings(prev => ({
           ...DEFAULT_SETTINGS,
           ...prev,
+          voiceBroadcast: '静音播报',
           customAppName: prev.customAppName || '一键代驾'
         }));
       }
@@ -1180,7 +1183,7 @@ export default function App() {
 
     // Voice announcement overlay completion
     if (settings.voiceBroadcast === '开单语音播报') {
-      const textStr = `收款成功。本次收款金额：${amount}元，已存入代驾指定账户钱包中。感谢您的辛苦劳动！`;
+      const textStr = `收款成功。本次收款金额：${amount}元。`;
       speakText(textStr);
     }
   };
@@ -1204,6 +1207,15 @@ export default function App() {
       }
     }
     setIsOnline(online);
+
+    // Voice announcement for online / offline toggle
+    if (settings.voiceBroadcast === '开单语音播报') {
+      if (online) {
+        speakText('您已上线！');
+      } else {
+        speakText('您已下线！');
+      }
+    }
     if (userPhone) {
       const userDocRef = doc(db, 'driver_users', userPhone);
       setDoc(userDocRef, {

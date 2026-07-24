@@ -689,7 +689,7 @@ export default function HomeView({
       if (latestMessage && !viewedMessageIds.includes(latestMessage.id)) {
         // Trigger speech voice announcement if enabled
         if (settings.voiceBroadcast === '开单语音播报') {
-          speakText(`收到系统最新通知公告：${latestMessage.title}`);
+          speakText('您有新的消息，注意查收！');
         }
       }
     }
