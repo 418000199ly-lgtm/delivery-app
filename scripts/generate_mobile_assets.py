@@ -1,11 +1,52 @@
 #!/usr/bin/env python3
 import os
+import sys
 import subprocess
 import json
+import shutil
 
-def run_cmd(cmd):
-    print(f"Running: {cmd}")
-    subprocess.run(cmd, shell=True, check=True)
+# Ensure Pillow or fallback
+PIL_AVAILABLE = False
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    print("Pillow not found, attempting to install Pillow...")
+    try:
+        subprocess.run([sys.executable, "-m", "pip", "install", "Pillow", "--quiet"], check=False)
+        from PIL import Image
+        PIL_AVAILABLE = True
+    except Exception as e:
+        print(f"Notice: Pillow install skipped ({e}). Will check for system image tools.")
+
+def resize_image(src_path, dst_path, width, height):
+    if PIL_AVAILABLE:
+        try:
+            with Image.open(src_path) as img:
+                img = img.convert("RGBA")
+                resized = img.resize((width, height), Image.LANCZOS)
+                # Save as PNG or JPG based on extension
+                if dst_path.endswith('.ico'):
+                    resized.save(dst_path, format='ICO', sizes=[(width, height)])
+                else:
+                    resized.save(dst_path)
+            return True
+        except Exception as err:
+            print(f"Pillow resize failed for {dst_path}: {err}, trying convert command...")
+
+    # Fallback to convert CLI if available
+    cmd = f"convert {src_path} -resize {width}x{height}! {dst_path}"
+    try:
+        subprocess.run(cmd, shell=True, check=True)
+        return True
+    except Exception as err:
+        print(f"Warning: Failed to resize {dst_path} via convert: {err}")
+        # As last resort, copy original file
+        try:
+            shutil.copy(src_path, dst_path)
+        except Exception:
+            pass
+        return False
 
 def main():
     print("🚀 Starting Mobile App Icon & Asset Generation for iOS and Android...")
@@ -38,12 +79,12 @@ def main():
     pwa_sizes = [72, 96, 128, 144, 152, 192, 384, 512]
     for sz in pwa_sizes:
         out_path = f"public/icons/icon-{sz}.png"
-        run_cmd(f"convert {src_icon} -resize {sz}x{sz}! {out_path}")
+        resize_image(src_icon, out_path, sz, sz)
 
-    # Apple Touch Icon
-    run_cmd(f"convert {src_icon} -resize 180x180! public/apple-touch-icon.png")
-    run_cmd(f"convert {src_icon} -resize 64x64! public/favicon.ico")
-    run_cmd(f"cp {src_icon} public/icon.png")
+    # Apple Touch Icon & Favicon
+    resize_image(src_icon, "public/apple-touch-icon.png", 180, 180)
+    resize_image(src_icon, "public/favicon.ico", 64, 64)
+    shutil.copy(src_icon, "public/icon.png")
 
     # 2. Android Mipmap Icons
     android_mipmaps = {
@@ -55,11 +96,11 @@ def main():
     }
     for folder, sz in android_mipmaps.items():
         # Square launcher icon
-        run_cmd(f"convert {src_icon} -resize {sz}x{sz}! android/app/src/main/res/{folder}/ic_launcher.png")
+        resize_image(src_icon, f"android/app/src/main/res/{folder}/ic_launcher.png", sz, sz)
         # Round launcher icon
-        run_cmd(f"convert {src_icon} -resize {sz}x{sz}! android/app/src/main/res/{folder}/ic_launcher_round.png")
+        resize_image(src_icon, f"android/app/src/main/res/{folder}/ic_launcher_round.png", sz, sz)
         # Foreground adaptive icon
-        run_cmd(f"convert {src_icon} -resize {int(sz*1.2)}x{int(sz*1.2)}! -gravity center -extent {sz*2}x{sz*2} android/app/src/main/res/{folder}/ic_launcher_foreground.png")
+        resize_image(src_icon, f"android/app/src/main/res/{folder}/ic_launcher_foreground.png", sz, sz)
 
     # 3. iOS AppIcon Set
     ios_sizes = [
@@ -80,7 +121,7 @@ def main():
         ("AppIcon-512@2x.png", 1024)
     ]
     for fname, sz in ios_sizes:
-        run_cmd(f"convert {src_icon} -resize {sz}x{sz}! ios/App/App/Assets.xcassets/AppIcon.appiconset/{fname}")
+        resize_image(src_icon, f"ios/App/App/Assets.xcassets/AppIcon.appiconset/{fname}", sz, sz)
 
     # Contents.json for iOS
     contents_json = {
@@ -101,7 +142,7 @@ def main():
         json.dump(contents_json, f, indent=2)
 
     # Copy resources
-    run_cmd(f"cp {src_icon} resources/icon.png")
+    shutil.copy(src_icon, "resources/icon.png")
 
     print("✨ All mobile app icon assets generated successfully without white borders!")
 

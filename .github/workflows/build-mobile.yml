@@ -19,6 +19,11 @@ jobs:
           node-version: 20
           cache: 'npm'
 
+      - name: Install System Dependencies (ImageMagick & Pillow)
+        run: |
+          sudo apt-get update || true
+          sudo apt-get install -y imagemagick python3-pip python3-pillow || true
+
       - name: Install Dependencies
         run: npm ci --legacy-peer-deps || npm install --legacy-peer-deps
 
