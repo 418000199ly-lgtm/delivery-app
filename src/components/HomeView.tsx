@@ -46,7 +46,7 @@ import DispatchValetOrder from './DispatchValetOrder';
 import { db, doc, getDoc, updateDoc, collection, onSnapshot, setDoc, getDocs, deleteDoc } from '../lib/dbProxy';
 import { CITY_GROUPS, ALL_CITIES_FLAT } from '../constants/cities';
 import { resolveAndSyncDuplicateNames } from '../utils/nameResolver';
-import { speakText } from '../utils/speech';
+import { speakText, initAudioUnlock } from '../utils/speech';
 import vipPaymentMockupImg from '../assets/images/vip_payment_mockup_1782906470780.jpg';
 import wechatPayQrImg from '../assets/images/wechat_pay_qr_1782906451645.jpg';
 
@@ -1136,6 +1136,7 @@ export default function HomeView({
 
   // Slider controls (simulated drag)
   const handleTouchStart = (e: React.TouchEvent) => {
+    initAudioUnlock();
     if (currentTrip) return; // Cannot toggle while in trip
     touchStartRef.current = e.touches[0].clientX;
     setIsSliding(true);

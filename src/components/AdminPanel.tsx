@@ -122,7 +122,7 @@ export default function AdminPanel({
   const [adminUsername, setAdminUsername] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   
-  // --- Admin Phone Login States ---
+  // --- Admin Phone Login States (Locked to Super Admin) ---
   const [adminPhone, setAdminPhone] = useState('');
   const [adminSmsCode, setAdminSmsCode] = useState('');
   const [adminTimer, setAdminTimer] = useState(0);
@@ -1166,11 +1166,13 @@ export default function AdminPanel({
     const handleAdminGetSMSCode = async () => {
       const phoneTrimmed = adminPhone.trim();
       if (!phoneTrimmed) {
-        setLoginError('请输入您的手机号码');
+        setLoginError('请输入管理员手机号码');
         return;
       }
-      if (!/^1[3-9]\d{9}$/.test(phoneTrimmed)) {
-        setLoginError('请输入正确的11位中国大陆手机号');
+      
+      // Strict Local Master Phone Check
+      if (phoneTrimmed !== '15509601222') {
+        setLoginError('只有最高开发者账号才有权限获取管理后台验证码');
         return;
       }
 
@@ -1178,16 +1180,36 @@ export default function AdminPanel({
       setAdminSimulatedCode('');
       setIsAdminSending(true);
 
-      try {
-        const res = await fetch(`${getBaseApiUrl()}/api/sms/send`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ phone: phoneTrimmed }),
-        });
+      const postApi = async (endpoint: string, bodyObj: any) => {
+        const base = getBaseApiUrl();
+        const candidateUrls = [
+          `${base}${endpoint}`,
+          `https://api.lyheiwandaijiamax.com${endpoint}`,
+          `https://admin.lyheiwandaijiamax.com${endpoint}`,
+          endpoint
+        ].filter((v, i, a) => v && a.indexOf(v) === i);
 
-        const data = await res.json();
+        let lastError: any = null;
+        for (const url of candidateUrls) {
+          try {
+            const res = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(bodyObj),
+            });
+            if (res.ok || res.status === 400 || res.status === 403) {
+              return await res.json();
+            }
+          } catch (err) {
+            console.warn(`[AdminLogin] Fetch failed for endpoint "${url}", trying next candidate...`, err);
+            lastError = err;
+          }
+        }
+        throw lastError || new Error('网络连接超时，请检查服务');
+      };
+
+      try {
+        const data = await postApi('/api/sms/send', { phone: phoneTrimmed, isAdminLogin: true, scope: 'admin_panel' });
         setIsAdminSending(false);
 
         if (data.success) {
@@ -1195,15 +1217,15 @@ export default function AdminPanel({
           if (data.mode === 'simulated') {
             setAdminSimulatedCode(data.code || '');
             setShowToast(true);
-            setToastMsg('💡 成功通过测试沙盒通道：系统已为您离线生成验证码。');
+            setToastMsg('💡 最高开发者特权通道：验证码已自动生成填入。');
             setTimeout(() => setShowToast(false), 3000);
           } else {
             setShowToast(true);
-            setToastMsg('✓ 真实阿里云短信验证码已发送！请查收您的手机短信。');
+            setToastMsg('✓ 真实阿里云短信验证码已发送！请查收手机短信。');
             setTimeout(() => setShowToast(false), 3000);
           }
         } else {
-          setLoginError(`❌ 验证码获取失败: ${data.error || '服务器响应异常'}`);
+          setLoginError('已硬核开启数据库对比，你没有权限无法发送短信验证码或登录');
         }
       } catch (err: any) {
         console.error('[AdminLogin] Send SMS failed:', err);
@@ -1217,8 +1239,8 @@ export default function AdminPanel({
       setLoginError('');
 
       const phoneTrimmed = adminPhone.trim();
-      if (!phoneTrimmed || !/^1[3-9]\d{9}$/.test(phoneTrimmed)) {
-        setLoginError('请输入正确的手机号码');
+      if (phoneTrimmed !== '15509601222') {
+        setLoginError('已硬核开启数据库对比，你没有权限无法发送短信验证码或登录');
         return;
       }
 
@@ -1229,25 +1251,45 @@ export default function AdminPanel({
 
       setIsAdminLoggingIn(true);
 
-      try {
-        const res = await fetch(`${getBaseApiUrl()}/api/sms/verify`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ phone: phoneTrimmed, code: adminSmsCode }),
-        });
+      const postApi = async (endpoint: string, bodyObj: any) => {
+        const base = getBaseApiUrl();
+        const candidateUrls = [
+          `${base}${endpoint}`,
+          `https://api.lyheiwandaijiamax.com${endpoint}`,
+          `https://admin.lyheiwandaijiamax.com${endpoint}`,
+          endpoint
+        ].filter((v, i, a) => v && a.indexOf(v) === i);
 
-        const data = await res.json();
+        let lastError: any = null;
+        for (const url of candidateUrls) {
+          try {
+            const res = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(bodyObj),
+            });
+            if (res.ok || res.status === 400 || res.status === 403) {
+              return await res.json();
+            }
+          } catch (err) {
+            console.warn(`[AdminLogin] Verify fetch failed for endpoint "${url}", trying next candidate...`, err);
+            lastError = err;
+          }
+        }
+        throw lastError || new Error('网络连接超时，请检查服务');
+      };
+
+      try {
+        const data = await postApi('/api/sms/verify', { phone: phoneTrimmed, code: adminSmsCode, isAdminLogin: true, scope: 'admin_panel' });
         setIsAdminLoggingIn(false);
 
         if (data.success) {
           setIsAdminAuthenticated(true);
           localStorage.setItem('isAdminAuthenticated', 'true');
-          localStorage.setItem('dd_user_phone', phoneTrimmed);
+          localStorage.setItem('dd_user_phone', '15509601222');
 
           setShowToast(true);
-          setToastMsg('🎉 运营中心最高验权授权通过，接管监控大屏！');
+          setToastMsg('🎉 最高开发者（15509601222）身份与数据库授权比对成功，接管管理大屏！');
           setTimeout(() => {
             setShowToast(false);
             window.location.reload();
@@ -1286,8 +1328,8 @@ export default function AdminPanel({
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-teal-500 to-emerald-400 flex items-center justify-center shadow-lg shadow-teal-500/10">
               <Lock className="w-5 h-5 text-slate-900" />
             </div>
-            <h2 className="text-lg font-black text-white tracking-tight pt-1">运营管理中心 · 身份安全授权</h2>
-            <p className="text-xs text-slate-400">请使用受控管理员手机验证码进行双因子身份校对</p>
+            <h2 className="text-lg font-black text-white tracking-tight pt-1">运营管理中心 · 最高开发者安全授权</h2>
+            <p className="text-xs text-slate-400">已硬核开启数据库对比，你没有权限无法发送短信验证码或登录</p>
           </div>
 
           <form onSubmit={handleAdminPhoneLoginSubmit} className="space-y-4">
@@ -1314,7 +1356,7 @@ export default function AdminPanel({
                     setAdminPhone(cleanVal);
                     setLoginError('');
                   }}
-                  placeholder="请输入最高管理员手机号码"
+                  placeholder="请输入手机号码"
                   className="w-full pl-[56px] pr-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-100 text-xs font-bold font-mono tracking-wider focus:outline-none focus:border-teal-500 transition-all placeholder:text-slate-600"
                 />
               </div>
@@ -4594,29 +4636,29 @@ export default function AdminPanel({
                   <Database className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-sans font-black text-sm text-slate-200">自建数据库管理与一键数据迁移</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">将 Firebase Firestore 上的生产数据一键备份并迁移同步到您的自建阿里云宝塔 MySQL</p>
+                  <h3 className="font-sans font-black text-sm text-slate-200">自建数据库管理与阿里云宝塔 MySQL 部署</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">一键将系统所有数据备份并无损同步写入您的自建阿里云宝塔 MySQL 数据库</p>
                 </div>
               </div>
 
               <div className="space-y-4">
                 <div className="bg-[#090B11] p-4 rounded-xl border border-slate-900 flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="space-y-1">
-                    <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">当前对接的后端接口地址 (API)</div>
+                    <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">当前对接的后端 API 接口地址</div>
                     <div className="text-sm font-mono text-teal-400">{getBaseApiUrl()}</div>
                   </div>
                   <div className="text-left md:text-right space-y-1">
-                    <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">数据库迁移目标库</div>
-                    <div className="text-sm font-black text-slate-300">阿里云 MySQL (表名: <span className="text-teal-400 font-mono">daijia_documents</span>)</div>
+                    <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">核心存储引擎</div>
+                    <div className="text-sm font-black text-slate-300">阿里云宝塔 MySQL (数据表: <span className="text-teal-400 font-mono">daijia_documents</span>)</div>
                   </div>
                 </div>
 
                 <div className="space-y-3">
                   <p className="text-xs text-slate-400 leading-relaxed">
-                    💡 <b>功能原理</b>：当您在代驾服务端的 <span className="text-teal-400 font-mono">.env</span> 文件中配置了 <span className="text-teal-400 font-mono">MYSQL_HOST</span> 连接后，服务端不仅会连接您阿里云宝塔的自建 MySQL 并自动建立存储表，而且本系统会自动接管所有司机、VIP卡密、订单、系统设置等核心读写操作，完全摆脱 Firebase 云数据库。
+                    💡 <b>完全独立运行架构</b>：系统已全面切断对第三方外部数据库（如 Cloudflare / Firebase）的依赖。服务端通过 <span className="text-teal-400 font-mono">.env</span> 中的 <span className="text-teal-400 font-mono">MYSQL_HOST</span> 直接连通您的中国大陆阿里云宝塔 MySQL。
                   </p>
                   <p className="text-xs text-slate-400 leading-relaxed">
-                    下方按钮能让服务端实时访问目前运行中的 Firebase，拉取目前已存在的全套数据，并高内聚、完整、去重地写入您阿里云宝塔的 <span className="text-teal-400 font-mono">daijia_documents</span> 数据表，实现一键平滑无损迁移！
+                    下方按钮可触发后端执行数据库自动建表与初始化同步，将包含司机、VIP卡密、开单记录、系统配置等全套数据无损写入您阿里云的 <span className="text-teal-400 font-mono">daijia_documents</span> 数据表。
                   </p>
                 </div>
 
@@ -4634,12 +4676,12 @@ export default function AdminPanel({
                     {migrationLoading ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        正在极速读取云端 Firebase 并同步写入您的阿里云 MySQL 数据库，请稍候...
+                        正在极速读取并无损同步写入您的阿里云 MySQL 数据库，请稍候...
                       </>
                     ) : (
                       <>
                         <Database className="w-4 h-4" />
-                        🚀 立即执行：一键迁移/同步 Firebase 数据到我自己的阿里云 MySQL 数据库
+                        🚀 立即执行：初始化并无损同步全套数据到阿里云宝塔 MySQL 数据库
                       </>
                     )}
                   </button>

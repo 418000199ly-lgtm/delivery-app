@@ -22,6 +22,9 @@ export default function NavigationView({
   const drivingPluginRef = useRef<any>(null);
   const driverMarkerRef = useRef<any>(null);
 
+  const destMarkerRef = useRef<any>(null);
+  const offRouteCountRef = useRef<number>(0);
+
   // HUD & Maneuver state
   const [nextInstruction, setNextInstruction] = useState<string>('计算最优路线中...');
   const [nextRoad, setNextRoad] = useState<string>('获取道路信息...');
@@ -161,9 +164,34 @@ export default function NavigationView({
         map: map,
         policy: AMap.DrivingPolicy.LEAST_TIME, // Fastest / nearest route
         showTraffic: true,
-        hideMarkers: false
+        hideMarkers: true // Hide default AMap start/end markers during active navigation
       });
       drivingPluginRef.current = driving;
+
+      const createOrUpdateDestMarker = (dLng: number, dLat: number, name: string) => {
+        if (!mapInstanceRef.current || !AMap) return;
+        if (destMarkerRef.current) {
+          destMarkerRef.current.setPosition([dLng, dLat]);
+        } else {
+          const destMarker = new AMap.Marker({
+            position: [dLng, dLat],
+            offset: new AMap.Pixel(-14, -34),
+            content: `
+              <div class="relative flex flex-col items-center">
+                <div class="px-2 py-0.5 bg-red-600 text-white font-bold text-[11px] rounded-md shadow-md mb-1 whitespace-nowrap border border-white">
+                  ${name}
+                </div>
+                <div class="w-7 h-7 bg-red-600 rounded-full border-2 border-white shadow-lg flex items-center justify-center text-white font-black text-xs">
+                  终
+                </div>
+              </div>
+            `,
+            zIndex: 115
+          });
+          destMarker.setMap(mapInstanceRef.current);
+          destMarkerRef.current = destMarker;
+        }
+      };
 
       const geocodeAndPlan = (originLng: number, originLat: number) => {
         // First try searching with exact destination name in registered city
@@ -176,6 +204,7 @@ export default function NavigationView({
             destLng = loc.getLng ? loc.getLng() : loc.lng;
             destLat = loc.getLat ? loc.getLat() : loc.lat;
             destinationCoordsRef.current = { lng: destLng, lat: destLat };
+            createOrUpdateDestMarker(destLng, destLat, cleanDest);
             planRoute(originLng, originLat, destLng, destLat, cleanDest);
           } else {
             // Secondary attempt with city name prefixed to lock exact destination
@@ -186,6 +215,7 @@ export default function NavigationView({
                 destLat = loc2.getLat ? loc2.getLat() : loc2.lat;
               }
               destinationCoordsRef.current = { lng: destLng, lat: destLat };
+              createOrUpdateDestMarker(destLng, destLat, cleanDest);
               planRoute(originLng, originLat, destLng, destLat, cleanDest);
             });
           }
@@ -369,19 +399,25 @@ export default function NavigationView({
     // Check if driver position actually deviated off the active route path
     if (destinationCoordsRef.current && activeRoutePathRef.current.length > 1) {
       const now = Date.now();
-      // Rate-limit re-routing: at least 20 seconds between re-routes to prevent 1-3s infinite loop
-      if (now - lastRerouteTimestampRef.current < 20000) {
+      // Rate-limit re-routing: at least 30 seconds between re-routes
+      if (now - lastRerouteTimestampRef.current < 30000) {
         return;
       }
 
       const minDistToRoute = getMinDistanceToRoute(lng, lat);
-      // Only re-route if driver is > 80 meters away from ANY point on the planned route (meaning true wrong turn onto another road)
-      // Small deviations (< 80m, e.g. non-motorized lane, parallel side lane, indoor/stationary drift) are ignored
-      if (minDistToRoute > 80) {
-        lastRerouteTimestampRef.current = now;
-        const dest = destinationCoordsRef.current;
-        showToast('🚗 偏离主航路线路，正在为您重新规划路线...');
-        planRoute(lng, lat, dest.lng, dest.lat, destination || '建发大阅城');
+      // Require driver to be > 180m away from the planned route for 3 CONSECUTIVE GPS fixes
+      // This prevents single GPS jitter/drift during driving from triggering false re-routes
+      if (minDistToRoute > 180) {
+        offRouteCountRef.current += 1;
+        if (offRouteCountRef.current >= 3) {
+          offRouteCountRef.current = 0;
+          lastRerouteTimestampRef.current = now;
+          const dest = destinationCoordsRef.current;
+          showToast('🚗 偏离主航路线路，正在为您重新规划路线...');
+          planRoute(lng, lat, dest.lng, dest.lat, destination || '建发大阅城');
+        }
+      } else {
+        offRouteCountRef.current = 0;
       }
     }
   };

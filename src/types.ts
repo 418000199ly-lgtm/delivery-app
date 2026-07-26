@@ -104,7 +104,7 @@ export const DEFAULT_SETTINGS: ChauffeurSettings = {
   wechatQrCode: '',
   alipayQrCode: '',
   vipExpiry: '待激活',
-  customAppName: '小鸟代驾',
+  customAppName: 'XX代驾',
   onlineOrdersEnabled: false,
   city: '',
   isBanned: false,
@@ -112,16 +112,27 @@ export const DEFAULT_SETTINGS: ChauffeurSettings = {
 
 export function checkVipActive(vipExpiry?: string): boolean {
   if (!vipExpiry) return false;
-  const s = vipExpiry.trim();
+  const s = String(vipExpiry).trim();
   if (s === '0' || s === '0天' || s === '未激活' || s === '待激活' || s === '未激活待激活' || s === '已到期' || s === '已过期' || s === '未开通' || s === '') {
     return false;
   }
   if (s === '永久有效') return true;
   try {
-    const expDate = new Date(vipExpiry);
+    let year: number | undefined, month: number | undefined, day: number | undefined;
+    const match = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (match) {
+      year = parseInt(match[1], 10);
+      month = parseInt(match[2], 10) - 1;
+      day = parseInt(match[3], 10);
+    }
+    let expDate: Date;
+    if (year !== undefined && month !== undefined && day !== undefined) {
+      expDate = new Date(year, month, day, 23, 59, 59, 999);
+    } else {
+      expDate = new Date(s);
+    }
     if (isNaN(expDate.getTime())) return false;
     const now = new Date();
-    expDate.setHours(23, 59, 59, 999);
     now.setHours(0, 0, 0, 0);
     return expDate.getTime() >= now.getTime();
   } catch {

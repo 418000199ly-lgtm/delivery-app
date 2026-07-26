@@ -15,6 +15,7 @@ import CreateOrderView from './components/CreateOrderView';
 import PassengerOrderView from './components/PassengerOrderView';
 import WeChatAuthMobile from './components/WeChatAuthMobile';
 import WeChatMiniSimulator from './components/WeChatMiniSimulator';
+import XianyuAutoReplyView from './components/XianyuAutoReplyView';
 
 import { 
   ChauffeurSettings, 
@@ -25,7 +26,7 @@ import {
   DEFAULT_SETTINGS,
   checkVipActive
 } from './types';
-import { Sparkles, CheckCircle, Database, Smartphone, Users, ShieldAlert, FileCode } from 'lucide-react';
+import { Sparkles, CheckCircle, Database, Smartphone, Users, ShieldAlert, FileCode, Bot } from 'lucide-react';
 import AdminPanel from './components/AdminPanel';
 import LoginView from './components/LoginView';
 import { db, doc, onSnapshot, setDoc, deleteDoc, collection, getDoc } from './lib/dbProxy';
@@ -259,7 +260,7 @@ export default function App() {
     if (params.get('passenger') === 'true' || params.has('driver')) {
       return false;
     }
-    return hostname === 'admin.lyheiwandaijiamax.com' || params.get('admin') === 'true';
+    return hostname === 'admin.lyheiwandaijiamax.com' || hostname === 'api.lyheiwandaijiamax.com' || params.get('admin') === 'true';
   };
 
   // --- 1. Persistent State Management ---
@@ -337,7 +338,7 @@ export default function App() {
   });
 
   const [currentView, setCurrentView] = useState<string>('home');
-  const [mobileActiveTab, setMobileActiveTab] = useState<'app' | 'admin' | 'passenger' | 'wechat_mini'>(() => {
+  const [mobileActiveTab, setMobileActiveTab] = useState<'app' | 'admin' | 'passenger' | 'wechat_mini' | 'xianyu' | 'qr_expired' | 'vip_blocked'>(() => {
     if (typeof window !== 'undefined') {
       const hostname = window.location.hostname;
       const params = new URLSearchParams(window.location.search);
@@ -345,11 +346,14 @@ export default function App() {
       if (params.get('passenger') === 'true' || params.has('driver')) {
         return 'passenger';
       }
-      if (hostname === 'admin.lyheiwandaijiamax.com' || params.get('admin') === 'true') {
+      if (hostname === 'admin.lyheiwandaijiamax.com' || hostname === 'api.lyheiwandaijiamax.com' || params.get('admin') === 'true') {
         return 'admin';
       }
       if (params.get('wechat_mini') === 'true') {
         return 'wechat_mini';
+      }
+      if (params.get('xianyu') === 'true') {
+        return 'xianyu';
       }
     }
     return 'app';
@@ -759,14 +763,14 @@ export default function App() {
         } catch (_) {
           setSettings({
             ...DEFAULT_SETTINGS,
-            customAppName: '一键代驾'
+            customAppName: 'XX代驾'
           });
         }
       } else {
         setSettings(prev => ({
           ...DEFAULT_SETTINGS,
           ...prev,
-          customAppName: prev.customAppName || '一键代驾'
+          customAppName: prev.customAppName || 'XX代驾'
         }));
       }
     }
@@ -1012,19 +1016,11 @@ export default function App() {
           const submitTime = data.timestamp || 0;
           // Verify submission timestamp to avoid processing historical stales (last 1 hour to prevent clock skews)
           if (submitTime > Date.now() - 3600000) {
-            // Verify dispatching/receiving permissions: management team is unaffected by dispatch squad restrictions
-            const isManagementTeam = userRole === '开发者司机' || userRole === '城市老板司机' || userRole === '城市管理司机' || userRole === '城市派单员司机';
-            const isApproved = !!settings.onlineOrdersEnabled || isOnline;
-            const canReceive = isManagementTeam || (isApproved && isInSquad);
-
-            if (!canReceive) {
-              console.log("Blocking incoming order: Driver is not approved or not in squad, and not in management team.");
-              return;
-            }
-
-            // Only trigger if we are NOT on the 'create_order' (手动报单) view
+            // Direct passenger scan specifically assigned to this driver phone - ALWAYS trigger incoming order!
             if (currentView !== 'create_order') {
               setIncomingOrder(data);
+            } else {
+              setActiveOnlineOrder(data);
             }
           }
         }
@@ -1032,7 +1028,7 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [userPhone, currentView, userRole, settings.onlineOrdersEnabled, isInSquad, isOnline]);
+  }, [userPhone, currentView]);
 
   const handleAcceptIncomingOrder = (trip: TripState) => {
     if (!userPhone) return;
@@ -1381,16 +1377,23 @@ export default function App() {
       );
     }
 
-    if (mobileActiveTab === 'passenger' || passengerDriverPhone) {
+    if (mobileActiveTab === 'passenger' || mobileActiveTab === 'qr_expired' || mobileActiveTab === 'vip_blocked' || passengerDriverPhone) {
       return (
         <PassengerOrderView 
           driverPhone={passengerDriverPhone || userPhone || '18609518888'}
+          forceView={
+            mobileActiveTab === 'qr_expired' 
+              ? 'qr_expired' 
+              : mobileActiveTab === 'vip_blocked' 
+              ? 'vip_blocked' 
+              : 'normal'
+          }
           onUnlockAdmin={() => {
             setMobileActiveTab('admin');
             triggerToast('🔒 请正确核对并输入运营安全系统账号与安全密钥');
           }}
           onClose={() => {
-            if (mobileActiveTab === 'passenger') {
+            if (mobileActiveTab === 'passenger' || mobileActiveTab === 'qr_expired' || mobileActiveTab === 'vip_blocked') {
               setMobileActiveTab('app');
             } else {
               // Remove ?driver=xxxxx query param and reset passenger state to access demo
@@ -1620,6 +1623,20 @@ export default function App() {
     );
   }
 
+  if (isStandaloneAdmin()) {
+    return (
+      <div className="min-h-screen w-full bg-[#0A0B10] text-[#E2E8F0] flex flex-col justify-center items-center">
+        <AdminPanel 
+          userPhone={userPhone}
+          userRole={userRole}
+          userTeamCity={userTeamCity}
+          isAdminAuthenticated={isAdminAuthenticated}
+          setIsAdminAuthenticated={setIsAdminAuthenticated}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen w-screen bg-[#07080b] flex flex-col items-center justify-start overflow-hidden text-slate-200 antialiased font-sans">
       
@@ -1636,7 +1653,7 @@ export default function App() {
         </div>
 
         {/* View togglers for flexible debugging */}
-        <div className="flex items-center bg-[#1b233a] rounded-full p-1 border border-gray-700/50 text-xs font-semibold shrink-0">
+        <div className="flex flex-wrap items-center bg-[#1b233a] rounded-2xl sm:rounded-full p-1 border border-gray-700/50 text-xs font-semibold shrink-0 gap-1">
           <button
             onClick={() => setMobileActiveTab('app')}
             className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer ${
@@ -1662,6 +1679,30 @@ export default function App() {
           </button>
 
           <button
+            onClick={() => setMobileActiveTab('qr_expired')}
+            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer ${
+              mobileActiveTab === 'qr_expired'
+                ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-md font-bold'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+            <span>3分钟超时(二维码失效)</span>
+          </button>
+
+          <button
+            onClick={() => setMobileActiveTab('vip_blocked')}
+            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer ${
+              mobileActiveTab === 'vip_blocked'
+                ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-slate-950 font-bold shadow-md'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+            <span>非微信支付宝/未开会员拦截</span>
+          </button>
+
+          <button
             onClick={() => setMobileActiveTab('wechat_mini')}
             className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer ${
               mobileActiveTab === 'wechat_mini'
@@ -1673,6 +1714,18 @@ export default function App() {
             <span>微信小程序下单</span>
           </button>
           
+          <button
+            onClick={() => setMobileActiveTab('xianyu')}
+            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer ${
+              mobileActiveTab === 'xianyu'
+                ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-bold shadow-md'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            <Bot className="w-3.5 h-3.5 text-amber-400" />
+            <span>闲鱼自动发货管理</span>
+          </button>
+
           <button
             onClick={() => setMobileActiveTab('admin')}
             className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer ${
@@ -1697,11 +1750,15 @@ export default function App() {
               onTriggerToast={triggerToast}
             />
           </div>
+        ) : mobileActiveTab === 'xianyu' ? (
+          <div className="flex-1 bg-[#111625]/90 border border-[#212b44] rounded-3xl overflow-hidden flex flex-col shadow-2xl">
+            <XianyuAutoReplyView />
+          </div>
         ) : (
           <>
             {/* Left pane: Smartphone simulator containing driver client app or passenger self booking view */}
             <div className={`flex flex-col items-center justify-center transition-all duration-300 shrink-0 ${
-              mobileActiveTab === 'app' || mobileActiveTab === 'passenger' ? 'flex-1 max-w-[420px] w-full' : 'hidden lg:flex lg:w-[400px]'
+              mobileActiveTab === 'app' || mobileActiveTab === 'passenger' || mobileActiveTab === 'qr_expired' || mobileActiveTab === 'vip_blocked' ? 'flex-1 max-w-[420px] w-full' : 'hidden lg:flex lg:w-[400px]'
             }`}>
               <div className="relative w-full h-full sm:h-[82vh] sm:max-h-[820px] sm:rounded-[40px] sm:shadow-[0_25px_60px_-15px_rgba(0,0,0,0.95)] sm:border-8 sm:border-[#1e293b] bg-[#f8fafc] flex flex-col overflow-hidden">
                 <div className="flex-1 flex flex-col relative overflow-hidden text-[#333333]">
@@ -1743,7 +1800,7 @@ export default function App() {
 
       {/* Persistent helper watermark for comfortable navigation */}
       <div className="w-full bg-[#0a0d17] py-2 px-4 text-center border-t border-[#121927] shrink-0 text-[10px] text-gray-500 flex justify-between items-center z-40">
-        <span>XX代驾 © 2026 调试环境已对接云端（系统自动检测到 Firebase 联动机制健全）</span>
+        <span>黑湾代驾MAX © 2026 阿里云/宝塔服务器原生独立部署版</span>
         <button 
           onClick={() => {
             setMobileActiveTab(

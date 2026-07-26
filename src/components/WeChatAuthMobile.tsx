@@ -168,12 +168,11 @@ export default function WeChatAuthMobile() {
             <button
               type="button"
               onClick={() => {
-                setUseCustom(false);
-                setPhone('15509601222');
+                setUseCustom(true);
                 setErrorMessage('');
               }}
               className={`w-full p-4 border rounded-2xl flex items-center justify-between text-left transition-all ${
-                !useCustom && phone === '15509601222'
+                useCustom
                   ? 'border-[#07c160] bg-emerald-50/40 text-slate-900 shadow-sm'
                   : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
               }`}
@@ -181,11 +180,11 @@ export default function WeChatAuthMobile() {
               <div className="flex items-center gap-3">
                 <Smartphone className="w-4 h-4 text-slate-400" />
                 <div>
-                  <div className="text-xs font-bold font-mono">155 0960 1222</div>
-                  <div className="text-[10px] text-slate-400">开发者特权司机账号</div>
+                  <div className="text-xs font-bold font-mono">自定义常用手机号</div>
+                  <div className="text-[10px] text-slate-400">手动输入手机号码进行授权</div>
                 </div>
               </div>
-              {!useCustom && phone === '15509601222' && (
+              {useCustom && (
                 <div className="w-5 h-5 bg-[#07c160] rounded-full flex items-center justify-center text-white text-[10px] font-bold">✓</div>
               )}
             </button>

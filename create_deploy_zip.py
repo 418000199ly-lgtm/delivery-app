@@ -10,7 +10,11 @@ files_to_add = [
     '.env.example',
     'ALIYUN_DEPLOY_GUIDE.md',
     'aliyun_passenger_deploy.html',
-    'passenger_order.html'
+    'passenger_order.html',
+    'vip_banner.jpg',
+    'welcome_bg.jpg',
+    'hwdjtb.png',
+    'capacitor.config.json'
 ]
 
 dist_folder = 'dist'
@@ -28,6 +32,27 @@ def main():
             print("Copied passenger_order.html to dist/")
         except Exception as e:
             print("Warning copying passenger_order.html:", e)
+
+    if os.path.exists('vip_banner.jpg'):
+        try:
+            shutil.copy('vip_banner.jpg', os.path.join(dist_folder, 'vip_banner.jpg'))
+            print("Copied vip_banner.jpg to dist/")
+        except Exception as e:
+            print("Warning copying vip_banner.jpg:", e)
+
+    if os.path.exists('welcome_bg.jpg'):
+        try:
+            shutil.copy('welcome_bg.jpg', os.path.join(dist_folder, 'welcome_bg.jpg'))
+            print("Copied welcome_bg.jpg to dist/")
+        except Exception as e:
+            print("Warning copying welcome_bg.jpg:", e)
+
+    if os.path.exists('hwdjtb.png'):
+        try:
+            shutil.copy('hwdjtb.png', os.path.join(dist_folder, 'hwdjtb.png'))
+            print("Copied hwdjtb.png to dist/")
+        except Exception as e:
+            print("Warning copying hwdjtb.png:", e)
             
     if os.path.exists('aliyun_passenger_deploy.html'):
         try:
@@ -60,13 +85,19 @@ def main():
                     zipf.write(filepath, arcname)
             print("Added dist/ folder contents to ZIP archive.")
 
-    # Deploy ZIP copies to both root and dist/
+    # Deploy ZIP copies to root, dist/, and public/
+    public_folder = 'public'
+    if not os.path.exists(public_folder):
+        os.makedirs(public_folder, exist_ok=True)
+
     for name in zip_filenames:
         shutil.copy(temp_zip, name)
         dist_path = os.path.join(dist_folder, name)
         if os.path.exists(dist_folder):
             shutil.copy(temp_zip, dist_path)
-        print(f"✓ Deployed ZIP file to: {name} and {dist_path}")
+        public_path = os.path.join(public_folder, name)
+        shutil.copy(temp_zip, public_path)
+        print(f"✓ Deployed ZIP file to: {name}, {dist_path}, and {public_path}")
 
     if os.path.exists(temp_zip):
         os.remove(temp_zip)

@@ -716,7 +716,7 @@ export default function SettingsView({
           if (isForever) {
             alert(
               `⚡ [免阻碍调试机制已启动] 离线兑换成功！\n\n` +
-              `检测到您当前的测试模拟器/手机环境由于虚拟机DNS或局域网代理而未能连通谷歌 Firebase 云端数据库。\n\n` +
+              `检测到您当前的测试模拟器/手机环境由于局域网限制或数据库未连接而未能直连云端数据库。\n\n` +
               `我们已为您智能启用本地免密直通核实：\n` +
               `- 分析兑换码规格：永久尊享会员卡密已成立\n` +
               `- 绑定人设备：模拟器离线测试终端\n\n` +
@@ -725,7 +725,7 @@ export default function SettingsView({
           } else {
             alert(
               `⚡ [免阻碍调试机制已启动] 离线兑换成功！\n\n` +
-              `检测到您当前的测试模拟器/手机环境由于虚拟机DNS或局域网代理而未能连通谷歌 Firebase 云端数据库。\n\n` +
+              `检测到您当前的测试模拟器/手机环境由于局域网限制或数据库未连接而未能直连云端数据库。\n\n` +
               `我们已为您智能启用本地免密直通核实：\n` +
               `- 分析兑换码规格：${durationDays} 天会员卡密已成立\n` +
               `- 绑定人设备：模拟器离线测试终端\n\n` +
@@ -868,14 +868,26 @@ export default function SettingsView({
           {/* Voice broadcast changer */}
           <div className="w-full py-3.5 px-4 flex items-center justify-between bg-white">
             <span className="text-sm font-semibold text-gray-700">语音播报状态</span>
-            <button 
-              type="button"
-              onClick={toggleVoiceBroadcast}
-              className="flex items-center space-x-1 text-teal-600 font-semibold py-1 px-2.5 hover:bg-teal-50 rounded-lg border border-teal-100 transition-colors cursor-pointer"
-            >
-              <span className="text-xs font-bold">{settings.voiceBroadcast}</span>
-              <ChevronRight className="w-4 h-4 text-teal-400" />
-            </button>
+            <div className="flex items-center space-x-2">
+              <button 
+                type="button"
+                onClick={() => {
+                  initAudioUnlock();
+                  speakText('语音播报正常，祝您接单愉快！');
+                }}
+                className="text-xs font-bold text-amber-600 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+              >
+                🔊 测试播报
+              </button>
+              <button 
+                type="button"
+                onClick={toggleVoiceBroadcast}
+                className="flex items-center space-x-1 text-teal-600 font-semibold py-1 px-2.5 hover:bg-teal-50 rounded-lg border border-teal-100 transition-colors cursor-pointer"
+              >
+                <span className="text-xs font-bold">{settings.voiceBroadcast}</span>
+                <ChevronRight className="w-4 h-4 text-teal-400" />
+              </button>
+            </div>
           </div>
 
         </div>

@@ -1,6 +1,24 @@
 {
-  "appId": "com.dddaijia.driver",
-  "appName": "黑湾代驾MAX",
+  "appId": "com.heiwan.daijia",
+  "appName": "黑湾代驾 MAX",
   "webDir": "dist",
-  "bundledWebRuntime": false
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 2000,
+      "launchAutoHide": true,
+      "backgroundColor": "#0b0f19",
+      "androidSplashResourceName": "splash",
+      "androidScaleType": "CENTER_CROP",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#0b0f19"
+    }
+  }
 }

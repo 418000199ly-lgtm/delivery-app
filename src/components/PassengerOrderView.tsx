@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { db, doc, setDoc, getDoc, getBaseApiUrl } from '../lib/dbProxy';
-import { QrCode, MapPin, Phone, CheckCircle, Navigation, ShieldCheck, Car, Headphones, Smartphone, BellRing, Check, ArrowLeft, Flag } from 'lucide-react';
+import { QrCode, MapPin, Phone, CheckCircle, Navigation, ShieldCheck, Car, Headphones, Smartphone, BellRing, Check, ArrowLeft, Flag, CreditCard, ShieldAlert, AlertTriangle, RefreshCw } from 'lucide-react';
 import { checkVipActive } from '../types';
 
 interface PassengerOrderViewProps {
   driverPhone: string;
   onClose?: () => void;
   onUnlockAdmin?: () => void;
+  forceView?: 'normal' | 'qr_expired' | 'vip_blocked';
 }
 
-export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin }: PassengerOrderViewProps) {
+export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin, forceView }: PassengerOrderViewProps) {
   const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
   const hasDriverInUrl = urlParams ? (urlParams.has('driver') && !!urlParams.get('driver')) : false;
 
@@ -43,6 +44,9 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
   const [driverVipExpiry, setDriverVipExpiry] = useState<string | null>(null);
   const [isVipChecked, setIsVipChecked] = useState(false);
 
+  // 3-minute QR Code expiration state
+  const [isQrExpired, setIsQrExpired] = useState(false);
+
   // 3-second Welcome screen states
   const [showWelcome, setShowWelcome] = useState(true);
   const [countdown, setCountdown] = useState(3);
@@ -58,7 +62,7 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
         }
       }
     }
-    return '小鸟代驾';
+    return 'XX代驾';
   });
   const [hasCustomNameSet, setHasCustomNameSet] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -73,6 +77,29 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
     }
     return false;
   });
+
+  // 3-minute QR code expiration check effect
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const tStr = params.get('t');
+    if (tStr) {
+      const t = parseInt(tStr, 10);
+      if (!isNaN(t)) {
+        const elapsed = Date.now() - t;
+        const maxValidityMs = 3 * 60 * 1000; // 3 minutes
+        if (elapsed > maxValidityMs) {
+          setIsQrExpired(true);
+        } else {
+          const remaining = maxValidityMs - elapsed;
+          const timer = setTimeout(() => {
+            setIsQrExpired(true);
+          }, remaining);
+          return () => clearTimeout(timer);
+        }
+      }
+    }
+  }, []);
 
   const [driverCoords, setDriverCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [passengerCoords, setPassengerCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -225,33 +252,42 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
     );
 
     try {
-      // Race standard Firebase client-side SDK write with a 3.0-second timeout.
-      // If it times out or fails (as usually happens within China mainland), fall back immediately to the Cloudflare Worker server proxy.
-      await Promise.race([dbWritePromise, timeoutPromise]);
-      setStatus('success');
-    } catch (err: any) {
-      console.warn('Firebase client SDK failed or timed out. Falling back to Cloudflare Workers server route...', err);
+      // Direct fast local API submit for maximum speed and instant response
+      const response = await fetch(`${getBaseApiUrl()}/api/submit`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          driverPhone,
+          passengerPhone: passengerPhone.trim(),
+          startLocation: startLocation.trim(),
+          destination: destination.trim(),
+          passengerLat: pLat,
+          passengerLng: pLng
+        })
+      });
+      const resData = await response.json();
+      if (resData.success) {
+        setStatus('success');
+      } else {
+        throw new Error(resData.error || '提交接口返回失败');
+      }
+    } catch (submitErr: any) {
+      console.warn('Fast API submit failed, attempting fallback setDoc write...', submitErr);
       try {
-        const response = await fetch(`${getBaseApiUrl()}/api/submit`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            driverPhone,
-            passengerPhone: passengerPhone.trim(),
-            startLocation: startLocation.trim(),
-            destination: destination.trim()
-          })
+        await setDoc(doc(db, 'passenger_links', driverPhone), {
+          passengerPhone: passengerPhone.trim(),
+          startLocation: startLocation.trim(),
+          destination: destination.trim(),
+          status: 'submitted',
+          timestamp: Date.now(),
+          passengerLat: pLat,
+          passengerLng: pLng
         });
-        const resData = await response.json();
-        if (resData.success) {
-          setStatus('success');
-        } else {
-          throw new Error(resData.error || 'Cloudflare mid-tier failed');
-        }
+        setStatus('success');
       } catch (fallbackErr: any) {
-        alert('⚠️ 连线提交失败: ' + fallbackErr.message + '\n\n提示: 请确保您的 Cloudflare Worker 已成功部署！');
+        alert('⚠️ 连线提交失败: ' + (submitErr.message || fallbackErr.message));
       }
     } finally {
       setSubmitting(false);
@@ -262,17 +298,93 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
   const isDriverIdentified = hasDriverInUrl || !!onClose;
   const isAbnormal = (!isDriverIdentified || (isVipChecked && !isVipActive)) && !isDeveloperSimulator;
 
-  const isBlocked = false;
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent.toLowerCase() : '';
+  const isWeChat = ua.indexOf('micromessenger') !== -1;
+  const isAlipay = ua.indexOf('alipayclient') !== -1;
+  const isWeChatOrAlipay = isWeChat || isAlipay;
 
-  if (showWelcome) {
-    const currentDisplayBrand = isAbnormal ? '小鸟代驾' : customBrandName;
+  // Strict blocking: Block if NOT WeChat/Alipay OR if driver VIP is unactivated/expired/0 OR if QR code is expired
+  const isBlocked = (forceView === 'vip_blocked') || ((!isWeChatOrAlipay || (isVipChecked && !isVipActive) || isQrExpired) && !isDeveloperSimulator && forceView !== 'normal');
+
+  // If forceView === 'qr_expired', directly render the 3-minute expiration overlay
+  if (forceView === 'qr_expired') {
+    return (
+      <div className="w-full h-full min-h-full bg-[#f9f9f9] text-[#1a1c1c] font-sans flex flex-col items-center justify-between p-6 select-none z-[20000] overflow-y-auto">
+        {/* Top Header Status */}
+        <div className="w-full flex items-center justify-between pt-2">
+          <div className="flex items-center gap-1.5 bg-rose-50 px-3 py-1 rounded-full border border-rose-200 shadow-xs">
+            <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span>
+            <span className="text-[10px] text-rose-700 font-bold tracking-wider uppercase">
+              LINK EXPIRED • 链接已失效
+            </span>
+          </div>
+          <span className="text-[10px] text-slate-500 font-mono bg-slate-200/60 px-2 py-0.5 rounded">
+            防伪防刷保护 🛡️
+          </span>
+        </div>
+
+        {/* Expired Main Card */}
+        <div className="my-auto w-full max-w-sm bg-white border border-[#dfc0af] rounded-2xl p-6 flex flex-col items-center text-center shadow-lg">
+          <div className="w-20 h-20 rounded-full bg-rose-100 border-4 border-rose-50 flex items-center justify-center mb-4 text-rose-600 shadow-inner">
+            <ShieldAlert className="w-10 h-10 stroke-[2.2]" />
+          </div>
+          
+          <h2 className="text-xl font-black text-slate-900 mb-2">二维码开单链接已失效</h2>
+          <p className="text-xs text-slate-600 leading-relaxed mb-6">
+            基于代驾安全防伪机制，自助报单二维码有效期为 <span className="text-rose-600 font-bold">3分钟</span>。当前链接已超时关闭，已禁止提交。
+          </p>
+
+          <div className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-left space-y-2 mb-6">
+            <div className="flex items-center justify-between text-[11px] text-slate-600">
+              <span>状态信息：</span>
+              <span className="font-bold text-rose-600">3分钟扫码倒计时结束</span>
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-slate-600">
+              <span>操作建议：</span>
+              <span className="font-bold text-slate-800">请联系司机重新出示二维码</span>
+            </div>
+          </div>
+
+          <button 
+            onClick={() => window.location.reload()}
+            className="w-full bg-[#ff7d00] text-white font-bold text-sm py-3 rounded-xl shadow-md active:scale-95 transition-all flex items-center justify-center gap-2"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span>重新扫码 / 刷新页面</span>
+          </button>
+        </div>
+
+        {/* Footer */}
+        <footer className="text-center text-[10px] text-slate-400 space-y-1 pb-4">
+          <p>黑湾代驾安全防伪系统 • 3分钟限时动态二维码保护</p>
+          <p>© 2026 All Rights Reserved</p>
+        </footer>
+      </div>
+    );
+  }
+
+  if (showWelcome && forceView !== 'vip_blocked') {
+    const currentDisplayBrand = isAbnormal ? 'XX代驾' : customBrandName;
     return (
       <div className="relative w-full h-full min-h-full flex flex-col items-center py-16 px-5 overflow-hidden justify-center bg-[#f9f9f9] text-[#1a1c1c] font-sans select-none z-[10000]">
+        {/* Top Header Status Bar (Image x3) */}
+        <div className="absolute top-6 left-5 right-5 z-20 flex items-center justify-between">
+          <div className="flex items-center gap-1.5 bg-white/70 backdrop-blur-md px-3 py-1 rounded-full border border-black/5 shadow-xs">
+            <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-ping"></span>
+            <span className="text-[10px] text-slate-600 font-bold tracking-widest uppercase">
+              SECURE CONNECTION • 专享自助端
+            </span>
+          </div>
+          <span className="text-[9px] text-orange-600 font-bold font-mono bg-orange-500/10 px-2.5 py-0.5 rounded border border-orange-500/20 shadow-xs">
+            安全加密 ⚡
+          </span>
+        </div>
+
         {/* Background Illustration Decoration */}
-        <div className="absolute inset-0 z-0 opacity-10 pointer-events-none">
+        <div className="absolute inset-0 z-0 opacity-25 pointer-events-none">
           <img 
-            className="w-full h-full object-cover grayscale blur-xs" 
-            src="https://lh3.googleusercontent.com/aida/AP1WRLtTuYfFFEytKKZpCMIKx5d793N3I-YkAt0RaL4tG65400MEwqxanM7ul6Y1w7lOLl0VUDB7h7QuRc_HkluOjkWV2pwHCQgCHjIWwYg5HxN_f1siUjpWM-3l9T8t47Djd_T0_qVuS9zNb14OL4fbKT9WOv7HgcystD5ikT_mbhJfVTkFf5_BDKLVD0bLlMvWFrA8uk0qjqvDWrOSJN4JmW09VM05DNbR-Pt6t3pp-bSzYKm5cbHZtczl7PI"
+            className="w-full h-full object-cover" 
+            src="welcome_bg.jpg"
             alt="Decoration Background"
           />
         </div>
@@ -348,38 +460,113 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
 
   if (isBlocked) {
     return (
-      <div className="absolute inset-0 bg-[#f9f9f9] text-[#1a1c1c] font-sans overflow-hidden select-none z-[20000] flex flex-col justify-between">
-        <main className="w-full max-w-md mx-auto bg-[#f9f9f9] flex-1 relative flex flex-col justify-start">
-          {/* Hero Section */}
-          <section className="relative h-64 w-full overflow-hidden">
-            <img 
-              src="https://lh3.googleusercontent.com/aida/AP1WRLtTuYfFFEytKKZpCMIKx5d793N3I-YkAt0RaL4tG65400MEwqxanM7ul6Y1w7lOLl0VUDB7h7QuRc_HkluOjkWV2pwHCQgCHjIWwYg5HxN_f1siUjpWM-3l9T8t47Djd_T0_qVuS9zNb14OL4fbKT9WOv7HgcystD5ikT_mbhJfVTkFf5_BDKLVD0bLlMvWFrA8uk0qjqvDWrOSJN4JmW09VM05DNbR-Pt6t3pp-bSzYKm5cbHZtczl7PI" 
-              className="w-full h-full object-cover"
-              alt="VIP Premium Driver Banner"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#f9f9f9] via-transparent to-transparent"></div>
-          </section>
+      <div className="w-full h-full min-h-full bg-[#f9f9f9] text-[#1a1c1c] font-sans overflow-y-auto select-none relative z-10 flex flex-col justify-between">
+        <main className="w-full max-w-md mx-auto bg-[#f9f9f9] flex-1 relative flex flex-col justify-between">
+          <div>
+            {/* Hero Banner Section (100% Local Image vip_banner.jpg) */}
+            <section className="relative h-[220px] sm:h-[260px] w-full overflow-hidden">
+              <div className="absolute inset-0">
+                <img 
+                  alt="专业代驾 安全到家" 
+                  className="w-full h-full object-cover" 
+                  src="vip_banner.jpg" 
+                  onError={(e) => { (e.target as HTMLImageElement).src = '/vip_banner.jpg'; }}
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#f9f9f9] via-transparent to-transparent"></div>
+              </div>
+            </section>
 
-          {/* Title Section */}
-          <section className="px-5 -mt-8 relative z-10">
-            <div className="bg-white p-6 rounded-xl border border-[#dfc0af] shadow-sm">
-              <h2 className="text-xl font-bold text-[#1a1c1c] mb-2">
-                &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 开通尊享会员
-                <div className="mt-1">&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 享受更多权益</div>
-              </h2>
-              <p className="text-[#584235] text-sm font-medium">
-                &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 请使用正规渠道开通会员
+            {/* Headline & Subtext */}
+            <section className="px-5 -mt-8 relative z-10 space-y-1.5 mb-6">
+              <h2 className="text-xl font-bold text-[#1a1c1c] drop-shadow-xs">开通尊享会员，享受更多权益</h2>
+              <p className="text-xs text-[#584235] font-medium">请使用正规渠道开通会员</p>
+            </section>
+
+            {/* Benefits Grid */}
+            <section className="px-5 mb-6">
+              <div className="grid grid-cols-2 gap-3">
+                {/* Benefit 1 */}
+                <div className="bg-white p-3 rounded-xl border border-[#dfc0af] flex flex-col items-center text-center shadow-xs">
+                  <div className="w-10 h-10 rounded-full bg-[#ffdbc8] flex items-center justify-center mb-1.5 shrink-0">
+                    <CheckCircle className="w-5 h-5 text-[#984800]" />
+                  </div>
+                  <span className="font-bold text-xs text-[#1a1c1c] block mb-0.5">无忧开单</span>
+                  <span className="text-[10px] text-[#474746] leading-tight">开单不限次数</span>
+                </div>
+
+                {/* Benefit 2 */}
+                <div className="bg-white p-3 rounded-xl border border-[#dfc0af] flex flex-col items-center text-center shadow-xs">
+                  <div className="w-10 h-10 rounded-full bg-[#cce5ff] flex items-center justify-center mb-1.5 shrink-0">
+                    <QrCode className="w-5 h-5 text-[#006496]" />
+                  </div>
+                  <span className="font-bold text-xs text-[#1a1c1c] block mb-0.5">扫码报单</span>
+                  <span className="text-[10px] text-[#474746] leading-tight">高峰期订单优先匹配</span>
+                </div>
+
+                {/* Benefit 3 */}
+                <div className="bg-white p-3 rounded-xl border border-[#dfc0af] flex flex-col items-center text-center shadow-xs">
+                  <div className="w-10 h-10 rounded-full bg-[#ffdbc8] flex items-center justify-center mb-1.5 shrink-0">
+                    <Navigation className="w-5 h-5 text-[#984800]" />
+                  </div>
+                  <span className="font-bold text-xs text-[#1a1c1c] block mb-0.5">行程自动纠偏</span>
+                  <span className="text-[10px] text-[#474746] leading-tight">智能纠正轨迹，确保计费精准</span>
+                </div>
+
+                {/* Benefit 4 */}
+                <div className="bg-white p-3 rounded-xl border border-[#dfc0af] flex flex-col items-center text-center shadow-xs">
+                  <div className="w-10 h-10 rounded-full bg-[#cce5ff] flex items-center justify-center mb-1.5 shrink-0">
+                    <CreditCard className="w-5 h-5 text-[#006496]" />
+                  </div>
+                  <span className="font-bold text-xs text-[#1a1c1c] block mb-0.5">在线支付</span>
+                  <span className="text-[10px] text-[#474746] leading-tight">支持多种在线支付方式</span>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          {/* Footer Text */}
+          <footer className="px-5 py-4 text-center space-y-1.5 mt-auto">
+            <p className="text-[10px] text-[#584235]/70 leading-relaxed px-2">
+              代驾司机助手，代驾司机模拟器，仅教学模拟、本地演练工具，不对接任何第三方代驾平台正式服务，所有违规使用后果完全由使用者自行承担。
+            </p>
+            <div className="space-y-0.5 text-[10px] text-[#5f5e5e]/60">
+              <p>© 2026 All Rights Reserved</p>
+              <p>
+                <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer" className="hover:underline">
+                  宁ICP备2026002469 号 - 1
+                </a>
               </p>
             </div>
-          </section>
+          </footer>
         </main>
-        <footer style={{ textAlign: 'center', padding: '20px 0', fontSize: '12px', color: '#666' }} className="w-full z-20 shrink-0">
-          © 2026 All Rights Reserved
-          <br />
-          <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer" style={{ color: '#666', textDecoration: 'none' }}>
-            宁ICP备2026002469号-1
-          </a>
-        </footer>
+
+        {/* Bottom Action Bar (Sticky inside Phone Container) */}
+        <div className="sticky bottom-0 left-0 w-full bg-white border-t border-[#dfc0af] p-3 z-30 shrink-0 shadow-lg">
+          <div className="max-w-md mx-auto">
+            <button 
+              onClick={() => {
+                if (onClose) {
+                  onClose();
+                } else if (typeof window !== 'undefined') {
+                  try {
+                    if ((window as any).WeixinJSBridge) {
+                      (window as any).WeixinJSBridge.call('closeWindow');
+                    } else if ((window as any).AlipayJSBridge) {
+                      (window as any).AlipayJSBridge.call('closeWebview');
+                    } else {
+                      window.close();
+                    }
+                  } catch (e) {
+                    console.log('Close window failed', e);
+                  }
+                }
+              }}
+              className="w-full bg-[#ff7d00] text-white font-bold text-sm h-11 rounded-xl shadow-md active:scale-95 transition-transform duration-150 cursor-pointer flex items-center justify-center gap-1.5"
+            >
+              <span>本页面为产品展示 点击关闭页面</span>
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -434,7 +621,7 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
                 <img 
                   className="w-full h-full object-cover" 
                   alt="Professional driver portrait" 
-                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuB0xN2tfIY1cQjxnbB8XiorOXJ75YSmjRPQTL2I7Ku-46ZEvHPZF9sdLx58pAPAq2NujfCo4EuYWkwWsIhPRiq3rfQsci3sI31jH0NsiDFFmLxfSLhZGXzrW_KwoTzWthXWc15veKvKyL9fA3InOUxUXNIlYvSLCAtYH6brvGIhWllHRcAHqoZ7DX8K47JtatpLGiq8ucjCUNx66G8m1d5nFpo8RFk8ajk5aGD81CJ3WqLA39Sq1D8Rgg"
+                  src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%230d9488'/><circle cx='50' cy='38' r='20' fill='%23ffffff'/><path d='M20,90 Q50,55 80,90 Z' fill='%23ffffff'/></svg>"
                 />
               </div>
               <div className="flex-1">
@@ -513,7 +700,7 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
           <div className="absolute inset-0 opacity-15 mix-blend-overlay">
             <img 
               className="w-full h-full object-cover" 
-              src="https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?auto=format&fit=crop&q=80&w=800" 
+              src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 400'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' stop-color='%230f172a'/><stop offset='100%25' stop-color='%231e293b'/></linearGradient></defs><rect width='800' height='400' fill='url(%23g)'/><path d='M0,320 Q200,280 400,320 T800,300 L800,400 L0,400 Z' fill='%23334155' opacity='0.3'/></svg>" 
               alt="City driving background"
             />
           </div>
@@ -630,7 +817,7 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
                 ) : (
                   <>
                     <BellRing className="w-5 h-5" />
-                    <span>确认授权司机并通知司机开单</span>
+                    <span>点击立即下单</span>
                   </>
                 )}
               </button>

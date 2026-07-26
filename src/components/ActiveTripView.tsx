@@ -176,43 +176,84 @@ export default function ActiveTripView({
     };
   };
 
-  // 3. Keep real-time counter ticking and advancing trip metrics
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (isWaiting) {
-        setWaitingSeconds(prev => {
-          const nextVal = prev + 1;
-          // Every 60 seconds of waiting timer ticks = 1 minute of billed waiting duration
-          if (nextVal > 0 && nextVal % 60 === 0) {
-            const newMins = Math.floor(nextVal / 60);
-            setTimeout(() => {
-              const currentTripValue = tripRef.current;
-              const cost = calculateCost(currentTripValue.currentDistance, newMins, billingRulesRef.current);
-              onUpdateTripRef.current({
-                ...currentTripValue,
-                currentWaitingTime: newMins,
-                calculatedBaseFee: cost.base,
-                calculatedTotalFee: cost.total
-              });
-            }, 0);
-          }
-          return nextVal;
-        });
-      } else {
-        setDrivingSeconds(prev => prev + 1);
-      }
-    }, 1000);
+  // 3. Keep real-time counter ticking and advancing trip metrics (using absolute timestamps to survive background & lock screen)
+  const tripStartMsRef = useRef<number>(trip.startTimestamp || Date.now());
+  const waitingStartMsRef = useRef<number | null>(null);
 
-    return () => clearInterval(interval);
+  useEffect(() => {
+    if (isWaiting && !waitingStartMsRef.current) {
+      waitingStartMsRef.current = Date.now() - (waitingSeconds * 1000);
+    } else if (!isWaiting) {
+      waitingStartMsRef.current = null;
+    }
+  }, [isWaiting]);
+
+  useEffect(() => {
+    const updateDurations = () => {
+      const now = Date.now();
+      if (isWaiting) {
+        if (waitingStartMsRef.current) {
+          const wSec = Math.floor((now - waitingStartMsRef.current) / 1000);
+          setWaitingSeconds(wSec);
+          const wMins = Math.floor(wSec / 60);
+          if (wMins !== tripRef.current.currentWaitingTime) {
+            const currentTripValue = tripRef.current;
+            const cost = calculateCost(currentTripValue.currentDistance, wMins, billingRulesRef.current);
+            onUpdateTripRef.current({
+              ...currentTripValue,
+              currentWaitingTime: wMins,
+              calculatedBaseFee: cost.base,
+              calculatedTotalFee: cost.total
+            });
+          }
+        }
+      } else {
+        const dSec = Math.floor((now - tripStartMsRef.current) / 1000);
+        setDrivingSeconds(Math.max(0, dSec));
+      }
+    };
+
+    updateDurations();
+    const interval = setInterval(updateDurations, 1000);
+
+    // App resume/unlock sync
+    const handleVisibilitySync = () => {
+      if (document.visibilityState === 'visible') {
+        updateDurations();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilitySync);
+    window.addEventListener('focus', handleVisibilitySync);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilitySync);
+      window.removeEventListener('focus', handleVisibilitySync);
+    };
   }, [isWaiting]);
 
   // Real-time GPS high-precision tracking & AMap mileage calculation
   const lastCoordsRef = useRef<{ lng: number; lat: number; timestamp: number } | null>(null);
   const preciseDistanceRef = useRef<number>(trip.currentDistance);
 
+  // Restore saved active trip GPS state on mount if present
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`active_trip_gps_${trip.id}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.lastCoords && typeof parsed.lastCoords.lng === 'number') {
+          lastCoordsRef.current = parsed.lastCoords;
+        }
+        if (typeof parsed.preciseDistance === 'number' && parsed.preciseDistance > preciseDistanceRef.current) {
+          preciseDistanceRef.current = parsed.preciseDistance;
+        }
+      }
+    } catch (e) {}
+  }, [trip.id]);
+
   // Synchronize precise distance ref if trip currentDistance is adjusted from outside/manually (e.g., manual corrections)
   useEffect(() => {
-    // If external/manual distance changes significantly from our internal tracker, synchronize it
     if (Math.abs(preciseDistanceRef.current - trip.currentDistance) > 0.05) {
       preciseDistanceRef.current = trip.currentDistance;
     }
@@ -220,17 +261,18 @@ export default function ActiveTripView({
 
   useEffect(() => {
     let watchId: number | null = null;
+    let pollInterval: any = null;
 
     const handlePositionUpdate = (lng: number, lat: number, accuracy: number, speed: number | null = null) => {
-      // 1. Filter out poor accuracy positioning (WiFi / coarse cell tower / indoor GPS bounce > 25m)
-      if (accuracy > 25) {
-        console.log(`⚠️ [GPS Tracker] Coarse/indoor position filtered out due to accuracy: ${accuracy}m`);
+      // 1. Filter out poor accuracy positioning (WiFi / coarse cell tower / indoor GPS bounce > 35m)
+      if (accuracy > 35) {
+        console.log(`⚠️ [GPS Tracker] Coarse position filtered out due to accuracy: ${accuracy}m`);
         return;
       }
 
-      // 2. Hardware speed-based static check (if sensor provides speed in m/s, < 0.8 m/s = < 2.88 km/h is stationary)
-      if (speed !== null && speed !== undefined && speed >= 0 && speed < 0.8) {
-        console.log(`⚡ [GPS Tracker] Hardware speed indicates static/stationary state (${speed.toFixed(2)} m/s), ignoring indoor drift`);
+      // 2. Hardware speed-based static check (if sensor provides speed in m/s, < 0.6 m/s = < 2.16 km/h is stationary)
+      if (speed !== null && speed !== undefined && speed >= 0 && speed < 0.6) {
+        console.log(`⚡ [GPS Tracker] Hardware speed indicates stationary state (${speed.toFixed(2)} m/s), ignoring indoor drift`);
         return;
       }
 
@@ -240,17 +282,17 @@ export default function ActiveTripView({
         // Set initial anchor point
         lastCoordsRef.current = { lng, lat, timestamp: now };
         console.log('⚡ [GPS Tracker] Initialized reference GPS anchor position:', lastCoordsRef.current);
+        try {
+          localStorage.setItem(`active_trip_gps_${tripRef.current.id}`, JSON.stringify({
+            lastCoords: lastCoordsRef.current,
+            preciseDistance: preciseDistanceRef.current
+          }));
+        } catch (e) {}
         return;
       }
 
       const dt = (now - lastCoordsRef.current.timestamp) / 1000; // seconds elapsed
-
-      // If app was paused or long interval passed (> 120s), reset anchor to current position without adding jump distance
-      if (dt > 120) {
-        console.log('⚡ [GPS Tracker] Re-anchoring GPS reference position after long interval (> 120s)');
-        lastCoordsRef.current = { lng, lat, timestamp: now };
-        return;
-      }
+      if (dt <= 0) return;
 
       // Calculate physical displacement distance from last valid anchor point
       const distanceInMeters = getDistance(
@@ -260,38 +302,37 @@ export default function ActiveTripView({
         lat
       );
 
-      const calculatedSpeed = dt > 0 ? distanceInMeters / dt : 0; // m/s
+      const calculatedSpeed = distanceInMeters / dt; // m/s
 
-      console.log(`⚡ [GPS Tracker] Displacement: ${distanceInMeters.toFixed(2)}m (Accuracy: ${accuracy}m, Speed: ${speed ?? 'N/A'}, CalcSpeed: ${(calculatedSpeed * 3.6).toFixed(1)} km/h)`);
+      console.log(`⚡ [GPS Tracker] Displacement: ${distanceInMeters.toFixed(2)}m over ${dt.toFixed(1)}s (Accuracy: ${accuracy}m, CalcSpeed: ${(calculatedSpeed * 3.6).toFixed(1)} km/h)`);
 
       // 3. Ultra-Robust Stationary Jitter & Indoor Drift Suppression
-      // - If displacement < 25 meters AND calculated speed < 1.2 m/s (< 4.3 km/h), treat as indoor/static drift.
-      // - If displacement is less than the location accuracy radius (distanceInMeters < accuracy), treat as GPS noise.
-      if (distanceInMeters < 25 && calculatedSpeed < 1.2) {
-        console.log('⚡ [GPS Tracker] Static indoor GPS drift filtered out (< 25m & low speed)');
+      // - If displacement < 15 meters AND calculated speed < 1.0 m/s (< 3.6 km/h) for short intervals, ignore noise
+      if (dt < 20 && distanceInMeters < 15 && calculatedSpeed < 1.0) {
+        console.log('⚡ [GPS Tracker] Static indoor GPS drift filtered out (< 15m & low speed)');
         return;
       }
 
-      if (distanceInMeters < accuracy) {
+      if (dt < 20 && distanceInMeters < accuracy && accuracy > 10) {
         console.log(`⚡ [GPS Tracker] Displacement inside accuracy margin filtered out (${distanceInMeters.toFixed(1)}m < ${accuracy.toFixed(1)}m)`);
         return;
       }
 
-      // 4. Anomalous Teleport / High Speed Jump Guard
-      if (calculatedSpeed > 45 || distanceInMeters > 1000) { // > 162 km/h or > 1.0 km single jump
+      // 4. Anomalous Teleport / High Speed Jump Guard (Allow up to 162 km/h = 45 m/s)
+      if (calculatedSpeed > 45) { // > 162 km/h
         console.warn(`⚠️ [GPS Tracker] Anomalous GPS teleport filtered out (Speed: ${(calculatedSpeed * 3.6).toFixed(1)} km/h, Dist: ${distanceInMeters.toFixed(0)}m)`);
-        lastCoordsRef.current = { lng, lat, timestamp: now }; // Reset anchor to new spot without adding bogus mileage
+        lastCoordsRef.current = { lng, lat, timestamp: now }; // Reset anchor without adding bogus mileage
         return;
       }
 
-      // 5. Accumulate real movement distance in kilometers
+      // 5. Accumulate real vehicular movement distance in kilometers (WORKS IN BACKGROUND & LOCK SCREEN)
       const addedKm = distanceInMeters / 1000;
       preciseDistanceRef.current += addedKm;
 
       // Keep exact to 0.01 km
       const nextDist = Math.max(0, Number(preciseDistanceRef.current.toFixed(2)));
 
-      console.log(`⚡ [GPS Tracker] Real vehicular movement detected! Cumulative distance: ${nextDist} km (+${distanceInMeters.toFixed(1)}m)`);
+      console.log(`⚡ [GPS Tracker] Real vehicular movement detected! Cumulative distance: ${nextDist} km (+${distanceInMeters.toFixed(1)}m, dt: ${dt.toFixed(1)}s)`);
 
       const currentTripValue = tripRef.current;
       if (nextDist !== currentTripValue.currentDistance) {
@@ -308,58 +349,88 @@ export default function ActiveTripView({
 
       // Advance last coordinate anchor
       lastCoordsRef.current = { lng, lat, timestamp: now };
+
+      // Save active GPS state to localStorage for background/lock-screen recovery
+      try {
+        localStorage.setItem(`active_trip_gps_${currentTripValue.id}`, JSON.stringify({
+          lastCoords: lastCoordsRef.current,
+          preciseDistance: preciseDistanceRef.current
+        }));
+      } catch (e) {}
     };
 
     if (typeof window !== 'undefined' && navigator.geolocation) {
-      console.log('⚡ [GPS Tracker] Starting active real-time route path distance calculator...');
+      console.log('⚡ [GPS Tracker] Starting active real-time background & lock-screen route path distance calculator...');
       
-      watchId = navigator.geolocation.watchPosition(
-        (pos) => {
-          const rawLng = pos.coords.longitude;
-          const rawLat = pos.coords.latitude;
-          const accuracy = pos.coords.accuracy || 10;
-          const speed = pos.coords.speed;
+      const processPosition = (pos: GeolocationPosition) => {
+        const rawLng = pos.coords.longitude;
+        const rawLat = pos.coords.latitude;
+        const accuracy = pos.coords.accuracy || 10;
+        const speed = pos.coords.speed;
 
-          // Convert coordinates from WGS-84 (GPS) to GCJ-02 (Gaode GCJ02) for consistent mapping and routing
-          const AMap = (window as any).AMap;
-          if (AMap) {
-            try {
-              AMap.convertFrom([rawLng, rawLat], 'gps', (convertStatus: string, convertResult: any) => {
-                if (convertStatus === 'complete' && convertResult.locations && convertResult.locations[0]) {
-                  const finalLng = convertResult.locations[0].lng;
-                  const finalLat = convertResult.locations[0].lat;
-                  handlePositionUpdate(finalLng, finalLat, accuracy, speed);
-                } else {
-                  handlePositionUpdate(rawLng, rawLat, accuracy, speed);
-                }
-              });
-            } catch (err) {
-              console.warn('⚠️ [GPS Tracker] Coordinate GCJ02 conversion error, fallback to raw WGS84:', err);
-              handlePositionUpdate(rawLng, rawLat, accuracy, speed);
-            }
-          } else {
+        const AMap = (window as any).AMap;
+        if (AMap) {
+          try {
+            AMap.convertFrom([rawLng, rawLat], 'gps', (convertStatus: string, convertResult: any) => {
+              if (convertStatus === 'complete' && convertResult.locations && convertResult.locations[0]) {
+                handlePositionUpdate(convertResult.locations[0].lng, convertResult.locations[0].lat, accuracy, speed);
+              } else {
+                handlePositionUpdate(rawLng, rawLat, accuracy, speed);
+              }
+            });
+          } catch (err) {
             handlePositionUpdate(rawLng, rawLat, accuracy, speed);
           }
-        },
-        (err) => {
-          console.error('❌ [GPS Tracker] watchPosition error:', err);
-        },
-        {
-          enableHighAccuracy: true, // Forces phone's high-precision hardware GPS chip
-          timeout: 10000,           // 10 seconds timeout to prevent freeze
-          maximumAge: 0             // Never use cached coordinates, demand fresh satellite positioning
+        } else {
+          handlePositionUpdate(rawLng, rawLat, accuracy, speed);
         }
-      );
+      };
+
+      const handlePosError = (err: any) => {
+        console.warn('⚠️ [GPS Tracker] Geolocation positioning error:', err);
+      };
+
+      // Primary continuous GPS listener
+      watchId = navigator.geolocation.watchPosition(processPosition, handlePosError, {
+        enableHighAccuracy: true, // Forces phone's high-precision hardware GPS chip
+        timeout: 15000,
+        maximumAge: 0
+      });
+
+      // Secondary active background polling: Every 4 seconds, explicitly request position
+      // Forces phone's GPS chip to stay awake even when app is backgrounded or screen is locked
+      pollInterval = setInterval(() => {
+        navigator.geolocation.getCurrentPosition(processPosition, handlePosError, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0
+        });
+      }, 4000);
+
+      // Instant GPS Sync on App Resume / Screen Unlock
+      const handleAppResumeSync = () => {
+        console.log('📱 [GPS Tracker] Screen unlocked / App resumed. Syncing GPS distance instantly...');
+        navigator.geolocation.getCurrentPosition(processPosition, handlePosError, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0
+        });
+      };
+
+      document.addEventListener('visibilitychange', handleAppResumeSync);
+      window.addEventListener('pageshow', handleAppResumeSync);
+      window.addEventListener('focus', handleAppResumeSync);
+
+      return () => {
+        if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+        if (pollInterval) clearInterval(pollInterval);
+        document.removeEventListener('visibilitychange', handleAppResumeSync);
+        window.removeEventListener('pageshow', handleAppResumeSync);
+        window.removeEventListener('focus', handleAppResumeSync);
+      };
     } else {
       console.warn('❌ [GPS Tracker] Geolocation API not supported in this client browser.');
     }
-
-    return () => {
-      if (watchId !== null && typeof window !== 'undefined' && navigator.geolocation) {
-        console.log('⚡ [GPS Tracker] Cleaning up real-time route calculator');
-        navigator.geolocation.clearWatch(watchId);
-      }
-    };
   }, []);
 
   // Toast notifier helper

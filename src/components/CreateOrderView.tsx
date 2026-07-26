@@ -1107,6 +1107,7 @@ export default function CreateOrderView({
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrCountdown, setQrCountdown] = useState(180); // 3 minutes = 180s
   const [qrUpdateCount, setQrUpdateCount] = useState(1);
+  const [qrTimestamp, setQrTimestamp] = useState<number>(() => Date.now());
   const [scanSuccessMsg, setScanSuccessMsg] = useState(false);
   const [showSimulatedScanner, setShowSimulatedScanner] = useState(false);
 
@@ -1114,11 +1115,13 @@ export default function CreateOrderView({
   useEffect(() => {
     if (!showQrModal) return;
     
+    setQrTimestamp(Date.now());
     setQrCountdown(180);
     const interval = setInterval(() => {
       setQrCountdown((prev) => {
         if (prev <= 1) {
           setQrUpdateCount(c => c + 1);
+          setQrTimestamp(Date.now());
           return 180;
         }
         return prev - 1;
@@ -1176,8 +1179,9 @@ export default function CreateOrderView({
 
 
   const passengerScanUrl = (() => {
+    const currentTs = qrTimestamp || Date.now();
     if (typeof window === 'undefined') {
-      return `https://lyheiwandaijiamax.com/passenger_order.html?driver=${encodeURIComponent(userPhone || '18609518888')}&name=${encodeURIComponent(settings?.customAppName?.trim() || 'XX代驾')}&startLocation=${encodeURIComponent(startLocation || '')}`;
+      return `https://lyheiwandaijiamax.com/passenger_order.html?driver=${encodeURIComponent(userPhone || '18609518888')}&name=${encodeURIComponent(settings?.customAppName?.trim() || 'XX代驾')}&startLocation=${encodeURIComponent(startLocation || '')}&t=${currentTs}`;
     }
     const hostname = window.location.hostname;
     const origin = window.location.origin;
@@ -1207,7 +1211,7 @@ export default function CreateOrderView({
       }
     }
     
-    return `${baseOrigin}${basePath}?driver=${encodeURIComponent(userPhone || '18609518888')}&name=${encodeURIComponent(settings?.customAppName?.trim() || 'XX代驾')}&startLocation=${encodeURIComponent(startLocation || '')}`;
+    return `${baseOrigin}${basePath}?driver=${encodeURIComponent(userPhone || '18609518888')}&name=${encodeURIComponent(settings?.customAppName?.trim() || 'XX代驾')}&startLocation=${encodeURIComponent(startLocation || '')}&t=${currentTs}`;
   })();
 
   const formatCountdown = (seconds: number) => {

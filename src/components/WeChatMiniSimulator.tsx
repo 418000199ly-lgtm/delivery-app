@@ -175,7 +175,7 @@ interface WeChatMiniSimulatorProps {
 
 export default function WeChatMiniSimulator({ currentDriverPhone, onTriggerToast }: WeChatMiniSimulatorProps) {
   // Simulator Interactive States
-  const [targetDriver, setTargetDriver] = useState(currentDriverPhone || '15509601222');
+  const [targetDriver, setTargetDriver] = useState(currentDriverPhone || '18609518888');
   const [passengerPhone, setPassengerPhone] = useState('13988889999');
   const [startPoint, setStartPoint] = useState('（和平巷）颐和家园');
   const [destination, setDestination] = useState('');

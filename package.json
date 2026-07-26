@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --banner:js=\"#!/usr/bin/env node\" --outfile=dist/server.cjs && python3 create_deploy_zip.py",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --banner:js=\"#!/usr/bin/env node\" --outfile=dist/server.cjs && python3 scripts/generate_mobile_assets.py && python3 create_deploy_zip.py",
+    "build:mobile": "vite build && python3 scripts/generate_mobile_assets.py && npx cap sync",
+    "generate:assets": "python3 scripts/generate_mobile_assets.py",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"

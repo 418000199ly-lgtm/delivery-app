@@ -55,16 +55,36 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
     setSimulatedCode('');
     setIsSending(true);
 
-    try {
-      const res = await fetch(`${getBaseApiUrl()}/api/sms/send`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ phone: phoneTrimmed }),
-      });
+    const postApi = async (endpoint: string, bodyObj: any) => {
+      const base = getBaseApiUrl();
+      const candidateUrls = [
+        `${base}${endpoint}`,
+        `https://api.lyheiwandaijiamax.com${endpoint}`,
+        `https://admin.lyheiwandaijiamax.com${endpoint}`,
+        endpoint
+      ].filter((v, i, a) => v && a.indexOf(v) === i);
 
-      const data = await res.json();
+      let lastError: any = null;
+      for (const url of candidateUrls) {
+        try {
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(bodyObj),
+          });
+          if (res.ok || res.status === 400 || res.status === 403) {
+            return await res.json();
+          }
+        } catch (err) {
+          console.warn(`[Login] Fetch failed for endpoint "${url}", trying next candidate...`, err);
+          lastError = err;
+        }
+      }
+      throw lastError || new Error('网络连接超时，请检查服务');
+    };
+
+    try {
+      const data = await postApi('/api/sms/send', { phone: phoneTrimmed });
       setIsSending(false);
 
       if (data.success) {
@@ -106,16 +126,36 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
 
     setIsLoggingIn(true);
 
-    try {
-      const res = await fetch(`${getBaseApiUrl()}/api/sms/verify`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ phone: phoneTrimmed, code: smsCode }),
-      });
+    const postApi = async (endpoint: string, bodyObj: any) => {
+      const base = getBaseApiUrl();
+      const candidateUrls = [
+        `${base}${endpoint}`,
+        `https://api.lyheiwandaijiamax.com${endpoint}`,
+        `https://admin.lyheiwandaijiamax.com${endpoint}`,
+        endpoint
+      ].filter((v, i, a) => v && a.indexOf(v) === i);
 
-      const data = await res.json();
+      let lastError: any = null;
+      for (const url of candidateUrls) {
+        try {
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(bodyObj),
+          });
+          if (res.ok || res.status === 400 || res.status === 403) {
+            return await res.json();
+          }
+        } catch (err) {
+          console.warn(`[Login] Verify fetch failed for endpoint "${url}", trying next candidate...`, err);
+          lastError = err;
+        }
+      }
+      throw lastError || new Error('网络连接超时，请检查服务');
+    };
+
+    try {
+      const data = await postApi('/api/sms/verify', { phone: phoneTrimmed, code: smsCode });
       setIsLoggingIn(false);
 
       if (data.success) {

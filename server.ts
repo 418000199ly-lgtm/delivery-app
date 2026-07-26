@@ -180,18 +180,111 @@ async function startServer() {
 
   // CORS headers
   app.use((req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    } else {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE, PATCH');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Keep-Alive, User-Agent, Cache-Control');
     if (req.method === 'OPTIONS') {
-      return res.sendStatus(200);
+      return res.sendStatus(204);
     }
     next();
   });
 
+  // Pure API Domain Isolation Guard:
+  // When accessed via api.* domain (e.g., https://api.lyheiwandaijiamax.com/),
+  // disable all Web GUI / frontend page rendering on root path to prevent unauthorized portal exposure,
+  // while ensuring all /api/* data endpoints operate with 100% full performance.
+  app.use((req, res, next) => {
+    const host = (req.headers.host || '').toLowerCase();
+    const reqPath = req.path;
+
+    // Pure API mode check for explicit query parameter only
+    if (req.query.api_mode === 'pure' && 
+        !reqPath.startsWith('/api/') && 
+        reqPath !== '/privacy' && 
+        !reqPath.includes('.') &&
+        !reqPath.startsWith('/daijia_deploy') &&
+        !reqPath.startsWith('/baota_deploy') &&
+        !reqPath.startsWith('/deploy')) {
+      return res.status(200).json({
+        code: 200,
+        status: 'ONLINE',
+        node: 'Heiwan Daijia API Gateway',
+        message: '🔒 安全网关节点正常运行中。',
+        timestamp: new Date().toISOString()
+      });
+    }
+    next();
+  });
+
+  // Seed Master Developer Admin Account 15509601222 automatically
+  const seedSuperAdminAccount = async () => {
+    const superAdminData = {
+      phone: '15509601222',
+      role: 'SUPER_DEVELOPER_ADMIN',
+      name: '最高开发者',
+      status: 'ACTIVE',
+      updatedAt: new Date().toISOString()
+    };
+
+    try {
+      const dbData = readLocalJsonDb();
+      if (!dbData.system_admins) dbData.system_admins = {};
+      dbData.system_admins['15509601222'] = superAdminData;
+      writeLocalJsonDb(dbData);
+      console.log('✓ [Database] Super Admin 15509601222 verified in local_db.json');
+    } catch (e) {
+      console.error('[Seed] Failed to seed super admin into local_db.json:', e);
+    }
+
+    if (isMySQLEnabled && mysqlPool) {
+      try {
+        const conn = await mysqlPool.getConnection();
+        await conn.query(
+          `INSERT INTO \`daijia_documents\` (\`collection\`, \`doc_id\`, \`data\`)
+           VALUES ('system_admins', '15509601222', ?)
+           ON DUPLICATE KEY UPDATE \`data\` = ?`,
+          [JSON.stringify(superAdminData), JSON.stringify(superAdminData)]
+        );
+        conn.release();
+        console.log('✓ [Database] Super Admin 15509601222 verified in MySQL');
+      } catch (e) {
+        console.error('[Seed] Failed to seed super admin into MySQL:', e);
+      }
+    }
+  };
+
+  // Run initial seed
+  seedSuperAdminAccount();
+
   // Health check endpoint
   app.get('/api/health', (req, res) => {
     res.json({ status: 'healthy', timestamp: Date.now() });
+  });
+
+  // Check admin permission endpoint for https://admin.lyheiwandaijiamax.com/
+  app.post('/api/admin/check-permission', (req, res) => {
+    const { phone } = req.body;
+    const cleanPhone = String(phone || '').trim();
+    if (cleanPhone === '15509601222') {
+      return res.json({
+        success: true,
+        isSuperAdmin: true,
+        phone: '15509601222',
+        role: 'SUPER_DEVELOPER_ADMIN',
+        message: '最高开发者特权账号(15509601222)数据库匹配成功'
+      });
+    }
+    return res.status(403).json({
+      success: false,
+      isSuperAdmin: false,
+      error: '❌ 无权限：非最高开发者账号(15509601222)，拒绝访问或登录管理后台！'
+    });
   });
 
   // Standalone Privacy Policy Page served with complete content and beautiful styling
@@ -509,12 +602,24 @@ async function startServer() {
 
   // 1. Send SMS Code via Alibaba Cloud SMS or Simulated Sandbox
   app.post('/api/sms/send', async (req, res) => {
-    const { phone } = req.body;
+    const { phone, isAdminLogin, scope } = req.body;
     if (!phone) {
       return res.status(400).json({ success: false, error: '手机号码不能为空' });
     }
-    if (!/^1[3-9]\d{9}$/.test(phone)) {
+    const cleanPhone = String(phone).trim();
+    if (!/^1[3-9]\d{9}$/.test(cleanPhone)) {
       return res.status(400).json({ success: false, error: '请输入正确的11位手机号码' });
+    }
+
+    // Strict Admin Restriction: If requesting for admin panel, ONLY 15509601222 is permitted
+    if (isAdminLogin || scope === 'admin_panel') {
+      if (cleanPhone !== '15509601222') {
+        console.warn(`[SMS Server] Security Block: Denied SMS code for unauthorized phone ${cleanPhone} attempting admin login`);
+        return res.status(403).json({
+          success: false,
+          error: '❌ 权限拒绝：只有最高开发者账号（15509601222）才有权限获取管理后台验证码！'
+        });
+      }
     }
 
     const accessKeyId = process.env.ALIBABA_CLOUD_ACCESS_KEY_ID;
@@ -596,9 +701,22 @@ async function startServer() {
 
   // 2. Verify SMS Code via Alibaba Cloud SMS or Simulated Sandbox
   app.post('/api/sms/verify', async (req, res) => {
-    const { phone, code } = req.body;
+    const { phone, code, isAdminLogin, scope } = req.body;
     if (!phone || !code) {
       return res.status(400).json({ success: false, error: '手机号或验证码不能为空' });
+    }
+
+    const cleanPhone = String(phone).trim();
+
+    // Strict Admin Restriction: If verifying for admin panel, ONLY 15509601222 is permitted
+    if (isAdminLogin || scope === 'admin_panel') {
+      if (cleanPhone !== '15509601222') {
+        console.warn(`[SMS Server] Security Block: Denied login verification for unauthorized phone ${cleanPhone}`);
+        return res.status(403).json({
+          success: false,
+          error: '❌ 登录拒绝：非最高开发者账号（15509601222），无法登录管理后台！'
+        });
+      }
     }
 
     const record = verificationCodes.get(phone);
@@ -1074,8 +1192,8 @@ async function startServer() {
     res.sendFile(path.join(process.cwd(), 'aliyun_passenger_deploy.html'));
   });
 
-  // Helper for binary-safe ZIP download stream
-  const serveZipFile = (req: express.Request, res: express.Response, requestedName = 'daijia_deploy.zip') => {
+  // Helper for binary-safe file download stream (.zip, .tar.gz, .tar)
+  const servePackageFile = (req: express.Request, res: express.Response, requestedName = 'daijia_deploy.zip') => {
     let targetPath = path.join(process.cwd(), requestedName);
     if (!fs.existsSync(targetPath)) {
       targetPath = path.join(process.cwd(), 'dist', requestedName);
@@ -1087,22 +1205,32 @@ async function startServer() {
       targetPath = path.join(process.cwd(), 'dist', 'daijia_deploy.zip');
     }
 
-    // Auto-repair if zip does not exist or is corrupted
+    // Auto-repair/rebuild if file does not exist or is smaller than 1KB
     if (!fs.existsSync(targetPath) || fs.statSync(targetPath).size < 1000) {
       try {
-        console.log('[ZIP服务] ZIP压缩包不存在或变体损坏，重新生成打包...');
+        console.log(`[Package Service] File ${requestedName} missing or invalid, running create_deploy_zip.py...`);
         const { execSync } = require('child_process');
         execSync('python3 create_deploy_zip.py', { cwd: process.cwd() });
-        targetPath = path.join(process.cwd(), 'daijia_deploy.zip');
+        targetPath = path.join(process.cwd(), requestedName);
+        if (!fs.existsSync(targetPath)) {
+          targetPath = path.join(process.cwd(), 'daijia_deploy.zip');
+        }
       } catch (e: any) {
-        console.error('自愈打包异常:', e);
+        console.error('Build package failed:', e);
       }
     }
 
     if (fs.existsSync(targetPath)) {
       const stat = fs.statSync(targetPath);
+      let contentType = 'application/zip';
+      if (requestedName.endsWith('.tar.gz') || requestedName.endsWith('.tgz')) {
+        contentType = 'application/gzip';
+      } else if (requestedName.endsWith('.tar')) {
+        contentType = 'application/x-tar';
+      }
+
       res.writeHead(200, {
-        'Content-Type': 'application/zip',
+        'Content-Type': contentType,
         'Content-Disposition': `attachment; filename="${requestedName}"`,
         'Content-Length': stat.size,
         'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -1111,63 +1239,20 @@ async function startServer() {
       });
       fs.createReadStream(targetPath).pipe(res);
     } else {
-      res.status(500).json({ error: 'Zip file build failed' });
+      res.status(500).json({ error: 'Package file build failed' });
     }
   };
 
-  app.get('/daijia_deploy.zip', (req, res) => serveZipFile(req, res, 'daijia_deploy.zip'));
-  app.get('/baota_deploy.zip', (req, res) => serveZipFile(req, res, 'baota_deploy.zip'));
-  app.get('/deploy.zip', (req, res) => serveZipFile(req, res, 'daijia_deploy.zip'));
-  app.get('/api/download-zip', (req, res) => serveZipFile(req, res, 'daijia_deploy.zip'));
-  app.get('/api/download/zip', (req, res) => serveZipFile(req, res, 'daijia_deploy.zip'));
+  app.get('/daijia_deploy.zip', (req, res) => servePackageFile(req, res, 'daijia_deploy.zip'));
+  app.get('/baota_deploy.zip', (req, res) => servePackageFile(req, res, 'baota_deploy.zip'));
+  app.get('/deploy.zip', (req, res) => servePackageFile(req, res, 'daijia_deploy.zip'));
+  app.get('/api/download-zip', (req, res) => servePackageFile(req, res, 'daijia_deploy.zip'));
+  app.get('/api/download/zip', (req, res) => servePackageFile(req, res, 'daijia_deploy.zip'));
 
-  app.get('/daijia_deploy.tar.gz', (req, res) => {
-    const filePath = path.join(process.cwd(), 'daijia_deploy.tar.gz');
-    const altPath = path.join(process.cwd(), 'dist', 'daijia_deploy.tar.gz');
-
-    // 自愈机制：如果物理包由于环境原因缺失，实时在后台调用Python脚本动态生成
-    if (!fs.existsSync(filePath) && !fs.existsSync(altPath)) {
-      try {
-        console.log('[自愈机制] 部署压缩包未找到，正在动态生成 daijia_deploy.tar.gz ...');
-        const { execSync } = require('child_process');
-        execSync('python3 create_deploy_zip.py', { cwd: process.cwd() });
-      } catch (e: any) {
-        console.error('动态生成部署包失败:', e);
-      }
-    }
-
-    if (fs.existsSync(filePath)) {
-      res.download(filePath, 'daijia_deploy.tar.gz');
-    } else if (fs.existsSync(altPath)) {
-      res.download(altPath, 'daijia_deploy.tar.gz');
-    } else {
-      res.status(404).send('部署包正在打包编译中，请在5秒后刷新页面重试！');
-    }
-  });
-
-  app.get('/daijia_deploy.tar', (req, res) => {
-    const filePath = path.join(process.cwd(), 'daijia_deploy.tar');
-    const altPath = path.join(process.cwd(), 'dist', 'daijia_deploy.tar');
-
-    // 自愈机制：如果物理包由于环境原因缺失，实时在后台调用Python脚本动态生成
-    if (!fs.existsSync(filePath) && !fs.existsSync(altPath)) {
-      try {
-        console.log('[自愈机制] 部署压缩包未找到，正在动态生成 daijia_deploy.tar ...');
-        const { execSync } = require('child_process');
-        execSync('python3 create_deploy_zip.py', { cwd: process.cwd() });
-      } catch (e: any) {
-        console.error('动态生成部署包失败:', e);
-      }
-    }
-
-    if (fs.existsSync(filePath)) {
-      res.download(filePath, 'daijia_deploy.tar');
-    } else if (fs.existsSync(altPath)) {
-      res.download(altPath, 'daijia_deploy.tar');
-    } else {
-      res.status(404).send('部署包正在打包编译中，请在5秒后刷新页面重试！');
-    }
-  });
+  app.get('/daijia_deploy.tar.gz', (req, res) => servePackageFile(req, res, 'daijia_deploy.tar.gz'));
+  app.get('/baota_deploy.tar.gz', (req, res) => servePackageFile(req, res, 'daijia_deploy.tar.gz'));
+  app.get('/daijia_deploy.tar', (req, res) => servePackageFile(req, res, 'daijia_deploy.tar'));
+  app.get('/baota_deploy.tar', (req, res) => servePackageFile(req, res, 'daijia_deploy.tar'));
 
   // Integration with Vite development server middleware OR static assets serving for production
   const distPath = path.join(process.cwd(), 'dist');

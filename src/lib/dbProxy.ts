@@ -51,31 +51,28 @@ export function getBaseApiUrl(): string {
   } catch (_) {}
   
   if (typeof window !== 'undefined') {
-    // Detect Capacitor protocol
-    const isCapacitor = (window as any).Capacitor || 
-                        window.location.protocol === 'capacitor:' || 
-                        window.location.protocol === 'file:';
+    const hostname = window.location.hostname || '';
+    const protocol = window.location.protocol || '';
+    const isHybridApp = (window as any).Capacitor || 
+                        (window as any).plus ||
+                        protocol === 'capacitor:' || 
+                        protocol === 'file:' ||
+                        protocol === 'app:' ||
+                        protocol === 'content:';
     
-    // If it's loaded as a standard Web page (even on mobile), ALWAYS use the current origin!
-    // This allows deploying on ANY Aliyun server/domain/IP and having it work directly,
-    // without any hardcoded routing to external Cloud Run / Cloudflare domains.
-    if (!isCapacitor && window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    // Cloud Run preview environment
+    if (hostname.includes('run.app')) {
       return window.location.origin;
-    }
-    
-    const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    
-    // If running in Capacitor native shell on a mobile device, fallback to api.lyheiwandaijiamax.com
-    if (isCapacitor) {
-      return 'https://api.lyheiwandaijiamax.com';
     }
 
-    const hostname = window.location.hostname;
-    if (hostname.includes('run.app') || hostname.includes('localhost') || hostname.includes('127.0.0.1')) {
-      return window.location.origin;
-    }
-    if (hostname.includes('lyheiwandaijiamax.com')) {
+    // Android APK / Hybrid native shell / file protocol / local app bundle
+    if (isHybridApp || hostname === 'localhost' || hostname === '127.0.0.1') {
       return 'https://api.lyheiwandaijiamax.com';
+    }
+    
+    // Standard web browser on domain
+    if (window.location.origin && window.location.origin !== 'null' && window.location.origin !== 'file://') {
+      return window.location.origin;
     }
   }
   
