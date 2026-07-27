@@ -871,16 +871,6 @@ export default function SettingsView({
             <div className="flex items-center space-x-2">
               <button 
                 type="button"
-                onClick={() => {
-                  initAudioUnlock();
-                  speakText('语音播报正常，祝您接单愉快！');
-                }}
-                className="text-xs font-bold text-amber-600 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-              >
-                🔊 测试播报
-              </button>
-              <button 
-                type="button"
                 onClick={toggleVoiceBroadcast}
                 className="flex items-center space-x-1 text-teal-600 font-semibold py-1 px-2.5 hover:bg-teal-50 rounded-lg border border-teal-100 transition-colors cursor-pointer"
               >

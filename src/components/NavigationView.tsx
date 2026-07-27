@@ -369,7 +369,11 @@ export default function NavigationView({
             else if (action.includes('掉头')) setTurnAction('uturn');
             else setTurnAction('straight');
 
-            speakVoice(`导航开始，距离目的地【${destName}】全程 ${distKm} 公里，预计 ${timeMins} 分钟。前方 ${formattedStepDist} 后 ${action} ${roadName}`);
+            const amapNaviText = step.instruction 
+              ? `高德地图为您导航：${step.instruction}` 
+              : `高德地图开始导航，距离目的地【${destName}】全程 ${distKm} 公里，预计 ${timeMins} 分钟。前方 ${formattedStepDist} 后 ${action} ${roadName}`;
+
+            speakVoice(amapNaviText);
           } else {
             setNextInstruction('沿道路继续行驶');
             setNextRoad(destName);

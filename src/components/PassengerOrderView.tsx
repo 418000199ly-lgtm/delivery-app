@@ -303,11 +303,14 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
   const isAlipay = ua.indexOf('alipayclient') !== -1;
   const isWeChatOrAlipay = isWeChat || isAlipay;
 
-  // Strict blocking: Block if NOT WeChat/Alipay OR if driver VIP is unactivated/expired/0 OR if QR code is expired
-  const isBlocked = (forceView === 'vip_blocked') || ((!isWeChatOrAlipay || (isVipChecked && !isVipActive) || isQrExpired) && !isDeveloperSimulator && forceView !== 'normal');
+  // Check 3-minute QR expiration condition
+  const isQrExpiredView = forceView === 'qr_expired' || isQrExpired;
 
-  // If forceView === 'qr_expired', directly render the 3-minute expiration overlay
-  if (forceView === 'qr_expired') {
+  // Strict blocking: Block if NOT WeChat/Alipay OR if driver VIP is unactivated/expired/0
+  const isBlocked = (forceView === 'vip_blocked') || ((!isWeChatOrAlipay || (isVipChecked && !isVipActive)) && !isDeveloperSimulator && forceView !== 'normal');
+
+  // 1. If 3-minute QR code is expired, directly render the 3-minute expiration overlay WITHOUT 3-second countdown
+  if (isQrExpiredView) {
     return (
       <div className="w-full h-full min-h-full bg-[#f9f9f9] text-[#1a1c1c] font-sans flex flex-col items-center justify-between p-6 select-none z-[20000] overflow-y-auto">
         {/* Top Header Status */}
@@ -363,101 +366,7 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
     );
   }
 
-  if (showWelcome && forceView !== 'vip_blocked') {
-    const currentDisplayBrand = isAbnormal ? 'XX代驾' : customBrandName;
-    return (
-      <div className="relative w-full h-full min-h-full flex flex-col items-center py-16 px-5 overflow-hidden justify-center bg-[#f9f9f9] text-[#1a1c1c] font-sans select-none z-[10000]">
-        {/* Top Header Status Bar (Image x3) */}
-        <div className="absolute top-6 left-5 right-5 z-20 flex items-center justify-between">
-          <div className="flex items-center gap-1.5 bg-white/70 backdrop-blur-md px-3 py-1 rounded-full border border-black/5 shadow-xs">
-            <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-ping"></span>
-            <span className="text-[10px] text-slate-600 font-bold tracking-widest uppercase">
-              SECURE CONNECTION • 专享自助端
-            </span>
-          </div>
-          <span className="text-[9px] text-orange-600 font-bold font-mono bg-orange-500/10 px-2.5 py-0.5 rounded border border-orange-500/20 shadow-xs">
-            安全加密 ⚡
-          </span>
-        </div>
-
-        {/* Background Illustration Decoration */}
-        <div className="absolute inset-0 z-0 opacity-25 pointer-events-none">
-          <img 
-            className="w-full h-full object-cover" 
-            src="welcome_bg.jpg"
-            alt="Decoration Background"
-          />
-        </div>
-
-        {/* Central Countdown Circle */}
-        <div className="relative z-10 flex flex-col items-center justify-center">
-          <div className="relative w-48 h-48 flex items-center justify-center">
-            {/* SVG Progress Ring */}
-            <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 100 100">
-              <circle className="text-[#eeeeee]" cx="50" cy="50" fill="transparent" r="45" stroke="currentColor" strokeWidth="4"></circle>
-              <circle 
-                className="drop-shadow-xs transition-all duration-1000" 
-                cx="50" 
-                cy="50" 
-                fill="transparent" 
-                r="45" 
-                stroke="#FF7D00" 
-                strokeWidth="6"
-                strokeDasharray={282.74}
-                strokeDashoffset={282.74 - (countdown / 3) * 282.74}
-              ></circle>
-            </svg>
-            {/* Number Display */}
-            <div className="text-[64px] font-black text-[#ff7d00] animate-pulse">
-              {countdown}
-            </div>
-          </div>
-          {/* Status Text */}
-          <div className="mt-8 flex flex-col items-center gap-2 h-16">
-            <span className="text-[#1a1c1c] font-bold text-base text-center transition-all duration-300">
-              {welcomeStatus}
-            </span>
-            {countdown > 0 && (
-              <div className="flex gap-1">
-                <div className="w-1.5 h-1.5 bg-[#ff7d00] rounded-full animate-bounce" style={{ animationDelay: '0s' }}></div>
-                <div className="w-1.5 h-1.5 bg-[#ff7d00] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                <div className="w-1.5 h-1.5 bg-[#ff7d00] rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Footer / Action Area */}
-        <div className="relative z-10 text-center mb-8 mt-16">
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <div className="w-10 h-10 bg-gradient-to-br from-[#ff7d00] to-[#ffdbc8] rounded-xl flex items-center justify-center shadow-lg">
-              <Car className="text-white w-5 h-5" />
-            </div>
-            <h1 className="text-xl font-bold tracking-tight text-[#1a1c1c]">
-              欢迎使用<span className="text-[#ff7d00] px-1 font-extrabold">{currentDisplayBrand}</span>
-            </h1>
-          </div>
-          <p className="text-[#5f5e5e] text-sm">在乎你的车，更在乎你的人</p>
-        </div>
-
-        <div className="relative z-10 w-full text-center">
-          <div className="px-4 py-2 bg-white/50 backdrop-blur-md rounded-2xl border border-[#dfc0af] inline-block mx-auto">
-            <div className="flex items-center gap-2.5">
-              <ShieldCheck className="text-[#ff7d00] w-5 h-5" />
-              <span className="text-[#584235] text-xs font-semibold">
-                欢迎使用自助开单，您的行程已安全加密
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Background Atmospheric Effect */}
-        <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-1/2 w-[400px] h-[400px] bg-[#ff7d00]/5 rounded-full blur-[100px] pointer-events-none"></div>
-        <div className="absolute bottom-0 left-0 translate-y-1/2 -translate-x-1/2 w-[300px] h-[300px] bg-[#ff7d00]/10 rounded-full blur-[80px] pointer-events-none"></div>
-      </div>
-    );
-  }
-
+  // 2. If non-WeChat/AliPay or non-VIP driver, directly render VIP purchase/blocked screen WITHOUT 3-second countdown
   if (isBlocked) {
     return (
       <div className="w-full h-full min-h-full bg-[#f9f9f9] text-[#1a1c1c] font-sans overflow-y-auto select-none relative z-10 flex flex-col justify-between">
@@ -567,6 +476,102 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
             </button>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  // 3. Render 3-second welcome countdown transition ONLY when QR code and VIP/channel are both valid
+  if (showWelcome) {
+    const currentDisplayBrand = isAbnormal ? 'XX代驾' : customBrandName;
+    return (
+      <div className="relative w-full h-full min-h-full flex flex-col items-center py-16 px-5 overflow-hidden justify-center bg-[#f9f9f9] text-[#1a1c1c] font-sans select-none z-[10000]">
+        {/* Top Header Status Bar (Image x3) */}
+        <div className="absolute top-6 left-5 right-5 z-20 flex items-center justify-between">
+          <div className="flex items-center gap-1.5 bg-white/70 backdrop-blur-md px-3 py-1 rounded-full border border-black/5 shadow-xs">
+            <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-ping"></span>
+            <span className="text-[10px] text-slate-600 font-bold tracking-widest uppercase">
+              SECURE CONNECTION • 专享自助端
+            </span>
+          </div>
+          <span className="text-[9px] text-orange-600 font-bold font-mono bg-orange-500/10 px-2.5 py-0.5 rounded border border-orange-500/20 shadow-xs">
+            安全加密 ⚡
+          </span>
+        </div>
+
+        {/* Background Illustration Decoration */}
+        <div className="absolute inset-0 z-0 opacity-25 pointer-events-none">
+          <img 
+            className="w-full h-full object-cover" 
+            src="welcome_bg.jpg"
+            alt="Decoration Background"
+          />
+        </div>
+
+        {/* Central Countdown Circle */}
+        <div className="relative z-10 flex flex-col items-center justify-center">
+          <div className="relative w-48 h-48 flex items-center justify-center">
+            {/* SVG Progress Ring */}
+            <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 100 100">
+              <circle className="text-[#eeeeee]" cx="50" cy="50" fill="transparent" r="45" stroke="currentColor" strokeWidth="4"></circle>
+              <circle 
+                className="drop-shadow-xs transition-all duration-1000" 
+                cx="50" 
+                cy="50" 
+                fill="transparent" 
+                r="45" 
+                stroke="#FF7D00" 
+                strokeWidth="6"
+                strokeDasharray={282.74}
+                strokeDashoffset={282.74 - (countdown / 3) * 282.74}
+              ></circle>
+            </svg>
+            {/* Number Display */}
+            <div className="text-[64px] font-black text-[#ff7d00] animate-pulse">
+              {countdown}
+            </div>
+          </div>
+          {/* Status Text */}
+          <div className="mt-8 flex flex-col items-center gap-2 h-16">
+            <span className="text-[#1a1c1c] font-bold text-base text-center transition-all duration-300">
+              {welcomeStatus}
+            </span>
+            {countdown > 0 && (
+              <div className="flex gap-1">
+                <div className="w-1.5 h-1.5 bg-[#ff7d00] rounded-full animate-bounce" style={{ animationDelay: '0s' }}></div>
+                <div className="w-1.5 h-1.5 bg-[#ff7d00] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                <div className="w-1.5 h-1.5 bg-[#ff7d00] rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer / Action Area */}
+        <div className="relative z-10 text-center mb-8 mt-16">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <div className="w-10 h-10 bg-gradient-to-br from-[#ff7d00] to-[#ffdbc8] rounded-xl flex items-center justify-center shadow-lg">
+              <Car className="text-white w-5 h-5" />
+            </div>
+            <h1 className="text-xl font-bold tracking-tight text-[#1a1c1c]">
+              欢迎使用<span className="text-[#ff7d00] px-1 font-extrabold">{currentDisplayBrand}</span>
+            </h1>
+          </div>
+          <p className="text-[#5f5e5e] text-sm">在乎你的车，更在乎你的人</p>
+        </div>
+
+        <div className="relative z-10 w-full text-center">
+          <div className="px-4 py-2 bg-white/50 backdrop-blur-md rounded-2xl border border-[#dfc0af] inline-block mx-auto">
+            <div className="flex items-center gap-2.5">
+              <ShieldCheck className="text-[#ff7d00] w-5 h-5" />
+              <span className="text-[#584235] text-xs font-semibold">
+                欢迎使用自助开单，您的行程已安全加密
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Background Atmospheric Effect */}
+        <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-1/2 w-[400px] h-[400px] bg-[#ff7d00]/5 rounded-full blur-[100px] pointer-events-none"></div>
+        <div className="absolute bottom-0 left-0 translate-y-1/2 -translate-x-1/2 w-[300px] h-[300px] bg-[#ff7d00]/10 rounded-full blur-[80px] pointer-events-none"></div>
       </div>
     );
   }

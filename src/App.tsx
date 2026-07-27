@@ -1202,12 +1202,13 @@ export default function App() {
     }
     setIsOnline(online);
 
-    // Voice announcement for online / offline toggle
-    if (settings.voiceBroadcast === '开单语音播报') {
+    // Voice announcement for online / offline toggle on gesture
+    initAudioUnlock();
+    if (settings.voiceBroadcast !== '静音播报') {
       if (online) {
-        speakText('您已上线！');
+        speakText('您已上线');
       } else {
-        speakText('您已下线！');
+        speakText('您已下线');
       }
     }
     if (userPhone) {
