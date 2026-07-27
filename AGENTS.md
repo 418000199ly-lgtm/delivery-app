@@ -1,11 +1,11 @@
 # Project Guidelines & GitHub Sync Commit Conventions
 
 ## GitHub Sync Commit Messages
-When the user asks to sync/push code to GitHub or requests "What changes did you make?", ALWAYS provide a clear, ready-to-copy commit message for the AI Studio "What changes did you make?" box.
+When the user requests GitHub sync, code push, or asks "What changes did you make?" / "填写What changes did you make?", ALWAYS generate a clear, formatted commit message ready to paste into the AI Studio "What changes did you make?" input box.
 
-### Standard Format for Commit Message:
+### Latest Update Commit Message:
 ```text
-feat(mobile & deploy): auto-generate mobile icons, fix GitHub Actions npm peer dependency conflict, update PWA manifest & Baota deployment packages
+feat(passenger & voice): remove double-click deviation, optimize 3-minute QR expiration auto-refresh, disable 3s transition on blocked/expired views, replace test voice button with instant online/offline speech
 ```
 
 ## Mobile & Packaging Rules
