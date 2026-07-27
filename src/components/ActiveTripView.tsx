@@ -552,9 +552,13 @@ export default function ActiveTripView({
     };
   }, [isSliding, trip.calculatedTotalFee]);
 
+  const stepKm = settings.deviationKm ?? 1.0;
+  const stepWaitSec = settings.deviationWaitSec ?? 30;
+  const isForbiddenOnlineOrder = !!(trip.isOnlineOrder && trip.orderType === '后台指派订单');
+
   // Adjust distance manually (deviation helper to adjust on simulated app preview)
   const handleAdjustDistance = (amount: number) => {
-    if (trip.isOnlineOrder) {
+    if (isForbiddenOnlineOrder) {
       return;
     }
     if (!checkVipActive(settings.vipExpiry)) {
@@ -573,12 +577,12 @@ export default function ActiveTripView({
       calculatedBaseFee: cost.base,
       calculatedTotalFee: cost.total
     });
-    // Actual rectification logic executed, toast notification suppressed as per user request
+    // Actual rectification logic executed
   };
 
-  // Adjust waiting time manually (deviation helper to adjust waiting duration)
-  const handleAdjustWaitingTime = (amountMins: number) => {
-    if (trip.isOnlineOrder) {
+  // Adjust waiting time manually (deviation helper to adjust waiting duration in seconds)
+  const handleAdjustWaitingTime = (amountSecs: number) => {
+    if (isForbiddenOnlineOrder) {
       return;
     }
     if (!checkVipActive(settings.vipExpiry)) {
@@ -589,8 +593,6 @@ export default function ActiveTripView({
       triggerToast('纠偏功能已设定为禁用，请进入设置页开启它');
       return;
     }
-    // Amount to adjust on the clock timer is exactly 1 minute = 60 seconds
-    const amountSecs = amountMins * 60;
     const nextSec = Math.max(0, waitingSeconds + amountSecs);
     setWaitingSeconds(nextSec);
 
@@ -721,36 +723,36 @@ export default function ActiveTripView({
             className="bg-white rounded-xl border border-gray-100 shadow-2xs relative overflow-hidden flex min-h-[96px] h-full" 
             data-purpose="stat-distance"
           >
-            {/* Left half clickable area: Click to correct +1 km */}
+            {/* Left half clickable area: Click to correct +stepKm */}
             <button
-              onClick={(e) => { e.stopPropagation(); handleAdjustDistance(1.0); }}
+              onClick={(e) => { e.stopPropagation(); handleAdjustDistance(stepKm); }}
               className={`w-1/2 bg-white ${
-                trip.isOnlineOrder
+                isForbiddenOnlineOrder
                   ? 'cursor-default'
                   : settings.deviationMitigation 
                     ? 'hover:bg-emerald-50/5 active:bg-emerald-50/20 cursor-pointer' 
                     : 'cursor-not-allowed opacity-90'
               } transition-colors flex items-center justify-center p-3 relative focus:outline-hidden focus:ring-0 select-none`}
-              title={trip.isOnlineOrder ? undefined : (settings.deviationMitigation ? "纠偏里程增加 1 公里" : "纠偏功能已在设置中禁用")}
+              title={isForbiddenOnlineOrder ? undefined : (settings.deviationMitigation ? `纠偏里程增加 ${stepKm} 公里` : "纠偏功能已在设置中禁用")}
             >
             </button>
 
-            {/* Right half clickable area: Click to correct -1 km */}
+            {/* Right half clickable area: Click to correct -stepKm */}
             <button
-              onClick={(e) => { e.stopPropagation(); handleAdjustDistance(-1.0); }}
+              onClick={(e) => { e.stopPropagation(); handleAdjustDistance(-stepKm); }}
               className={`w-1/2 bg-white ${
-                trip.isOnlineOrder
+                isForbiddenOnlineOrder
                   ? 'cursor-default'
                   : settings.deviationMitigation 
                     ? 'hover:bg-rose-50/5 active:bg-rose-50/20 cursor-pointer' 
                     : 'cursor-not-allowed opacity-90'
               } transition-colors flex items-center justify-center p-3 relative focus:outline-hidden focus:ring-0 select-none`}
-              title={trip.isOnlineOrder ? undefined : (settings.deviationMitigation ? "纠偏里程减少 1 公里" : "纠偏功能已在设置中禁用")}
+              title={isForbiddenOnlineOrder ? undefined : (settings.deviationMitigation ? `纠偏里程减少 ${stepKm} 公里` : "纠偏功能已在设置中禁用")}
             >
             </button>
 
             {/* Centered Overlay Badge: Show current distance value and status label */}
-            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none select-none z-10 flex flex-col items-center justify-center min-w-[100px] ${(!settings.deviationMitigation || trip.isOnlineOrder) ? 'opacity-65' : ''}`}>
+            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none select-none z-10 flex flex-col items-center justify-center min-w-[100px] ${(!settings.deviationMitigation || isForbiddenOnlineOrder) ? 'opacity-65' : ''}`}>
               <div className="text-2xl font-black text-[#26a69a] font-mono leading-none mb-1">
                 {trip.currentDistance.toFixed(2)}
               </div>
@@ -765,36 +767,36 @@ export default function ActiveTripView({
             className="bg-white rounded-xl border border-gray-100 shadow-2xs relative overflow-hidden flex min-h-[96px] h-full" 
             data-purpose="stat-waiting"
           >
-            {/* Left half clickable area: Click to increase waiting by 1 min */}
+            {/* Left half clickable area: Click to increase waiting by stepWaitSec */}
             <button
-              onClick={(e) => { e.stopPropagation(); handleAdjustWaitingTime(1); }}
+              onClick={(e) => { e.stopPropagation(); handleAdjustWaitingTime(stepWaitSec); }}
               className={`w-1/2 bg-white ${
-                trip.isOnlineOrder
+                isForbiddenOnlineOrder
                   ? 'cursor-default'
                   : settings.deviationMitigation 
                     ? 'hover:bg-emerald-50/5 active:bg-emerald-50/20 cursor-pointer' 
                     : 'cursor-not-allowed opacity-90'
               } transition-colors flex items-center justify-center p-3 relative focus:outline-hidden focus:ring-0 select-none`}
-              title={trip.isOnlineOrder ? undefined : (settings.deviationMitigation ? "增加一分钟" : "纠偏功能已在设置中禁用")}
+              title={isForbiddenOnlineOrder ? undefined : (settings.deviationMitigation ? `纠偏等候增加 ${stepWaitSec} 秒` : "纠偏功能已在设置中禁用")}
             >
             </button>
 
-            {/* Right half clickable area: Click to decrease waiting by 1 min */}
+            {/* Right half clickable area: Click to decrease waiting by stepWaitSec */}
             <button
-              onClick={(e) => { e.stopPropagation(); handleAdjustWaitingTime(-1); }}
+              onClick={(e) => { e.stopPropagation(); handleAdjustWaitingTime(-stepWaitSec); }}
               className={`w-1/2 bg-white ${
-                trip.isOnlineOrder
+                isForbiddenOnlineOrder
                   ? 'cursor-default'
                   : settings.deviationMitigation 
                     ? 'hover:bg-rose-50/5 active:bg-rose-50/20 cursor-pointer' 
                     : 'cursor-not-allowed opacity-90'
               } transition-colors flex items-center justify-center p-3 relative focus:outline-hidden focus:ring-0 select-none`}
-              title={trip.isOnlineOrder ? undefined : (settings.deviationMitigation ? "减少一分钟" : "纠偏功能已在设置中禁用")}
+              title={isForbiddenOnlineOrder ? undefined : (settings.deviationMitigation ? `纠偏等候减少 ${stepWaitSec} 秒` : "纠偏功能已在设置中禁用")}
             >
             </button>
 
             {/* Centered Overlay Badge: Show current waiting metrics and status labels */}
-            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none select-none z-10 flex flex-col items-center justify-center min-w-[124px] ${(!settings.deviationMitigation || trip.isOnlineOrder) ? 'opacity-65' : ''}`}>
+            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none select-none z-10 flex flex-col items-center justify-center min-w-[124px] ${(!settings.deviationMitigation || isForbiddenOnlineOrder) ? 'opacity-65' : ''}`}>
               <div className="text-2xl font-black text-[#26a69a] font-mono leading-none text-center">
                 {formatHms(waitingSeconds)}
               </div>

@@ -930,7 +930,7 @@ export default function SettingsView({
           <div className="py-4 px-4 flex items-center justify-between bg-white">
             <div className="space-y-0.5 max-w-[210px]">
               <div className="text-sm font-semibold text-gray-700">纠偏功能</div>
-              <div className="text-[10px] text-gray-400 leading-normal">双击行驶中行程界面任意区域可极速纠偏公里和等候耗时</div>
+              <div className="text-[10px] text-gray-400 leading-normal">在行程界面【已行程(公里)】和【等候时间】组件中点击可按设定步长纠偏</div>
             </div>
             <label className={`relative inline-flex items-center ${!checkVipActive(settings.vipExpiry) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
               <input 
