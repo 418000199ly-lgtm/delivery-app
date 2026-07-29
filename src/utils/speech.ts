@@ -264,6 +264,7 @@ export function speakText(text: string, onEnd?: () => void) {
   stopSpeaking();
 
   let hasResponded = false;
+  let speechActuallyStarted = false;
   let startTimeout: any = null;
 
   const triggerFallback = () => {
@@ -273,8 +274,28 @@ export function speakText(text: string, onEnd?: () => void) {
       clearTimeout(startTimeout);
       startTimeout = null;
     }
+    try {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    } catch (e) {}
     playMp3AudioStreams(cleanText, onEnd);
   };
+
+  // Check if system voices are present with a valid Chinese voice
+  const voices = cachedVoices.length > 0 ? cachedVoices : (typeof window !== 'undefined' && 'speechSynthesis' in window ? window.speechSynthesis.getVoices() || [] : []);
+  const hasZhVoice = voices.some(v => {
+    const lang = (v.lang || '').toLowerCase();
+    const name = (v.name || '').toLowerCase();
+    return lang.includes('zh') || lang.includes('cn') || lang.includes('cmn') || name.includes('chinese') || name.includes('中文');
+  });
+
+  // On Android mobile WebViews or devices without configured Chinese voice, immediately use Baota / Online MP3 TTS stream
+  const isAndroid = typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent || '');
+  if (isAndroid && !hasZhVoice) {
+    triggerFallback();
+    return;
+  }
 
   // Primary pipeline: Native SpeechSynthesis (Android & iOS)
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -288,7 +309,6 @@ export function speakText(text: string, onEnd?: () => void) {
       utter.rate = 1.0;
       utter.pitch = 1.0;
 
-      const voices = cachedVoices.length > 0 ? cachedVoices : (window.speechSynthesis.getVoices() || []);
       if (voices && voices.length > 0) {
         const zhVoice = voices.find(v => {
           const lang = (v.lang || '').toLowerCase();
@@ -301,7 +321,7 @@ export function speakText(text: string, onEnd?: () => void) {
       }
 
       utter.onstart = () => {
-        if (hasResponded) return;
+        speechActuallyStarted = true;
         if (startTimeout) {
           clearTimeout(startTimeout);
           startTimeout = null;
@@ -318,16 +338,16 @@ export function speakText(text: string, onEnd?: () => void) {
         if (onEnd) onEnd();
       };
 
-      utter.onerror = (e) => {
+      utter.onerror = () => {
         triggerFallback();
       };
 
-      // Set 800ms guard for Android WebView native TTS startup before switching to Baota server /api/tts
+      // Strict 350ms guard: if native TTS onstart didn't trigger, immediately switch to Baota server MP3 TTS audio stream
       startTimeout = setTimeout(() => {
-        if (!hasResponded && !window.speechSynthesis.speaking) {
+        if (!speechActuallyStarted && !hasResponded) {
           triggerFallback();
         }
-      }, 800);
+      }, 350);
 
       window.speechSynthesis.speak(utter);
 
@@ -338,7 +358,7 @@ export function speakText(text: string, onEnd?: () => void) {
             window.speechSynthesis.resume();
           }
         } catch (e) {}
-      }, 100);
+      }, 50);
 
       return;
     } catch (e) {

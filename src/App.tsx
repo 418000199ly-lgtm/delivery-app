@@ -1083,6 +1083,7 @@ export default function App() {
 
   const handleEndTrip = (finalBaseFee: number) => {
     if (!currentTrip) return;
+    speakText('已到达目的地，请与乘客核对账单');
     const endedTrip = {
       ...currentTrip,
       calculatedBaseFee: finalBaseFee,

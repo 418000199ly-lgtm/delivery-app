@@ -1100,7 +1100,7 @@ export default function CreateOrderView({
 
           // Audio vocal broadcast announcement
           if (settings?.voiceBroadcast === '开单语音播报') {
-            speakText('乘客已扫码授权，开单成功！');
+            speakText('乘客已授权，扫码开单成功！');
           }
           if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
             try { navigator.vibrate([100, 50, 100]); } catch(e){}

@@ -5,7 +5,7 @@ When the user requests GitHub sync, code push, or asks "What changes did you mak
 
 ### Latest Update Commit Message:
 ```text
-fix(mobile-icon & tts): restore 1024x1024 lossless PNG app icon for mobile packaging and route voice broadcasts through Baota /api/tts endpoint
+fix(android-tts): fix Android APK voice broadcast with strict 350ms speech start guard, remove chime sounds, and route speech via Baota /api/tts endpoint
 ```
 
 ## Mobile & Packaging Rules

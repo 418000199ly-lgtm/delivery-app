@@ -45,12 +45,18 @@ function calculateHaversineDistance(lat1: number, lng1: number, lat2: number, ln
  * - distanceText: 乘客直线距离（例如 "280米" 或 "1.2公里"）
  */
 export function getTTSBroadcastText(
+  order: Order,
   approxPrice: any,
   startLocation: string,
   destination: string,
   distanceText: string
 ): string {
-  return `您有新的代驾订单，请及时处理！`;
+  if (order.isPlatformDispatch) {
+    return `您有新的系统派单，请查看！`;
+  }
+  const distNum = distanceText.replace(/[^0-9.]/g, '') || '3';
+  const priceStr = (approxPrice === '未知' || !approxPrice) ? '48' : `${approxPrice}`;
+  return `收到新订单！从 ${startLocation} 到 ${destination}，距离 ${distNum}公里，预估金额 ${priceStr}元，请及时接单！`;
 }
 
 export const IncomingOrderOverlay: React.FC<IncomingOrderOverlayProps> = ({
@@ -183,7 +189,7 @@ export const IncomingOrderOverlay: React.FC<IncomingOrderOverlayProps> = ({
       if (!isActive) return;
       try {
         const effectivePrice = (order.isValetOrder || order.isPlatformDispatch) ? '未知' : approxPrice;
-        const speechText = getTTSBroadcastText(effectivePrice, startLocation, destination, distanceText);
+        const speechText = getTTSBroadcastText(order, effectivePrice, startLocation, destination, distanceText);
         
         speakText(speechText, () => {
           if (isActive) {
@@ -214,6 +220,8 @@ export const IncomingOrderOverlay: React.FC<IncomingOrderOverlayProps> = ({
   }, [approxPrice, startLocation, destination, distanceText]);
 
   const handleConfirmOrder = () => {
+    stopSpeaking();
+    speakText('接单成功，请前往接驾地点');
     const orderNumber = 'DD' + Date.now();
     const trip: TripState = {
       id: orderNumber,
