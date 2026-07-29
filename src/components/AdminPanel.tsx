@@ -28,6 +28,7 @@ import {
   TrendingUp, 
   Share2, 
   Loader2,
+  Download,
   Lock,
   Unlock,
   CheckCircle,
@@ -4664,13 +4665,22 @@ export default function AdminPanel({
 
                 {/* Actions */}
                 <div className="pt-2 flex flex-col gap-3">
+                  <a
+                    href="/daijia_deploy.zip"
+                    download="daijia_deploy.zip"
+                    className="w-full py-3.5 px-4 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-[0.99] text-slate-950 font-black text-xs rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 transition-all cursor-pointer border border-emerald-300"
+                  >
+                    <Download className="w-4 h-4 text-slate-950 animate-bounce" />
+                    <span>📦 一键下载宝塔部署源码包 (daijia_deploy.zip - 0解压错误)</span>
+                  </a>
+
                   <button
                     onClick={handleMigrateDatabase}
                     disabled={migrationLoading}
                     className={`w-full py-3.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
                       migrationLoading
                         ? 'bg-teal-600/50 text-teal-200 cursor-not-allowed'
-                        : 'bg-teal-600 hover:bg-teal-500 active:scale-[0.99] text-white shadow-lg shadow-teal-600/10 cursor-pointer'
+                        : 'bg-slate-800 hover:bg-slate-700 active:scale-[0.99] text-teal-300 border border-teal-500/30 cursor-pointer'
                     }`}
                   >
                     {migrationLoading ? (

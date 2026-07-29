@@ -1,7 +1,34 @@
 import React, { useState, useEffect } from 'react';
 import { db, doc, setDoc, getDoc, getBaseApiUrl } from '../lib/dbProxy';
-import { QrCode, MapPin, Phone, CheckCircle, Navigation, ShieldCheck, Car, Headphones, Smartphone, BellRing, Check, ArrowLeft, Flag, CreditCard, ShieldAlert, AlertTriangle, RefreshCw } from 'lucide-react';
+import { QrCode, MapPin, Phone, CheckCircle, Navigation, ShieldCheck, Car, Headphones, Smartphone, BellRing, Check, ArrowLeft, Flag, CreditCard, ShieldAlert, AlertTriangle, RefreshCw, Crown } from 'lucide-react';
 import { checkVipActive } from '../types';
+
+const FALLBACK_VIP_BANNER_SVG = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 360" width="100%" height="100%"><defs><linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="%231a0f0a"/><stop offset="50%" stop-color="%233d2212"/><stop offset="100%" stop-color="%23180d07"/></linearGradient><linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="%23fef08a"/><stop offset="50%" stop-color="%23f59e0b"/><stop offset="100%" stop-color="%23d97706"/></linearGradient><linearGradient id="card" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="rgba(255,215,0,0.15)"/><stop offset="100%" stop-color="rgba(255,140,0,0.05)"/></linearGradient></defs><rect width="800" height="360" fill="url(%23bg)"/><circle cx="700" cy="80" r="180" fill="none" stroke="rgba(245,158,11,0.1)" stroke-width="2"/><circle cx="700" cy="80" r="130" fill="none" stroke="rgba(245,158,11,0.15)" stroke-width="1.5"/><circle cx="100" cy="280" r="160" fill="none" stroke="rgba(245,158,11,0.08)" stroke-width="2"/><rect x="40" y="40" width="720" height="280" rx="20" fill="url(%23card)" stroke="rgba(245,158,11,0.3)" stroke-width="1.5"/><g fill="url(%23gold)"><path d="M400 80 L415 115 L450 115 L420 135 L432 170 L400 148 L368 170 L380 135 L350 115 L385 115 Z" opacity="0.9"/><path d="M380 65 L400 35 L420 65 L400 55 Z" opacity="0.95"/></g><text x="400" y="210" fill="url(%23gold)" font-family="sans-serif" font-weight="900" font-size="34" text-anchor="middle" letter-spacing="4">开通尊享会员 • 享无限开单</text><text x="400" y="255" fill="%23fef3c7" font-family="sans-serif" font-weight="600" font-size="20" text-anchor="middle" opacity="0.9" letter-spacing="2">专业代驾 • 安全到家 • 优先匹配</text><rect x="300" y="278" width="200" height="30" rx="15" fill="rgba(245,158,11,0.2)" stroke="rgba(245,158,11,0.5)" stroke-width="1"/><text x="400" y="298" fill="%23fbbf24" font-family="sans-serif" font-weight="800" font-size="14" text-anchor="middle">VIP PASSENGER SERVICE</text></svg>';
+
+const FALLBACK_WELCOME_BG_SVG = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" width="100%" height="100%"><defs><linearGradient id="wbg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="%230b1329"/><stop offset="50%" stop-color="%231e1b4b"/><stop offset="100%" stop-color="%2331103f"/></linearGradient></defs><rect width="800" height="400" fill="url(%23wbg)"/><path d="M0 350 Q 400 220 800 320" fill="none" stroke="rgba(245,158,11,0.3)" stroke-width="3"/><path d="M0 380 Q 400 250 800 350" fill="none" stroke="rgba(239,68,68,0.4)" stroke-width="4"/><path d="M0 320 Q 400 200 800 290" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="1.5"/><circle cx="650" cy="120" r="100" fill="rgba(245,158,11,0.06)"/><circle cx="150" cy="280" r="120" fill="rgba(147,51,234,0.08)"/></svg>';
+
+const handleVipBannerError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+  const target = e.currentTarget;
+  if (!target.dataset.tryLevel) {
+    target.dataset.tryLevel = '1';
+    target.src = '/vip_banner.jpg';
+  } else if (target.dataset.tryLevel === '1') {
+    target.dataset.tryLevel = '2';
+    target.src = FALLBACK_VIP_BANNER_SVG;
+  }
+};
+
+const handleWelcomeBgError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+  const target = e.currentTarget;
+  if (!target.dataset.tryLevel) {
+    target.dataset.tryLevel = '1';
+    target.src = '/welcome_bg.jpg';
+  } else if (target.dataset.tryLevel === '1') {
+    target.dataset.tryLevel = '2';
+    target.src = FALLBACK_WELCOME_BG_SVG;
+    target.style.display = 'block';
+  }
+};
 
 interface PassengerOrderViewProps {
   driverPhone: string;
@@ -14,15 +41,14 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
   const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
   const hasDriverInUrl = urlParams ? (urlParams.has('driver') && !!urlParams.get('driver')) : false;
 
-  const isDeveloperSimulator = !!onClose || (typeof window !== 'undefined' && (
+  const isLyDomain = typeof window !== 'undefined' && window.location.hostname.includes('lyheiwandaijiamax.com');
+  const isDeveloperSimulator = !isLyDomain && !forceView && (typeof window !== 'undefined' && (
     window.location.hostname.includes('localhost') || 
     window.location.hostname.includes('127.0.0.1') || 
     window.location.hostname.includes('webcontainer') || 
     window.location.hostname.includes('gitpod') || 
     window.location.hostname.includes('cloudshell') ||
-    window.location.hostname.includes('c9users') ||
-    window.location.hostname.includes('run.app') ||
-    window.location.hostname.includes('aistudio.google')
+    window.location.hostname.includes('c9users')
   ));
 
   const [passengerPhone, setPassengerPhone] = useState('');
@@ -37,12 +63,22 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
     return '万达广场写字楼A座';
   });
   const [destination, setDestination] = useState('');
+  const [agreed, setAgreed] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [status, setStatus] = useState<'idle' | 'success'>('idle');
   
   // VIP validation states
   const [driverVipExpiry, setDriverVipExpiry] = useState<string | null>(null);
   const [isVipChecked, setIsVipChecked] = useState(false);
+
+  // 3-second fast recognition timer state
+  const [threeSecondChecked, setThreeSecondChecked] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setThreeSecondChecked(true);
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, []);
 
   // 3-minute QR Code expiration state
   const [isQrExpired, setIsQrExpired] = useState(false);
@@ -57,7 +93,7 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
       const urlName = params.get('name');
       if (urlName) {
         const val = decodeURIComponent(urlName).trim();
-        if (val !== '极速' && val !== '极速代驾' && val !== '') {
+        if (val && val !== '极速' && val !== '极速代驾') {
           return val;
         }
       }
@@ -70,7 +106,7 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
       const urlName = params.get('name');
       if (urlName) {
         const val = decodeURIComponent(urlName).trim();
-        if (val !== '极速' && val !== '极速代驾' && val !== 'XX代驾' && val !== '小鸟代驾' && val !== '') {
+        if (val && val !== '极速' && val !== '极速代驾' && val !== 'XX代驾') {
           return true;
         }
       }
@@ -146,13 +182,13 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
             const rawName = data.customAppName.trim();
             if (rawName && rawName !== '极速' && rawName !== '极速代驾' && rawName !== '') {
               setCustomBrandName(rawName);
-              if (rawName !== 'XX代驾' && rawName !== '小鸟代驾') {
+              if (rawName !== 'XX代驾') {
                 setHasCustomNameSet(true);
               } else {
                 setHasCustomNameSet(false);
               }
             } else {
-              setCustomBrandName('小鸟代驾');
+              setCustomBrandName('XX代驾');
               setHasCustomNameSet(false);
             }
           }
@@ -303,11 +339,11 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
   const isAlipay = ua.indexOf('alipayclient') !== -1;
   const isWeChatOrAlipay = isWeChat || isAlipay;
 
-  // Check 3-minute QR expiration condition
-  const isQrExpiredView = forceView === 'qr_expired' || isQrExpired;
+  // Strict blocking: Block if NOT WeChat/Alipay OR if driver VIP is unactivated/expired/0 (rapidly within 3 seconds)
+  const isBlocked = (forceView === 'vip_blocked') || ((!isWeChatOrAlipay || (isVipChecked && !isVipActive) || (threeSecondChecked && !isVipActive)) && !isDeveloperSimulator && forceView !== 'normal');
 
-  // Strict blocking: Block if NOT WeChat/Alipay OR if driver VIP is unactivated/expired/0
-  const isBlocked = (forceView === 'vip_blocked') || ((!isWeChatOrAlipay || (isVipChecked && !isVipActive)) && !isDeveloperSimulator && forceView !== 'normal');
+  // Check 3-minute QR expiration condition ONLY if NOT blocked!
+  const isQrExpiredView = !isBlocked && (forceView === 'qr_expired' || isQrExpired);
 
   // 1. If 3-minute QR code is expired, directly render the 3-minute expiration overlay WITHOUT 3-second countdown
   if (isQrExpiredView) {
@@ -359,34 +395,31 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
 
         {/* Footer */}
         <footer className="text-center text-[10px] text-slate-400 space-y-1 pb-4">
-          <p>黑湾代驾安全防伪系统 • 3分钟限时动态二维码保护</p>
+          <p>（{customBrandName}）安全防伪系统 • 3分钟限时动态二维码保护</p>
           <p>© 2026 All Rights Reserved</p>
         </footer>
       </div>
     );
   }
 
-  // 2. If non-WeChat/AliPay or non-VIP driver, directly render VIP purchase/blocked screen WITHOUT 3-second countdown
-  if (isBlocked) {
+  // 2. If non-WeChat/AliPay or non-VIP driver, render VIP purchase/blocked screen after 3-second countdown finishes
+  if (isBlocked && countdown <= 0) {
     return (
       <div className="w-full h-full min-h-full bg-[#f9f9f9] text-[#1a1c1c] font-sans overflow-y-auto select-none relative z-10 flex flex-col justify-between">
         <main className="w-full max-w-md mx-auto bg-[#f9f9f9] flex-1 relative flex flex-col justify-between">
           <div>
             {/* Hero Banner Section (100% Local Image vip_banner.jpg) */}
-            <section className="relative h-[220px] sm:h-[260px] w-full overflow-hidden">
-              <div className="absolute inset-0">
-                <img 
-                  alt="专业代驾 安全到家" 
-                  className="w-full h-full object-cover" 
-                  src="vip_banner.jpg" 
-                  onError={(e) => { (e.target as HTMLImageElement).src = '/vip_banner.jpg'; }}
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#f9f9f9] via-transparent to-transparent"></div>
-              </div>
+            <section className="relative w-full overflow-hidden rounded-b-2xl shadow-sm bg-[#1a0f0a]" style={{ background: 'linear-gradient(135deg, #1a0f0a 0%, #3d2212 50%, #180d07 100%)', minHeight: '180px' }}>
+              <img 
+                alt="专业代驾 安全到家" 
+                className="w-full h-auto object-cover block relative z-10" 
+                src="vip_banner.jpg" 
+                onError={handleVipBannerError}
+              />
             </section>
 
             {/* Headline & Subtext */}
-            <section className="px-5 -mt-8 relative z-10 space-y-1.5 mb-6">
+            <section className="px-5 mt-4 relative z-10 space-y-1.5 mb-6">
               <h2 className="text-xl font-bold text-[#1a1c1c] drop-shadow-xs">开通尊享会员，享受更多权益</h2>
               <p className="text-xs text-[#584235] font-medium">请使用正规渠道开通会员</p>
             </section>
@@ -394,40 +427,40 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
             {/* Benefits Grid */}
             <section className="px-5 mb-6">
               <div className="grid grid-cols-2 gap-3">
-                {/* Benefit 1 */}
-                <div className="bg-white p-3 rounded-xl border border-[#dfc0af] flex flex-col items-center text-center shadow-xs">
-                  <div className="w-10 h-10 rounded-full bg-[#ffdbc8] flex items-center justify-center mb-1.5 shrink-0">
-                    <CheckCircle className="w-5 h-5 text-[#984800]" />
+                {/* Benefit 1: 无忧开单 (Emerald/Teal Theme) */}
+                <div className="bg-gradient-to-br from-emerald-50/90 via-white to-teal-50/40 p-3.5 rounded-xl border border-emerald-200/80 flex flex-col items-center text-center shadow-xs transition-all active:scale-95 hover:shadow-md">
+                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center mb-1.5 shrink-0 shadow-sm shadow-emerald-500/30">
+                    <CheckCircle className="w-5 h-5 text-white" />
                   </div>
-                  <span className="font-bold text-xs text-[#1a1c1c] block mb-0.5">无忧开单</span>
-                  <span className="text-[10px] text-[#474746] leading-tight">开单不限次数</span>
+                  <span className="font-bold text-xs text-slate-800 block mb-0.5">无忧开单</span>
+                  <span className="text-[10px] text-emerald-800/80 font-medium leading-tight">开单不限次数</span>
                 </div>
 
-                {/* Benefit 2 */}
-                <div className="bg-white p-3 rounded-xl border border-[#dfc0af] flex flex-col items-center text-center shadow-xs">
-                  <div className="w-10 h-10 rounded-full bg-[#cce5ff] flex items-center justify-center mb-1.5 shrink-0">
-                    <QrCode className="w-5 h-5 text-[#006496]" />
+                {/* Benefit 2: 扫码报单 (Blue/Indigo Theme) */}
+                <div className="bg-gradient-to-br from-blue-50/90 via-white to-indigo-50/40 p-3.5 rounded-xl border border-blue-200/80 flex flex-col items-center text-center shadow-xs transition-all active:scale-95 hover:shadow-md">
+                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center mb-1.5 shrink-0 shadow-sm shadow-blue-500/30">
+                    <QrCode className="w-5 h-5 text-white" />
                   </div>
-                  <span className="font-bold text-xs text-[#1a1c1c] block mb-0.5">扫码报单</span>
-                  <span className="text-[10px] text-[#474746] leading-tight">高峰期订单优先匹配</span>
+                  <span className="font-bold text-xs text-slate-800 block mb-0.5">扫码报单</span>
+                  <span className="text-[10px] text-blue-800/80 font-medium leading-tight">高峰期订单优先匹配</span>
                 </div>
 
-                {/* Benefit 3 */}
-                <div className="bg-white p-3 rounded-xl border border-[#dfc0af] flex flex-col items-center text-center shadow-xs">
-                  <div className="w-10 h-10 rounded-full bg-[#ffdbc8] flex items-center justify-center mb-1.5 shrink-0">
-                    <Navigation className="w-5 h-5 text-[#984800]" />
+                {/* Benefit 3: 行程自动纠偏 (Amber/Orange Theme) */}
+                <div className="bg-gradient-to-br from-amber-50/90 via-white to-orange-50/40 p-3.5 rounded-xl border border-amber-200/80 flex flex-col items-center text-center shadow-xs transition-all active:scale-95 hover:shadow-md">
+                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center mb-1.5 shrink-0 shadow-sm shadow-amber-500/30">
+                    <Navigation className="w-5 h-5 text-white" />
                   </div>
-                  <span className="font-bold text-xs text-[#1a1c1c] block mb-0.5">行程自动纠偏</span>
-                  <span className="text-[10px] text-[#474746] leading-tight">智能纠正轨迹，确保计费精准</span>
+                  <span className="font-bold text-xs text-slate-800 block mb-0.5">行程自动纠偏</span>
+                  <span className="text-[10px] text-amber-800/80 font-medium leading-tight">智能纠正轨迹，确保计费精准</span>
                 </div>
 
-                {/* Benefit 4 */}
-                <div className="bg-white p-3 rounded-xl border border-[#dfc0af] flex flex-col items-center text-center shadow-xs">
-                  <div className="w-10 h-10 rounded-full bg-[#cce5ff] flex items-center justify-center mb-1.5 shrink-0">
-                    <CreditCard className="w-5 h-5 text-[#006496]" />
+                {/* Benefit 4: 在线支付 (Purple/Violet Theme) */}
+                <div className="bg-gradient-to-br from-purple-50/90 via-white to-violet-50/40 p-3.5 rounded-xl border border-purple-200/80 flex flex-col items-center text-center shadow-xs transition-all active:scale-95 hover:shadow-md">
+                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-purple-500 to-violet-600 text-white flex items-center justify-center mb-1.5 shrink-0 shadow-sm shadow-purple-500/30">
+                    <CreditCard className="w-5 h-5 text-white" />
                   </div>
-                  <span className="font-bold text-xs text-[#1a1c1c] block mb-0.5">在线支付</span>
-                  <span className="text-[10px] text-[#474746] leading-tight">支持多种在线支付方式</span>
+                  <span className="font-bold text-xs text-slate-800 block mb-0.5">在线支付</span>
+                  <span className="text-[10px] text-purple-800/80 font-medium leading-tight">支持多种在线支付方式</span>
                 </div>
               </div>
             </section>
@@ -435,14 +468,14 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
 
           {/* Footer Text */}
           <footer className="px-5 py-4 text-center space-y-1.5 mt-auto">
-            <p className="text-[10px] text-[#584235]/70 leading-relaxed px-2">
+            <p className="text-[10px] font-medium leading-relaxed px-2" style={{ color: '#d97706' }}>
               代驾司机助手，代驾司机模拟器，仅教学模拟、本地演练工具，不对接任何第三方代驾平台正式服务，所有违规使用后果完全由使用者自行承担。
             </p>
-            <div className="space-y-0.5 text-[10px] text-[#5f5e5e]/60">
-              <p>© 2026 All Rights Reserved</p>
-              <p>
-                <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer" className="hover:underline">
-                  宁ICP备2026002469 号 - 1
+            <div className="space-y-0.5 text-[10px] font-semibold" style={{ color: '#000000' }}>
+              <p style={{ color: '#000000' }}>© 2026 All Rights Reserved</p>
+              <p style={{ color: '#000000' }}>
+                <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer" className="hover:underline" style={{ color: '#000000' }}>
+                  宁 ICP 备 2026002469 号 - 1
                 </a>
               </p>
             </div>
@@ -450,7 +483,7 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
         </main>
 
         {/* Bottom Action Bar (Sticky inside Phone Container) */}
-        <div className="sticky bottom-0 left-0 w-full bg-white border-t border-[#dfc0af] p-3 z-30 shrink-0 shadow-lg">
+        <div className="sticky bottom-0 left-0 w-full bg-white border-t border-[#dfc0af] p-3 z-30 shrink-0 shadow-lg" style={{ backgroundColor: '#ffffff', borderTop: '1px solid #dfc0af' }}>
           <div className="max-w-md mx-auto">
             <button 
               onClick={() => {
@@ -470,7 +503,8 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
                   }
                 }
               }}
-              className="w-full bg-[#ff7d00] text-white font-bold text-sm h-11 rounded-xl shadow-md active:scale-95 transition-transform duration-150 cursor-pointer flex items-center justify-center gap-1.5"
+              className="w-full text-white font-bold text-sm h-11 rounded-xl shadow-md active:scale-95 transition-transform duration-150 cursor-pointer flex items-center justify-center gap-1.5"
+              style={{ backgroundColor: '#10b981', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '14px', border: 'none', borderRadius: '12px', height: '44px', width: '100%' }}
             >
               <span>本页面为产品展示 点击关闭页面</span>
             </button>
@@ -480,104 +514,8 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
     );
   }
 
-  // 3. Render 3-second welcome countdown transition ONLY when QR code and VIP/channel are both valid
-  if (showWelcome) {
-    const currentDisplayBrand = isAbnormal ? 'XX代驾' : customBrandName;
-    return (
-      <div className="relative w-full h-full min-h-full flex flex-col items-center py-16 px-5 overflow-hidden justify-center bg-[#f9f9f9] text-[#1a1c1c] font-sans select-none z-[10000]">
-        {/* Top Header Status Bar (Image x3) */}
-        <div className="absolute top-6 left-5 right-5 z-20 flex items-center justify-between">
-          <div className="flex items-center gap-1.5 bg-white/70 backdrop-blur-md px-3 py-1 rounded-full border border-black/5 shadow-xs">
-            <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-ping"></span>
-            <span className="text-[10px] text-slate-600 font-bold tracking-widest uppercase">
-              SECURE CONNECTION • 专享自助端
-            </span>
-          </div>
-          <span className="text-[9px] text-orange-600 font-bold font-mono bg-orange-500/10 px-2.5 py-0.5 rounded border border-orange-500/20 shadow-xs">
-            安全加密 ⚡
-          </span>
-        </div>
-
-        {/* Background Illustration Decoration */}
-        <div className="absolute inset-0 z-0 opacity-25 pointer-events-none">
-          <img 
-            className="w-full h-full object-cover" 
-            src="welcome_bg.jpg"
-            alt="Decoration Background"
-          />
-        </div>
-
-        {/* Central Countdown Circle */}
-        <div className="relative z-10 flex flex-col items-center justify-center">
-          <div className="relative w-48 h-48 flex items-center justify-center">
-            {/* SVG Progress Ring */}
-            <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 100 100">
-              <circle className="text-[#eeeeee]" cx="50" cy="50" fill="transparent" r="45" stroke="currentColor" strokeWidth="4"></circle>
-              <circle 
-                className="drop-shadow-xs transition-all duration-1000" 
-                cx="50" 
-                cy="50" 
-                fill="transparent" 
-                r="45" 
-                stroke="#FF7D00" 
-                strokeWidth="6"
-                strokeDasharray={282.74}
-                strokeDashoffset={282.74 - (countdown / 3) * 282.74}
-              ></circle>
-            </svg>
-            {/* Number Display */}
-            <div className="text-[64px] font-black text-[#ff7d00] animate-pulse">
-              {countdown}
-            </div>
-          </div>
-          {/* Status Text */}
-          <div className="mt-8 flex flex-col items-center gap-2 h-16">
-            <span className="text-[#1a1c1c] font-bold text-base text-center transition-all duration-300">
-              {welcomeStatus}
-            </span>
-            {countdown > 0 && (
-              <div className="flex gap-1">
-                <div className="w-1.5 h-1.5 bg-[#ff7d00] rounded-full animate-bounce" style={{ animationDelay: '0s' }}></div>
-                <div className="w-1.5 h-1.5 bg-[#ff7d00] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                <div className="w-1.5 h-1.5 bg-[#ff7d00] rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Footer / Action Area */}
-        <div className="relative z-10 text-center mb-8 mt-16">
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <div className="w-10 h-10 bg-gradient-to-br from-[#ff7d00] to-[#ffdbc8] rounded-xl flex items-center justify-center shadow-lg">
-              <Car className="text-white w-5 h-5" />
-            </div>
-            <h1 className="text-xl font-bold tracking-tight text-[#1a1c1c]">
-              欢迎使用<span className="text-[#ff7d00] px-1 font-extrabold">{currentDisplayBrand}</span>
-            </h1>
-          </div>
-          <p className="text-[#5f5e5e] text-sm">在乎你的车，更在乎你的人</p>
-        </div>
-
-        <div className="relative z-10 w-full text-center">
-          <div className="px-4 py-2 bg-white/50 backdrop-blur-md rounded-2xl border border-[#dfc0af] inline-block mx-auto">
-            <div className="flex items-center gap-2.5">
-              <ShieldCheck className="text-[#ff7d00] w-5 h-5" />
-              <span className="text-[#584235] text-xs font-semibold">
-                欢迎使用自助开单，您的行程已安全加密
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Background Atmospheric Effect */}
-        <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-1/2 w-[400px] h-[400px] bg-[#ff7d00]/5 rounded-full blur-[100px] pointer-events-none"></div>
-        <div className="absolute bottom-0 left-0 translate-y-1/2 -translate-x-1/2 w-[300px] h-[300px] bg-[#ff7d00]/10 rounded-full blur-[80px] pointer-events-none"></div>
-      </div>
-    );
-  }
-
   if (status === 'success') {
-    const currentDisplayBrand = isAbnormal ? '小鸟代驾' : customBrandName;
+    const currentDisplayBrand = customBrandName || 'XX代驾';
     return (
       <div className="w-full h-full min-h-full flex flex-col bg-[#f9f9f9] text-[#1a1c1c] font-sans overflow-y-auto select-none relative z-[10000] items-center">
         {/* TopAppBar Shell */}
@@ -656,27 +594,11 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
               <div className="flex items-start gap-2">
                 <Flag className="text-[#5f5e5e] w-5 h-5 mt-1 shrink-0" />
                 <div>
-                  <p className="font-semibold text-xs text-[#584235]">终点</p>
-                  <p className="text-sm text-[#1a1c1c] font-medium">{destination || '未知'}</p>
+                  <p className="font-semibold text-xs text-[#584235]">行驶目的地：</p>
+                  <p className="text-sm text-[#1a1c1c] font-medium">{destination || '未选择目的地（随路线行驶）'}</p>
                 </div>
               </div>
             </div>
-          </div>
-
-          {/* Call to Action Buttons */}
-          <div className="w-full space-y-4">
-            <button 
-              onClick={() => {
-                if (onClose) {
-                  onClose();
-                } else {
-                  setStatus('idle');
-                }
-              }}
-              className="w-full bg-[#ff7d00] text-white h-14 rounded-xl font-semibold text-base shadow-sm hover:brightness-105 active:scale-[0.98] transition-all"
-            >
-              下单成功，请关闭本页面
-            </button>
           </div>
         </main>
       </div>
@@ -684,15 +606,88 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
   }
 
   return (
-    <div className="w-full h-full min-h-full flex flex-col bg-[#f9f9f9] text-[#1a1c1c] font-sans overflow-hidden select-none relative z-[10000]">
+    <div className="w-full h-full min-h-full flex flex-col bg-[#f9f9f9] text-[#1a1c1c] font-sans overflow-y-auto select-none relative z-10 items-center">
+      {/* 3-second welcome countdown transition overlay */}
+      {showWelcome && (
+        <div className="absolute inset-0 z-[20000] flex flex-col justify-between p-6 bg-[#f9f9f9] text-[#1a1c1c] font-sans select-none overflow-hidden">
+          {/* Top Header Status Bar */}
+          <div className="relative z-10 w-full flex items-center justify-center mt-2">
+            <div className="flex items-center gap-2 bg-amber-100/90 backdrop-blur-md px-4 py-1.5 rounded-full border border-amber-300 shadow-xs">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+              <span className="text-xs text-amber-900 font-extrabold tracking-wider uppercase">
+                SECURE CONNECTION • 专享自助端
+              </span>
+            </div>
+          </div>
+
+          {/* Background Illustration Decoration */}
+          <div className="absolute inset-0 z-0 opacity-20 pointer-events-none">
+            <img 
+              className="w-full h-full object-cover" 
+              src="welcome_bg.jpg"
+              alt="Decoration Background"
+              onError={handleWelcomeBgError}
+            />
+          </div>
+
+          {/* Central Countdown Circle */}
+          <div className="relative z-10 flex-1 flex flex-col items-center justify-center my-auto text-center">
+            <div className="relative w-48 h-48 flex items-center justify-center">
+              <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 100 100">
+                <circle className="text-[#eeeeee]" cx="50" cy="50" fill="transparent" r="45" stroke="currentColor" strokeWidth="4"></circle>
+                <circle 
+                  className="drop-shadow-xs transition-all duration-1000" 
+                  cx="50" 
+                  cy="50" 
+                  fill="transparent" 
+                  r="45" 
+                  stroke="#FF7D00" 
+                  strokeWidth="6"
+                  strokeDasharray={282.74}
+                  strokeDashoffset={282.74 - (countdown / 3) * 282.74}
+                ></circle>
+              </svg>
+              <div className="text-[64px] font-black text-[#ff7d00] animate-pulse drop-shadow-xs">
+                {countdown}
+              </div>
+            </div>
+            <div className="mt-8 flex flex-col items-center gap-2 h-16">
+              <span className="text-[#1a1c1c] font-bold text-base text-center transition-all duration-300">
+                {welcomeStatus}
+              </span>
+              {countdown > 0 && (
+                <div className="flex gap-1.5">
+                  <div className="w-1.5 h-1.5 bg-[#ff7d00] rounded-full animate-bounce" style={{ animationDelay: '0s' }}></div>
+                  <div className="w-1.5 h-1.5 bg-[#ff7d00] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                  <div className="w-1.5 h-1.5 bg-[#ff7d00] rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Footer / Action Area */}
+          <div className="relative z-10 text-center mb-6 w-full">
+            <div className="flex items-center justify-center gap-2.5 mb-2">
+              <div className="w-11 h-11 bg-gradient-to-br from-amber-500 to-orange-500 rounded-xl flex items-center justify-center shadow-md shadow-amber-500/30">
+                <Car className="text-white w-6 h-6" />
+              </div>
+              <h1 className="text-xl font-extrabold tracking-tight text-[#1a1c1c]">
+                欢迎使用<span className="text-[#ff7d00] font-black px-1.5 text-2xl">{isAbnormal ? 'XX代驾' : customBrandName}</span>
+              </h1>
+            </div>
+            <p className="text-amber-900/80 text-sm font-semibold">在乎你的车，更在乎你的人</p>
+          </div>
+        </div>
+      )}
+
       {/* TopAppBar */}
-      <header className="w-full bg-[#f9f9f9] border-b border-[#dfc0af] flex items-center justify-between px-5 h-16 shrink-0">
+      <header className="w-full bg-[#f9f9f9] border-b border-amber-200 flex items-center justify-between px-5 h-16 shrink-0">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg font-black tracking-tight text-[#984800] select-none">
+          <h1 className="text-lg font-black tracking-tight text-amber-900 select-none">
             专享自助开单系统
           </h1>
         </div>
-        <div className="text-[10px] text-[#ff7d00] font-bold font-mono bg-[#ffdbc8] px-2.5 py-1 rounded-full select-none">
+        <div className="text-xs text-amber-950 font-extrabold font-mono bg-gradient-to-r from-amber-300 to-orange-400 border border-amber-400/80 px-3 py-1 rounded-full select-none shadow-xs">
           安全校验通过 ⚡
         </div>
       </header>
@@ -700,44 +695,45 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
       {/* Scrollable Main area */}
       <main className="pb-24 px-5 flex-1 overflow-y-auto max-w-md mx-auto w-full">
         {/* Animated Background Element */}
-        <div className="relative h-40 mt-4 rounded-2xl overflow-hidden mb-6 bg-gradient-to-br from-[#984800] to-[#ff7d00]">
+        <div className="relative h-40 mt-4 rounded-2xl overflow-hidden mb-6 bg-gradient-to-br from-slate-900 via-slate-800 to-amber-900 border-2 border-amber-500/40 shadow-md shadow-amber-500/10">
           {/* Subtle vehicle outline or road texture overlay */}
-          <div className="absolute inset-0 opacity-15 mix-blend-overlay">
+          <div className="absolute inset-0 z-0">
             <img 
-              className="w-full h-full object-cover" 
-              src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 400'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' stop-color='%230f172a'/><stop offset='100%25' stop-color='%231e293b'/></linearGradient></defs><rect width='800' height='400' fill='url(%23g)'/><path d='M0,320 Q200,280 400,320 T800,300 L800,400 L0,400 Z' fill='%23334155' opacity='0.3'/></svg>" 
+              className="w-full h-full object-cover opacity-50 mix-blend-overlay" 
+              src="welcome_bg.jpg" 
+              onError={handleWelcomeBgError}
               alt="City driving background"
             />
           </div>
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent flex flex-col justify-end p-5">
-            <h2 className="text-xl font-extrabold text-white tracking-tight">
-              欢迎使用 {customBrandName} 自助下单
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent flex flex-col justify-end p-5 z-10">
+            <h2 className="text-xl font-extrabold text-white tracking-tight drop-shadow-md">
+              欢迎使用 <span className="text-amber-400 font-black">{customBrandName}</span> 自助下单
             </h2>
-            <p className="text-xs text-[#ffdbc8] mt-1">在乎你的车，更在乎你的人</p>
+            <p className="text-xs text-amber-200 mt-1 font-extrabold drop-shadow-xs">在乎你的车，更在乎你的人</p>
           </div>
         </div>
 
         {/* Driver Status Card */}
-        <div className="bg-white border border-[#dfc0af] p-4 rounded-xl shadow-xs mb-6 flex items-center gap-4 relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-1 h-full bg-[#ff7d00]"></div>
-          <div className="w-12 h-12 rounded-full bg-[#ffdbc8] flex items-center justify-center shrink-0">
-            <Headphones className="text-[#311300] w-6 h-6" />
+        <div className="bg-gradient-to-br from-amber-50/90 via-orange-50/40 to-white border-2 border-amber-300 p-4 rounded-2xl shadow-xs mb-6 flex items-center gap-4 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-1.5 h-full bg-gradient-to-b from-amber-400 to-orange-500"></div>
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 text-white flex items-center justify-center shrink-0 shadow-md shadow-amber-500/25">
+            <Headphones className="w-6 h-6" />
           </div>
           <div className="flex-grow text-left">
-            <p className="text-[10px] font-bold text-[#5f5e5e] uppercase tracking-wider mb-0.5">司机 service 通道</p>
-            <p className="text-sm font-semibold text-[#1a1c1c] leading-tight">
-              正在链接至司机 <span className="text-[#ff7d00] font-bold font-mono">{driverPhone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2')}</span>
+            <p className="text-[10px] font-extrabold text-amber-800 uppercase tracking-wider mb-0.5">司机 service 通道</p>
+            <p className="text-sm font-bold text-[#1a1c1c] leading-tight">
+              正在链接至司机 <span className="text-[#ff7d00] font-black font-mono text-base">{driverPhone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2')}</span>
             </p>
-            <div className="flex items-center mt-1 text-[#984800] gap-1.5">
+            <div className="flex items-center mt-1 text-amber-800 gap-1.5">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#ff7d00] opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-[#ff7d00]"></span>
               </span>
-              <span className="text-[10px] font-bold text-[#984800]">开单信息为您实时加密</span>
+              <span className="text-[10px] font-extrabold text-amber-800">开单信息为您实时加密</span>
             </div>
           </div>
-          <div className="bg-[#e2dfde] p-3 rounded-xl flex items-center justify-center shrink-0 select-none">
-            <QrCode className="text-[#984800] w-5 h-5" />
+          <div className="bg-amber-100/90 border border-amber-300 p-3 rounded-xl flex items-center justify-center shrink-0 select-none">
+            <QrCode className="text-amber-800 w-5 h-5" />
           </div>
         </div>
 
@@ -745,8 +741,8 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
           <>
             {/* Instruction Section */}
             <div className="mb-6 space-y-1">
-              <p className="text-sm text-[#5f5e5e] leading-relaxed px-1 text-left">
-                请输入您呼叫代叫司机的手机号码。输入完成后立即通知司机，并一键开启本次代驾服务。
+              <p className="text-sm text-[#5f5e5e] leading-relaxed px-1 text-left font-medium">
+                请输入您呼叫代驾司机的手机号码。输入完成后立即通知司机，并一键开启本次代驾服务。
               </p>
             </div>
 
@@ -754,12 +750,12 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
             <form onSubmit={handleSubmit} className="space-y-5 text-left">
               {/* Phone Input */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-[#5f5e5e] flex items-center gap-1">
-                  您的手机号码 <span className="text-[#ba1a1a]">*</span>
+                <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                  您的手机号码 <span className="text-amber-500 font-bold">*</span>
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                    <Smartphone className="text-[#5f5e5e] w-5 h-5" />
+                    <Smartphone className="text-amber-500 w-5 h-5" />
                   </div>
                   <input
                     type="tel"
@@ -767,19 +763,19 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
                     placeholder="请输入您的手机号"
                     value={passengerPhone}
                     onChange={(e) => setPassengerPhone(e.target.value)}
-                    className="w-full pl-12 pr-4 py-4 bg-white border border-[#dfc0af] rounded-xl focus:ring-2 focus:ring-[#ff7d00] focus:border-[#ff7d00] outline-none text-base transition-all font-semibold"
+                    className="w-full pl-12 pr-4 py-4 bg-white border-2 border-amber-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none text-base transition-all font-semibold"
                   />
                 </div>
               </div>
 
               {/* Origin Input */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-[#5f5e5e] flex items-center gap-1">
-                  您的出发地 <span className="text-[#ba1a1a]">*</span>
+                <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                  您的出发地 <span className="text-amber-500 font-bold">*</span>
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                    <MapPin className="text-[#ff7d00] w-5 h-5" />
+                    <MapPin className="text-amber-500 w-5 h-5" />
                   </div>
                   <input
                     type="text"
@@ -787,23 +783,28 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
                     placeholder="填写当前上车位置"
                     value={startLocation}
                     onChange={(e) => setStartLocation(e.target.value)}
-                    className="w-full pl-12 pr-4 py-4 bg-white border border-[#dfc0af] rounded-xl focus:ring-2 focus:ring-[#ff7d00] focus:border-[#ff7d00] outline-none text-base transition-all font-semibold"
+                    className="w-full pl-12 pr-4 py-4 bg-white border-2 border-amber-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none text-base transition-all font-semibold"
                   />
                 </div>
               </div>
 
               {/* Authorization Checkbox */}
-              <label className="flex items-start gap-3 py-2 cursor-pointer group select-none">
-                <div className="relative flex items-center mt-0.5">
+              <label className="flex items-center gap-3 py-2 cursor-pointer group select-none" htmlFor="agreement-checkbox">
+                <div className="relative flex items-center shrink-0">
                   <input
+                    id="agreement-checkbox"
                     type="checkbox"
                     required
-                    defaultChecked
-                    className="peer h-6 w-6 border-2 border-[#8b7263] rounded-lg checked:bg-[#ff7d00] checked:border-[#ff7d00] transition-all appearance-none cursor-pointer focus:outline-none"
+                    checked={agreed}
+                    onChange={(e) => setAgreed(e.target.checked)}
+                    className="h-6 w-6 border-2 border-amber-400 rounded-lg appearance-none cursor-pointer focus:outline-none transition-all"
+                    style={{ backgroundColor: agreed ? '#ff7d00' : '#ffffff', borderColor: agreed ? '#ff7d00' : '#f59e0b' }}
                   />
-                  <Check className="absolute text-white opacity-0 peer-checked:opacity-100 transition-opacity pointer-events-none left-1 top-1 w-4 h-4 stroke-[3]" />
+                  {agreed && (
+                    <Check className="absolute text-white pointer-events-none left-1 top-1 w-4 h-4 stroke-[3]" />
+                  )}
                 </div>
-                <span className="text-xs text-[#5f5e5e] group-active:text-[#1a1c1c] transition-colors leading-snug">
+                <span className="text-xs text-slate-600 group-active:text-[#1a1c1c] transition-colors leading-snug font-medium">
                   我授权自动上传位置信息并同意接受司机代驾服务
                 </span>
               </label>
@@ -812,7 +813,7 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full bg-[#ff7d00] hover:bg-[#ff8f20] text-white font-bold py-5 rounded-xl active:scale-95 duration-150 transition-all flex items-center justify-center gap-2 mt-6 shadow-md shadow-[#ff7d00]/15"
+                className="w-full bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:brightness-105 text-white font-black text-base py-4 rounded-xl shadow-lg shadow-amber-500/30 active:scale-95 duration-150 transition-all flex items-center justify-center gap-2 mt-6 cursor-pointer"
               >
                 {submitting ? (
                   <>
@@ -831,8 +832,8 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
         ) : (
           <div className="space-y-5 py-2 text-center animate-in fade-in duration-300">
             <div className="bg-white p-6 rounded-2xl border border-[#dfc0af] text-center space-y-3 shadow-xs">
-              <div className="mx-auto w-14 h-14 rounded-full bg-[#ffdbc8] border border-[#ff7d00] flex items-center justify-center shadow-md animate-bounce">
-                <CheckCircle className="w-8 h-8 text-[#984800]" />
+              <div className="mx-auto w-14 h-14 rounded-full bg-emerald-500 border-2 border-emerald-600 flex items-center justify-center shadow-md animate-bounce" style={{ backgroundColor: '#10b981', borderColor: '#059669' }}>
+                <Check className="w-8 h-8 text-white stroke-[3]" style={{ color: '#ffffff' }} />
               </div>
 
               <div className="space-y-1">
@@ -878,6 +879,33 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
                   <span className="text-[#1a1c1c] font-bold font-mono">{driverPhone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2')}</span>
                 </div>
               </div>
+            </div>
+
+            {/* Close hint button inside success container */}
+            <div className="w-full pt-2">
+              <button 
+                onClick={() => {
+                  if (onClose) {
+                    onClose();
+                  } else if (typeof window !== 'undefined') {
+                    try {
+                      if ((window as any).WeixinJSBridge) {
+                        (window as any).WeixinJSBridge.call('closeWindow');
+                      } else if ((window as any).AlipayJSBridge) {
+                        (window as any).AlipayJSBridge.call('closeWebview');
+                      } else {
+                        window.close();
+                      }
+                    } catch (e) {
+                      console.log('Close window failed', e);
+                    }
+                  }
+                }}
+                className="w-full text-white font-bold text-base h-12 rounded-xl shadow-md active:scale-95 transition-transform duration-150 cursor-pointer flex items-center justify-center gap-1.5"
+                style={{ backgroundColor: '#10b981', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '16px', border: 'none', borderRadius: '12px', height: '48px', width: '100%' }}
+              >
+                <span>下单成功，请关闭本页面</span>
+              </button>
             </div>
           </div>
         )}

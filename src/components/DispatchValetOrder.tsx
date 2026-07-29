@@ -183,16 +183,8 @@ export default function DispatchValetOrder({
 
   // Combine real drivers and some simulated ones to guarantee there is always someone near the chosen coordinate
   const getCombinedDrivers = () => {
-    // 1. Filter real online drivers: explicitly online, or online orders approved, or has recent location update (within 15 minutes)
-    const onlineRealDrivers = realDrivers.filter(d => {
-      if (d.isOnline) return true;
-      if (d.onlineOrdersEnabled) return true;
-      if (d.lastUpdatedTime) {
-        const diffMs = Date.now() - new Date(d.lastUpdatedTime).getTime();
-        if (diffMs < 15 * 60 * 1000) return true;
-      }
-      return false;
-    });
+    // 1. Filter real online drivers: MUST BE explicitly online (isOnline === true)
+    const onlineRealDrivers = realDrivers.filter(d => d.isOnline === true);
 
     // 2. Select candidates (Prioritize real online drivers, fall back to any real drivers, then simulated drivers as absolute last resort)
     let baseList = onlineRealDrivers;

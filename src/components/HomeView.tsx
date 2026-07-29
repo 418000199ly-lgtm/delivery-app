@@ -891,15 +891,19 @@ export default function HomeView({
         });
       }
 
-      // Filter for those online, but if none are online, use all activeDrivers to guarantee matching
+      // Filter for those online
       let candidates = activeDrivers.filter(d => d.onlineOrdersEnabled);
-      if (candidates.length === 0) {
-        candidates = activeDrivers;
-      }
 
-      // Permanently target the currently logged-in real driver (userPhone) to ensure they receive the order popup
+      // Permanently target the currently logged-in real driver (userPhone) to ensure they receive the order popup if online
       const targetPhone = userPhone || '18609518888';
       let closestDriver = candidates.find(d => d.phone === targetPhone);
+      
+      // If target driver is offline or not in online candidates
+      if (!closestDriver && !isOnline) {
+        alert("⚠️ 派单失败：您当前处于【下线/离线状态】，无法接收任何后台或自主派单！\n\n请先在首页底部【右滑上线】，开启上线听单状态后再试。");
+        return;
+      }
+
       if (!closestDriver) {
         closestDriver = {
           phone: targetPhone,

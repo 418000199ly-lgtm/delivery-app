@@ -26,7 +26,7 @@ import {
   DEFAULT_SETTINGS,
   checkVipActive
 } from './types';
-import { Sparkles, CheckCircle, Database, Smartphone, Users, ShieldAlert, FileCode, Bot } from 'lucide-react';
+import { Sparkles, CheckCircle, Database, Smartphone, Users, ShieldAlert, FileCode, Bot, Download } from 'lucide-react';
 import AdminPanel from './components/AdminPanel';
 import LoginView from './components/LoginView';
 import { db, doc, onSnapshot, setDoc, deleteDoc, collection, getDoc } from './lib/dbProxy';
@@ -1008,6 +1008,12 @@ export default function App() {
   useEffect(() => {
     if (!userPhone) return;
 
+    // Strict Rule: Drivers in OFFLINE state (isOnline === false) CANNOT receive any orders!
+    if (!isOnline) {
+      setIncomingOrder(null);
+      return;
+    }
+
     const docRef = doc(db, 'passenger_links', userPhone);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
@@ -1016,7 +1022,7 @@ export default function App() {
           const submitTime = data.timestamp || 0;
           // Verify submission timestamp to avoid processing historical stales (last 1 hour to prevent clock skews)
           if (submitTime > Date.now() - 3600000) {
-            // Direct passenger scan specifically assigned to this driver phone - ALWAYS trigger incoming order!
+            // Direct passenger scan specifically assigned to this driver phone - ONLY trigger when driver is ONLINE!
             if (currentView !== 'create_order') {
               setIncomingOrder(data);
             } else {
@@ -1028,7 +1034,7 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [userPhone, currentView]);
+  }, [userPhone, currentView, isOnline]);
 
   const handleAcceptIncomingOrder = (trip: TripState) => {
     if (!userPhone) return;
@@ -1647,10 +1653,6 @@ export default function App() {
           <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-teal-500 to-emerald-400 flex items-center justify-center shadow-lg shadow-teal-500/10">
             <Database className="w-4 h-4 text-slate-900 font-bold" />
           </div>
-          <div>
-            <h1 className="text-xs sm:text-sm font-bold tracking-wide text-white">XX代驾 - 开发者智能调试工作台</h1>
-            <p className="text-[9px] sm:text-[10px] text-gray-400">实时观察数据库变动 / 账号模拟 / 优惠券代码秒发</p>
-          </div>
         </div>
 
         {/* View togglers for flexible debugging */}
@@ -1738,6 +1740,16 @@ export default function App() {
             <Sparkles className="w-3.5 h-3.5" />
             <span>管理后台</span>
           </button>
+
+          <a
+            href="/daijia_deploy.zip"
+            download="daijia_deploy.zip"
+            className="px-3 py-1.5 rounded-full flex items-center gap-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black shadow-lg shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer border border-emerald-300 ml-1"
+            title="一键下载部署至中国大陆服务器宝塔面板的完整部署压缩包 (daijia_deploy.zip - 无解压错误)"
+          >
+            <Download className="w-3.5 h-3.5 text-slate-950 animate-bounce" />
+            <span>📦 一键下载宝塔部署包 (daijia_deploy.zip)</span>
+          </a>
         </div>
       </div>
 

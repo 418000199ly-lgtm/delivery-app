@@ -991,99 +991,49 @@ export default function CreateOrderView({
     }
 
     const delayDebounce = setTimeout(() => {
-      if (activeOnlineOrder) {
-        AMap.plugin('AMap.Riding', () => {
-          try {
-            if (drivingInstanceRef.current) {
-              try { drivingInstanceRef.current.clear(); } catch (_) {}
-            }
-            if (!ridingInstanceRef.current) {
-              ridingInstanceRef.current = new AMap.Riding({
-                map: map,
-                hideMarkers: false,
-                autoFitView: true
-              });
-            } else {
-              try { ridingInstanceRef.current.clear(); } catch (_) {}
-            }
-
-            isMapMovingProgrammaticallyRef.current = true;
-
-            const startPt = driverCoords 
-              ? new AMap.LngLat(driverCoords.lng, driverCoords.lat)
-              : startLocation;
-
-            const endPt = (activeOnlineOrder.passengerLng && activeOnlineOrder.passengerLat)
-              ? new AMap.LngLat(activeOnlineOrder.passengerLng, activeOnlineOrder.passengerLat)
-              : destination;
-
-            ridingInstanceRef.current.search(
-              startPt,
-              endPt,
-              (status: string, result: any) => {
-                setTimeout(() => {
-                  isMapMovingProgrammaticallyRef.current = false;
-                }, 1500);
-
-                if (status === 'complete' && result.routes && result.routes[0]) {
-                  lastPlannedRouteKeyRef.current = currentRouteKey;
-                  const distanceMeters = result.routes[0].distance;
-                  const distanceKm = Number((distanceMeters / 1000).toFixed(2));
-                  setRouteDistance(distanceKm);
-                } else {
-                  console.warn('AMap.Riding status:', status, result);
-                  setRouteDistance(null);
-                }
-              }
-            );
-          } catch (e) {
-            console.warn('Initializing or using AMap.Riding failed:', e);
+      // Always plan driving route from start location to specified destination
+      AMap.plugin('AMap.Driving', () => {
+        try {
+          if (ridingInstanceRef.current) {
+            try { ridingInstanceRef.current.clear(); } catch (_) {}
           }
-        });
-      } else {
-        AMap.plugin('AMap.Driving', () => {
-          try {
-            if (ridingInstanceRef.current) {
-              try { ridingInstanceRef.current.clear(); } catch (_) {}
-            }
-            if (!drivingInstanceRef.current) {
-              drivingInstanceRef.current = new AMap.Driving({
-                map: map,
-                hideMarkers: false,
-                autoFitView: true,
-                city: registeredCity || '银川市'
-              });
-            } else {
-              try { drivingInstanceRef.current.clear(); } catch (_) {}
-            }
-
-            isMapMovingProgrammaticallyRef.current = true;
-            drivingInstanceRef.current.search(
-              [
-                { keyword: startLocation, city: registeredCity || '银川市' },
-                { keyword: destination, city: registeredCity || '银川市' }
-              ],
-              (status: string, result: any) => {
-                setTimeout(() => {
-                  isMapMovingProgrammaticallyRef.current = false;
-                }, 1500);
-
-                if (status === 'complete' && result.routes && result.routes[0]) {
-                  lastPlannedRouteKeyRef.current = currentRouteKey;
-                  const distanceMeters = result.routes[0].distance;
-                  const distanceKm = Number((distanceMeters / 1000).toFixed(2));
-                  setRouteDistance(distanceKm);
-                } else {
-                  console.warn('AMap.Driving status:', status, result);
-                  setRouteDistance(null);
-                }
-              }
-            );
-          } catch (e) {
-            console.warn('Initializing or using AMap.Driving failed:', e);
+          if (!drivingInstanceRef.current) {
+            drivingInstanceRef.current = new AMap.Driving({
+              map: map,
+              hideMarkers: false,
+              autoFitView: true,
+              city: registeredCity || '银川市'
+            });
+          } else {
+            try { drivingInstanceRef.current.clear(); } catch (_) {}
           }
-        });
-      }
+
+          isMapMovingProgrammaticallyRef.current = true;
+          drivingInstanceRef.current.search(
+            [
+              { keyword: startLocation, city: registeredCity || '银川市' },
+              { keyword: destination, city: registeredCity || '银川市' }
+            ],
+            (status: string, result: any) => {
+              setTimeout(() => {
+                isMapMovingProgrammaticallyRef.current = false;
+              }, 1500);
+
+              if (status === 'complete' && result.routes && result.routes[0]) {
+                lastPlannedRouteKeyRef.current = currentRouteKey;
+                const distanceMeters = result.routes[0].distance;
+                const distanceKm = Number((distanceMeters / 1000).toFixed(2));
+                setRouteDistance(distanceKm);
+              } else {
+                console.warn('AMap.Driving status:', status, result);
+                setRouteDistance(null);
+              }
+            }
+          );
+        } catch (e) {
+          console.warn('Initializing or using AMap.Driving failed:', e);
+        }
+      });
     }, 150);
 
     return () => clearTimeout(delayDebounce);
@@ -1682,19 +1632,13 @@ export default function CreateOrderView({
               </span>
             </div>
             <p className="text-gray-400 text-[10px] scale-95 origin-left mt-1 font-medium select-none">
-              {activeOnlineOrder ? (
-                <span className="text-orange-600 font-bold">
-                  🏍️ 骑行距离: {routeDistance ? `${routeDistance.toFixed(2)}公里` : '计算中...'}
-                </span>
-              ) : routeDistance !== null ? (
+              {routeDistance !== null && destination.trim() !== '' ? (
                 <span className="text-teal-600 font-bold">
-                  预估里程: {routeDistance.toFixed(2)}公里 (起步含{activeSlot.includedDistance}公里)
+                  预估里程: {routeDistance.toFixed(2)}公里 (起步含{activeSlot.includedDistance || 7}公里)
                 </span>
-              ) : isEstimated ? (
+              ) : destination.trim() !== '' ? (
                 `正在规划最优路线并计算距离...`
-              ) : (
-                '(选择终点后，可预估起步价及路线费用)'
-              )}
+              ) : null}
             </p>
           </div>
           

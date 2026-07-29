@@ -5,7 +5,7 @@ When the user requests GitHub sync, code push, or asks "What changes did you mak
 
 ### Latest Update Commit Message:
 ```text
-feat(passenger & voice): remove double-click deviation, optimize 3-minute QR expiration auto-refresh, disable 3s transition on blocked/expired views, replace test voice button with instant online/offline speech
+feat(driver-status & map & speech): enforce strict offline order blocking, optimize destination-triggered route planning, and clean settings download UI
 ```
 
 ## Mobile & Packaging Rules

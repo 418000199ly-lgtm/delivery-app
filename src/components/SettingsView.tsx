@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { X, ChevronRight, ChevronLeft, HelpCircle, RotateCcw, PlusSquare, Bookmark, Save, ImagePlus, Trash2, CheckCircle, Loader2, Crown, LogOut, Volume2 } from 'lucide-react';
+import { X, ChevronRight, ChevronLeft, HelpCircle, RotateCcw, PlusSquare, Bookmark, Save, ImagePlus, Trash2, CheckCircle, Loader2, Crown, LogOut, Volume2, Download } from 'lucide-react';
 import jsQR from 'jsqr';
 import QRCode from 'qrcode';
 import { ChauffeurSettings, checkVipActive } from '../types';
