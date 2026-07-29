@@ -5,7 +5,7 @@ When the user requests GitHub sync, code push, or asks "What changes did you mak
 
 ### Latest Update Commit Message:
 ```text
-feat(driver-status & map & speech): enforce strict offline order blocking, optimize destination-triggered route planning, and clean settings download UI
+feat(build-mobile): configure GitHub Actions auto-build for Android APK & iOS TrollStore unsigned IPA
 ```
 
 ## Mobile & Packaging Rules

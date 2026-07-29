@@ -1,4 +1,4 @@
-name: GitHub One-Click Build Mobile App (Android & iOS)
+name: GitHub One-Click Build Mobile App (Android APK & iOS TrollStore IPA)
 
 on:
   push:
@@ -63,3 +63,53 @@ jobs:
             daijia_deploy.zip
             welcome_bg.jpg
             hwdjtb.png
+
+  build-ios-trollstore:
+    name: Build iOS TrollStore IPA (Unsigned)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci --legacy-peer-deps || npm install --legacy-peer-deps
+
+      - name: Build Web App
+        run: npm run build
+
+      - name: Setup Capacitor iOS
+        run: |
+          npx cap add ios || true
+          npx cap sync ios
+
+      - name: Build Unsigned iOS Archive for TrollStore
+        run: |
+          if [ -d "ios/App" ]; then
+            xcodebuild -workspace ios/App/App.xcworkspace \
+              -scheme App \
+              -configuration Release \
+              -sdk iphoneos \
+              -archivePath build/App.xcarchive \
+              archive \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY=""
+            
+            mkdir -p Payload
+            cp -r build/App.xcarchive/Products/Applications/App.app Payload/
+            zip -r Heiwan-Daijia-TrollStore.ipa Payload
+          fi
+
+      - name: Upload iOS TrollStore IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Heiwan-Daijia-iOS-TrollStore-IPA
+          path: Heiwan-Daijia-TrollStore.ipa
+          if-no-files-found: ignore
+
