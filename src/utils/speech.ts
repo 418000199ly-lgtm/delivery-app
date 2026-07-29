@@ -1,10 +1,9 @@
 /**
  * Ultra-Robust Chinese Voice & Audio Engine for Mobile Apps (Android & iOS)
  * 
- * 1. Android Native SpeechSynthesis Engine: Fully handles Android System WebView TTS initialization,
- *    `onvoiceschanged` voice loading, and unblocked speech queues.
- * 2. Unblocked Web Audio Context: Guaranteed Chinese voice broadcast on Android APKs, iOS Safari, and WebViews.
- * 3. High-Availability Web Audio Synth & Online TTS Streams fallback.
+ * 1. Android Native SpeechSynthesis & Direct Fallback Engine
+ * 2. Unblocked Web Audio Context with referrer-free HTTP MP3 fetching (prevents 403 anti-hotlinking on Baidu/Youdao/Sogou TTS)
+ * 3. Guaranteed Chinese voice broadcasts on Android APK, iOS Safari, and WebViews.
  */
 
 import { getBaseApiUrl } from '../lib/dbProxy';
@@ -116,9 +115,9 @@ export function stopSpeaking() {
 }
 
 /**
- * Web Audio synthesized pleasant chime tone (100% offline fallback)
+ * Web Audio synthesized pleasant chime tone
  */
-function playWebAudioChime(isHigh: boolean = true) {
+export function playWebAudioChime(isHigh: boolean = true) {
   try {
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
     if (!AudioCtx) return;
@@ -130,7 +129,7 @@ function playWebAudioChime(isHigh: boolean = true) {
     const gain = audioContext.createGain();
 
     osc.type = 'sine';
-    osc.frequency.setValueAtTime(isHigh ? 587.33 : 440, now); // D5 or A4
+    osc.frequency.setValueAtTime(isHigh ? 587.33 : 440, now);
     osc.frequency.exponentialRampToValueAtTime(isHigh ? 880 : 329.63, now + 0.15);
 
     gain.gain.setValueAtTime(0.3, now);
@@ -145,40 +144,99 @@ function playWebAudioChime(isHigh: boolean = true) {
 }
 
 /**
- * Plays an MP3 audio URL using Web Audio API decoding or HTML5 Audio
+ * Plays an MP3 audio URL using fetch blob (no-referrer) + Web Audio API or HTML5 Audio
  */
 async function playSingleMp3(mp3Url: string, onEnd?: () => void, onError?: () => void) {
+  let playSuccess = false;
+
+  // Attempt 1: Fetch with referrerpolicy no-referrer to bypass CORS / anti-hotlink 403 on Android/iOS WebViews
   try {
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
     if (AudioCtx) {
       if (!audioContext) audioContext = new AudioCtx();
       if (audioContext.state === 'suspended') await audioContext.resume();
 
-      const res = await fetch(mp3Url, { mode: 'cors' });
+      const res = await fetch(mp3Url, {
+        method: 'GET',
+        referrerPolicy: 'no-referrer',
+        mode: 'cors'
+      });
+
       if (res.ok) {
         const buffer = await res.arrayBuffer();
-        const audioBuffer = await audioContext.decodeAudioData(buffer);
-        const source = audioContext.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(audioContext.destination);
+        if (buffer && buffer.byteLength > 1000) {
+          const audioBuffer = await audioContext.decodeAudioData(buffer);
+          const source = audioContext.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(audioContext.destination);
 
-        currentBufferSource = source;
+          currentBufferSource = source;
+
+          let finished = false;
+          source.onended = () => {
+            if (finished) return;
+            finished = true;
+            if (currentBufferSource === source) currentBufferSource = null;
+            if (onEnd) onEnd();
+          };
+
+          source.start(0);
+          playSuccess = true;
+          return;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Speech Engine] Fetch audio buffer failed, falling back to Audio element:', err);
+  }
+
+  // Attempt 2: Direct Blob URL via fetch
+  try {
+    const res = await fetch(mp3Url, {
+      method: 'GET',
+      referrerPolicy: 'no-referrer'
+    });
+    if (res.ok) {
+      const blob = await res.blob();
+      if (blob && blob.size > 1000) {
+        const blobUrl = URL.createObjectURL(blob);
+        const audio = new Audio(blobUrl);
+        audio.setAttribute('referrerpolicy', 'no-referrer');
+        audio.volume = 1.0;
+        currentAudio = audio;
 
         let finished = false;
-        source.onended = () => {
+        const cleanup = () => {
           if (finished) return;
           finished = true;
-          if (currentBufferSource === source) currentBufferSource = null;
-          if (onEnd) onEnd();
+          URL.revokeObjectURL(blobUrl);
+          if (currentAudio === audio) currentAudio = null;
         };
 
-        source.start(0);
+        audio.onended = () => {
+          cleanup();
+          if (onEnd) onEnd();
+        };
+        audio.onerror = () => {
+          cleanup();
+          if (onError) onError();
+        };
+
+        const p = audio.play();
+        if (p !== undefined) {
+          p.then(() => {
+            playSuccess = true;
+          }).catch(() => {
+            cleanup();
+            if (onError) onError();
+          });
+        }
         return;
       }
     }
-  } catch (err) {}
+  } catch (e) {}
 
-  // Fallback HTML5 Audio
+  // Attempt 3: Direct HTML5 Audio element fallback
   try {
     const audio = unlockedAudioElement || new Audio();
     audio.crossOrigin = 'anonymous';
@@ -216,27 +274,26 @@ async function playSingleMp3(mp3Url: string, onEnd?: () => void, onError?: () =>
 }
 
 /**
- * Try online MP3 Audio Stream Sources sequentially
+ * Try online Chinese TTS Audio Streams sequentially
  */
 function playMp3AudioStreams(text: string, onEnd?: () => void) {
-  // Play offline tone first so user gets instant acoustic feedback
-  playWebAudioChime(true);
-
   const encodedText = encodeURIComponent(text);
   const baseUrl = getBaseApiUrl();
 
   const mp3Urls: string[] = [];
 
+  // Priority 1: Self-hosted / Server-side TTS API
   if (baseUrl && !baseUrl.includes('localhost') && !baseUrl.startsWith('file:') && !baseUrl.startsWith('capacitor:')) {
     mp3Urls.push(`${baseUrl}/api/tts?text=${encodedText}`);
   } else if (typeof window !== 'undefined' && window.location.protocol.startsWith('http')) {
     mp3Urls.push(`/api/tts?text=${encodedText}`);
   }
 
-  // High-availability Chinese TTS endpoints
+  // Priority 2: High-availability Mainland Chinese Public Speech Nodes
   mp3Urls.push(
     `https://tts.baidu.com/text2audio?cuid=baike&lan=ZH&ctp=1&paddmd=3&spd=5&tex=${encodedText}`,
-    `https://dict.youdao.com/dictvoice?audio=${encodedText}&type=1`
+    `https://dict.youdao.com/dictvoice?audio=${encodedText}&type=1`,
+    `https://fanyi.baidu.com/getvoice?lan=zh&spd=5&source=web&text=${encodedText}`
   );
 
   let attemptIndex = 0;
@@ -249,6 +306,8 @@ function playMp3AudioStreams(text: string, onEnd?: () => void) {
         tryNext();
       });
     } else {
+      // If all online TTS streams fail, play chime as last resort
+      playWebAudioChime(true);
       if (onEnd) onEnd();
     }
   };
@@ -281,7 +340,22 @@ export function speakText(text: string, onEnd?: () => void) {
     playMp3AudioStreams(text, onEnd);
   };
 
-  // Primary pipeline: Android / iOS native SpeechSynthesis
+  // Check if system voices are available
+  const voices = cachedVoices.length > 0 ? cachedVoices : (typeof window !== 'undefined' && 'speechSynthesis' in window ? window.speechSynthesis.getVoices() || [] : []);
+  const hasChineseVoice = voices.some(v => {
+    const lang = (v.lang || '').toLowerCase();
+    const name = (v.name || '').toLowerCase();
+    return lang.includes('zh') || lang.includes('cn') || lang.includes('cmn') || name.includes('chinese') || name.includes('中文');
+  });
+
+  // Critical Optimization for Domestic Android Mobile APKs (MIUI, HarmonyOS, ColorOS, OriginOS):
+  // If no Chinese system voice engine exists in WebView, immediately bypass buggy WebSpeech API and use Direct TTS Audio Streams!
+  if (!hasChineseVoice && typeof window !== 'undefined') {
+    triggerFallback();
+    return;
+  }
+
+  // Primary pipeline: Native SpeechSynthesis (iOS Safari & Androids with TTS installed)
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     try {
       window.speechSynthesis.resume();
@@ -292,23 +366,13 @@ export function speakText(text: string, onEnd?: () => void) {
       utter.rate = 1.0;
       utter.pitch = 1.0;
 
-      // Match Chinese voice from system voices
-      const voices = cachedVoices.length > 0 ? cachedVoices : (window.speechSynthesis.getVoices() || []);
-      if (voices && voices.length > 0) {
-        const zhVoice = voices.find(v => {
-          const lang = (v.lang || '').toLowerCase();
-          const name = (v.name || '').toLowerCase();
-          return (
-            lang.includes('zh') || 
-            lang.includes('cn') || 
-            lang.includes('cmn') || 
-            name.includes('chinese') || 
-            name.includes('中文')
-          );
-        });
-        if (zhVoice) {
-          utter.voice = zhVoice;
-        }
+      const zhVoice = voices.find(v => {
+        const lang = (v.lang || '').toLowerCase();
+        const name = (v.name || '').toLowerCase();
+        return lang.includes('zh') || lang.includes('cn') || lang.includes('cmn') || name.includes('chinese') || name.includes('中文');
+      });
+      if (zhVoice) {
+        utter.voice = zhVoice;
       }
 
       utter.onstart = () => {
@@ -334,12 +398,12 @@ export function speakText(text: string, onEnd?: () => void) {
         triggerFallback();
       };
 
-      // Set generous 2000ms start guard for Android WebView native TTS startup
+      // Set 1200ms guard for Android WebView native TTS startup
       startTimeout = setTimeout(() => {
         if (!hasResponded && !window.speechSynthesis.speaking) {
           triggerFallback();
         }
-      }, 2000);
+      }, 1200);
 
       window.speechSynthesis.speak(utter);
 
@@ -361,3 +425,4 @@ export function speakText(text: string, onEnd?: () => void) {
 
   triggerFallback();
 }
+

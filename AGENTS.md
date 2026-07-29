@@ -5,7 +5,7 @@ When the user requests GitHub sync, code push, or asks "What changes did you mak
 
 ### Latest Update Commit Message:
 ```text
-feat(build-mobile): configure GitHub Actions auto-build for Android APK & iOS TrollStore unsigned IPA
+fix(android-tts): fix Android APK missing Chinese voice synthesis and enable referrer-free TTS streams with TrollStore IPA build
 ```
 
 ## Mobile & Packaging Rules
