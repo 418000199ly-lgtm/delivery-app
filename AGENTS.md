@@ -5,7 +5,7 @@ When the user requests GitHub sync, code push, or asks "What changes did you mak
 
 ### Latest Update Commit Message:
 ```text
-fix(android-tts): fix Android APK missing Chinese voice synthesis and enable referrer-free TTS streams with TrollStore IPA build
+fix(android-tts): fix Android APK Chinese TTS streaming audio, remove CORS restrictions on HTML5 Audio, and add speech deduplication guard
 ```
 
 ## Mobile & Packaging Rules

@@ -267,6 +267,45 @@ async function startServer() {
     res.json({ status: 'healthy', timestamp: Date.now() });
   });
 
+  // High-reliability Chinese Text-To-Speech (TTS) Proxy Endpoint
+  app.get('/api/tts', async (req, res) => {
+    const text = String(req.query.text || '').trim();
+    if (!text) {
+      return res.status(400).send('Missing text parameter');
+    }
+
+    const encodedText = encodeURIComponent(text);
+    const ttsUrls = [
+      `https://tts.baidu.com/text2audio?cuid=baike&lan=ZH&ctp=1&paddmd=3&spd=5&tex=${encodedText}`,
+      `https://dict.youdao.com/dictvoice?audio=${encodedText}&le=zh`,
+      `https://fanyi.baidu.com/getvoice?lan=zh&spd=5&source=web&text=${encodedText}`
+    ];
+
+    for (const url of ttsUrls) {
+      try {
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://www.baidu.com/'
+          }
+        });
+        if (response.ok) {
+          const arrayBuffer = await response.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          if (buffer.length > 500) {
+            res.setHeader('Content-Type', 'audio/mpeg');
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            return res.send(buffer);
+          }
+        }
+      } catch (err) {
+        // Try next endpoint
+      }
+    }
+
+    return res.status(502).send('TTS synthesis failed on all upstream providers');
+  });
+
   // Check admin permission endpoint for https://admin.lyheiwandaijiamax.com/
   app.post('/api/admin/check-permission', (req, res) => {
     const { phone } = req.body;
