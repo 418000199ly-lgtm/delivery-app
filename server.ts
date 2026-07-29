@@ -542,18 +542,27 @@ async function startServer() {
     });
   });
 
-  // High-reliability Chinese TTS audio proxy endpoint
+  // High-reliability Chinese TTS audio proxy endpoint with CORS and multi-provider fallback
+  app.options('/api/tts', (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', '*');
+    res.sendStatus(204);
+  });
+
   app.get('/api/tts', async (req, res) => {
-    const text = String(req.query.text || '');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+
+    const text = String(req.query.text || '').trim();
     if (!text) {
       return res.status(400).send('Text parameter is required');
     }
     const encodedText = encodeURIComponent(text);
     const urls = [
-      `https://dict.youdao.com/dictvoice?audio=${encodedText}&type=1`,
+      `https://dict.youdao.com/dictvoice?audio=${encodedText}&le=zh`,
       `https://tts.baidu.com/text2audio?cuid=baike&lan=zh&ctp=1&padd=&spd=5&ptm=0&tex=${encodedText}`,
-      `https://fanyi.baidu.com/gettts?lan=zh&text=${encodedText}&spd=5&source=web`,
-      `https://api.oick.cn/txt/api.php?text=${encodedText}&speed=1`
+      `https://fanyi.baidu.com/gettts?lan=zh&text=${encodedText}&spd=5&source=web`
     ];
 
     for (const ttsUrl of urls) {
@@ -567,9 +576,11 @@ async function startServer() {
         if (response.ok) {
           const contentType = response.headers.get('content-type') || 'audio/mpeg';
           const buffer = await response.arrayBuffer();
-          res.setHeader('Content-Type', contentType);
-          res.setHeader('Cache-Control', 'public, max-age=86400');
-          return res.send(Buffer.from(buffer));
+          if (buffer.byteLength > 300) {
+            res.setHeader('Content-Type', contentType);
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            return res.send(Buffer.from(buffer));
+          }
         }
       } catch (err) {
         // Continue to next provider

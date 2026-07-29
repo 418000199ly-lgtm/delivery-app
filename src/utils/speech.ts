@@ -192,7 +192,7 @@ function playSingleMp3(mp3Url: string, onEnd?: () => void, onError?: () => void)
 }
 
 /**
- * Try online Chinese TTS Audio Streams sequentially
+ * Try online Chinese TTS Audio Streams from Baota / Server proxy sequentially
  */
 function playMp3AudioStreams(text: string, onEnd?: () => void) {
   const encodedText = encodeURIComponent(text);
@@ -200,18 +200,26 @@ function playMp3AudioStreams(text: string, onEnd?: () => void) {
 
   const mp3Urls: string[] = [];
 
-  // Priority 1: Self-hosted / Server-side TTS API endpoint
+  // Priority 1: Direct production Baota server TTS API endpoints
   if (baseUrl && !baseUrl.includes('localhost') && !baseUrl.startsWith('file:') && !baseUrl.startsWith('capacitor:')) {
     mp3Urls.push(`${baseUrl}/api/tts?text=${encodedText}`);
-  } else if (typeof window !== 'undefined' && window.location.protocol.startsWith('http')) {
+  }
+  
+  // Add production domain endpoints for Android / iOS APK standalone shells
+  mp3Urls.push(
+    `https://admin.lyheiwandaijiamax.com/api/tts?text=${encodedText}`,
+    `https://api.lyheiwandaijiamax.com/api/tts?text=${encodedText}`,
+    `https://lyheiwandaijiamax.com/api/tts?text=${encodedText}`
+  );
+
+  if (typeof window !== 'undefined' && window.location.protocol.startsWith('http')) {
     mp3Urls.push(`/api/tts?text=${encodedText}`);
   }
 
-  // Priority 2: High-availability Mainland Chinese Public Speech Endpoints
+  // Priority 2: Direct public speech endpoints as fallback
   mp3Urls.push(
-    `https://tts.baidu.com/text2audio?cuid=baike&lan=ZH&ctp=1&paddmd=3&spd=5&tex=${encodedText}`,
     `https://dict.youdao.com/dictvoice?audio=${encodedText}&le=zh`,
-    `https://fanyi.baidu.com/getvoice?lan=zh&spd=5&source=web&text=${encodedText}`
+    `https://tts.baidu.com/text2audio?cuid=baike&lan=ZH&ctp=1&paddmd=3&spd=5&tex=${encodedText}`
   );
 
   let attemptIndex = 0;
@@ -224,8 +232,7 @@ function playMp3AudioStreams(text: string, onEnd?: () => void) {
         tryNext();
       });
     } else {
-      // If all online TTS streams fail, play chime as fallback
-      playWebAudioChime(true);
+      // Stream failed on all endpoints - do NOT play chime automatically!
       if (onEnd) onEnd();
     }
   };
@@ -234,7 +241,7 @@ function playMp3AudioStreams(text: string, onEnd?: () => void) {
 }
 
 /**
- * Main Chinese Voice Broadcast Entry for Mobile Apps (Android / iOS)
+ * Main Chinese Voice Broadcast Entry for Mobile Apps (Android / iOS / Web)
  */
 export function speakText(text: string, onEnd?: () => void) {
   if (!text || typeof window === 'undefined') {
@@ -245,8 +252,8 @@ export function speakText(text: string, onEnd?: () => void) {
   const cleanText = String(text).trim();
   const now = Date.now();
 
-  // Deduplication Guard: Ignore identical speech requests within 1200ms to prevent duplicate sounds
-  if (cleanText === lastSpokenText && (now - lastSpokenTime) < 1200) {
+  // Deduplication Guard: Ignore identical speech requests within 1500ms to prevent duplicate voice overlays
+  if (cleanText === lastSpokenText && (now - lastSpokenTime) < 1500) {
     if (onEnd) onEnd();
     return;
   }
@@ -315,12 +322,12 @@ export function speakText(text: string, onEnd?: () => void) {
         triggerFallback();
       };
 
-      // Set 1200ms guard for Android WebView native TTS startup
+      // Set 800ms guard for Android WebView native TTS startup before switching to Baota server /api/tts
       startTimeout = setTimeout(() => {
         if (!hasResponded && !window.speechSynthesis.speaking) {
           triggerFallback();
         }
-      }, 1200);
+      }, 800);
 
       window.speechSynthesis.speak(utter);
 
