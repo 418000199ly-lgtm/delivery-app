@@ -14,30 +14,13 @@ export function getDeviceId(): string {
 }
 
 /**
- * Check single device login via Aliyun Baota Express Server API (/api/db/get).
- * Runs 100% on Mainland China Aliyun ECS Baota Node.js backend with no GFW/Firestore/Cloudflare issues.
+ * Check single device login via Aliyun Baota Express Server API.
+ * Successful SMS code verification proves physical SIM ownership.
+ * SMS login automatically takes over the active device session and registers the new device.
  */
 export async function checkSingleDeviceLogin(phone: string): Promise<{ allowed: boolean; message?: string }> {
-  try {
-    const currentDeviceId = getDeviceId();
-    const sessionRef = doc(db, 'user_sessions', phone);
-    const snap = await getDoc(sessionRef);
-
-    if (snap && snap.exists()) {
-      const data = snap.data();
-      if (data && data.active === true && data.deviceId && data.deviceId !== currentDeviceId) {
-        return {
-          allowed: false,
-          message: `⚠️ 此账号 (${phone}) 已在其他设备上登录，请退出账号后再在此登录。`
-        };
-      }
-    }
-
-    return { allowed: true };
-  } catch (err) {
-    console.warn('[DeviceSession] Check single device login failed, allowing fallback:', err);
-    return { allowed: true };
-  }
+  // SMS verification always takes precedence, allowing new install/reinstall login and updating active device
+  return { allowed: true };
 }
 
 /**
@@ -79,5 +62,32 @@ export async function clearDeviceSession(phone: string): Promise<void> {
     }
   } catch (err) {
     console.error('[DeviceSession] Clear device session error:', err);
+  }
+}
+
+/**
+ * Verify active device session during app runtime.
+ * If another device logs in with SMS code, this detects deviceId change and triggers force logout on the older session.
+ */
+export async function verifyActiveDeviceSession(phone: string): Promise<{ valid: boolean; reason?: string }> {
+  try {
+    if (!phone) return { valid: true };
+    const currentDeviceId = getDeviceId();
+    const sessionRef = doc(db, 'user_sessions', phone);
+    const snap = await getDoc(sessionRef);
+
+    if (snap && snap.exists()) {
+      const data = snap.data();
+      if (data && data.active === true && data.deviceId && data.deviceId !== currentDeviceId) {
+        return {
+          valid: false,
+          reason: `⚠️ 您的账号 (${phone}) 已在其他设备上登录，当前设备已自动安全下线。`
+        };
+      }
+    }
+    return { valid: true };
+  } catch (err) {
+    console.warn('[DeviceSession] Verify active device session check failed:', err);
+    return { valid: true };
   }
 }

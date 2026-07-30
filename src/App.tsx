@@ -671,6 +671,24 @@ export default function App() {
     triggerToast('您的司机端安全会话已安全退出断开！');
   };
 
+  // Periodically check if another device logged in with SMS code on the same phone number
+  useEffect(() => {
+    if (!userPhone) return;
+
+    const checkDeviceSession = async () => {
+      const { verifyActiveDeviceSession } = await import('./utils/deviceSession');
+      const res = await verifyActiveDeviceSession(userPhone);
+      if (!res.valid) {
+        triggerToast(res.reason || '⚠️ 您的账号已在其他设备上登录，当前设备已自动安全退出。');
+        handleLogout();
+      }
+    };
+
+    checkDeviceSession();
+    const interval = setInterval(checkDeviceSession, 20000);
+    return () => clearInterval(interval);
+  }, [userPhone]);
+
   // Real-time synchronization for global online billing rules configured in Admin Panel
   useEffect(() => {
     const configDocRef = doc(db, 'config', 'online_billing_rules');
