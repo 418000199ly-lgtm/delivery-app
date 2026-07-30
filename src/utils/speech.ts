@@ -147,6 +147,7 @@ export function stopSpeaking() {
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     try {
       window.speechSynthesis.cancel();
+      window.speechSynthesis.resume();
     } catch (e) {}
   }
 }
@@ -493,7 +494,7 @@ function tryWebSpeechSynthesis(text: string, onEnd?: () => void): Promise<boolea
 /**
  * Main Chinese Voice Broadcast Entry for Mobile Apps (Android APK, iOS, Web)
  */
-export async function speakText(text: string, onEnd?: () => void) {
+export async function speakText(text: string, onEnd?: () => void, playChime: boolean = false) {
   if (!text || typeof window === 'undefined') {
     if (onEnd) onEnd();
     return;
@@ -513,8 +514,10 @@ export async function speakText(text: string, onEnd?: () => void) {
   initAudioUnlock();
   stopSpeaking();
 
-  // 1. Play immediate audio chime & trigger tactile vibration feedback on Android / iOS
-  playEmbeddedBusinessTone(cleanText);
+  // Play embedded audio chime only if explicitly requested or for short notification alerts
+  if (playChime) {
+    playEmbeddedBusinessTone(cleanText);
+  }
   if (typeof navigator !== 'undefined' && navigator.vibrate) {
     try { navigator.vibrate([100, 50, 100]); } catch (e) {}
   }
@@ -523,8 +526,9 @@ export async function speakText(text: string, onEnd?: () => void) {
   if (Capacitor.isNativePlatform()) {
     try {
       await TextToSpeech.stop().catch(() => {});
+      await new Promise(r => setTimeout(r, 60)); // Reset Android TTS channel focus
       
-      const nativeTimeoutMs = Math.max(8000, cleanText.length * 550);
+      const nativeTimeoutMs = Math.max(6000, cleanText.length * 500);
       const nativeSuccess = await Promise.race([
         TextToSpeech.speak({
           text: cleanText,

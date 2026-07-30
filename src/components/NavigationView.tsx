@@ -156,8 +156,8 @@ export default function NavigationView({
       ? destination
       : '建发大阅城';
 
-    // Load Driving plugin and Geocoder plugin
-    AMap.plugin(['AMap.Driving', 'AMap.Geocoder', 'AMap.Geolocation'], () => {
+    // Load Driving plugin, Geocoder plugin, and PlaceSearch plugin
+    AMap.plugin(['AMap.Driving', 'AMap.Geocoder', 'AMap.PlaceSearch', 'AMap.Geolocation'], () => {
       const geocoder = new AMap.Geocoder({ city: registeredCity || '银川市' });
 
       const driving = new AMap.Driving({
@@ -194,31 +194,48 @@ export default function NavigationView({
       };
 
       const geocodeAndPlan = (originLng: number, originLat: number) => {
-        // First try searching with exact destination name in registered city
-        geocoder.getLocation(cleanDest, (status: string, result: any) => {
-          let destLng = originLng + 0.03;
-          let destLat = originLat + 0.02;
+        const placeSearch = new AMap.PlaceSearch({ city: registeredCity || '银川市' });
 
-          if (status === 'complete' && result.geocodes && result.geocodes.length > 0) {
-            const loc = result.geocodes[0].location;
-            destLng = loc.getLng ? loc.getLng() : loc.lng;
-            destLat = loc.getLat ? loc.getLat() : loc.lat;
-            destinationCoordsRef.current = { lng: destLng, lat: destLat };
-            createOrUpdateDestMarker(destLng, destLat, cleanDest);
-            planRoute(originLng, originLat, destLng, destLat, cleanDest);
-          } else {
-            // Secondary attempt with city name prefixed to lock exact destination
-            geocoder.getLocation(`${registeredCity || '银川市'} ${cleanDest}`, (status2: string, result2: any) => {
-              if (status2 === 'complete' && result2.geocodes && result2.geocodes.length > 0) {
-                const loc2 = result2.geocodes[0].location;
-                destLng = loc2.getLng ? loc2.getLng() : loc2.lng;
-                destLat = loc2.getLat ? loc2.getLat() : loc2.lat;
+        // 1. Try POI search first (best for residential compounds like "区政府家属院")
+        placeSearch.search(cleanDest, (pStatus: string, pResult: any) => {
+          if (pStatus === 'complete' && pResult.poiList && pResult.poiList.pois && pResult.poiList.pois.length > 0) {
+            const poi = pResult.poiList.pois[0];
+            const pLng = poi.location.getLng ? poi.location.getLng() : poi.location.lng;
+            const pLat = poi.location.getLat ? poi.location.getLat() : poi.location.lat;
+            destinationCoordsRef.current = { lng: pLng, lat: pLat };
+            createOrUpdateDestMarker(pLng, pLat, cleanDest);
+            planRoute(originLng, originLat, pLng, pLat, cleanDest);
+            return;
+          }
+
+          // 2. Fallback to Geocoder for formal street addresses
+          geocoder.getLocation(cleanDest, (status: string, result: any) => {
+            if (status === 'complete' && result.geocodes && result.geocodes.length > 0) {
+              const loc = result.geocodes[0].location;
+              const dLng = loc.getLng ? loc.getLng() : loc.lng;
+              const dLat = loc.getLat ? loc.getLat() : loc.lat;
+              destinationCoordsRef.current = { lng: dLng, lat: dLat };
+              createOrUpdateDestMarker(dLng, dLat, cleanDest);
+              planRoute(originLng, originLat, dLng, dLat, cleanDest);
+              return;
+            }
+
+            // 3. Fallback to city-prefixed PlaceSearch
+            placeSearch.search(`${registeredCity || '银川市'}${cleanDest}`, (pStatus2: string, pResult2: any) => {
+              let destLng = originLng + 0.015;
+              let destLat = originLat + 0.01;
+
+              if (pStatus2 === 'complete' && pResult2.poiList && pResult2.poiList.pois && pResult2.poiList.pois.length > 0) {
+                const poi2 = pResult2.poiList.pois[0];
+                destLng = poi2.location.getLng ? poi2.location.getLng() : poi2.location.lng;
+                destLat = poi2.location.getLat ? poi2.location.getLat() : poi2.location.lat;
               }
+
               destinationCoordsRef.current = { lng: destLng, lat: destLat };
               createOrUpdateDestMarker(destLng, destLat, cleanDest);
               planRoute(originLng, originLat, destLng, destLat, cleanDest);
             });
-          }
+          });
         });
       };
 
@@ -292,6 +309,7 @@ export default function NavigationView({
     }
 
     return () => {
+      stopSpeaking();
       if (watchId !== null && navigator.geolocation) {
         navigator.geolocation.clearWatch(watchId);
       }
@@ -307,18 +325,29 @@ export default function NavigationView({
     startLat: number,
     destLng: number,
     destLat: number,
-    destName: string
+    destName: string,
+    isReroute: boolean = false
   ) => {
+    if (isReroute) {
+      lastRouteKeyRef.current = '';
+    }
+
     const routeKey = `${startLng.toFixed(4)},${startLat.toFixed(4)}->${destLng.toFixed(4)},${destLat.toFixed(4)}`;
     
-    // Prevent infinite re-planning loops
-    if (lastRouteKeyRef.current === routeKey) {
+    // Prevent infinite re-planning loops unless force rerouting
+    if (!isReroute && lastRouteKeyRef.current === routeKey) {
       return;
     }
     lastRouteKeyRef.current = routeKey;
 
     const driving = drivingPluginRef.current;
-    if (!driving) return;
+    if (!driving) {
+      setNextInstruction('沿主干道继续前行');
+      setNextRoad(destName);
+      setRemainingDistance('约 3.50公里');
+      setRemainingTime('10分钟');
+      return;
+    }
 
     driving.search(
       [startLng, startLat],
@@ -369,9 +398,11 @@ export default function NavigationView({
             else if (action.includes('掉头')) setTurnAction('uturn');
             else setTurnAction('straight');
 
-            const amapNaviText = step.instruction 
-              ? `高德地图为您导航：${step.instruction}` 
-              : `高德地图开始导航，距离目的地【${destName}】全程 ${distKm} 公里，预计 ${timeMins} 分钟。前方 ${formattedStepDist} 后 ${action} ${roadName}`;
+            const amapNaviText = isReroute
+              ? `偏离路线，已重新规划：前方 ${formattedStepDist} 后 ${action} ${roadName}`
+              : (step.instruction 
+                  ? `高德地图为您导航：${step.instruction}` 
+                  : `高德地图开始导航，距离目的地【${destName}】全程 ${distKm} 公里，预计 ${timeMins} 分钟。前方 ${formattedStepDist} 后 ${action} ${roadName}`);
 
             speakVoice(amapNaviText);
           } else {
@@ -379,10 +410,12 @@ export default function NavigationView({
             setNextRoad(destName);
           }
         } else {
+          // Robust fallback UI when driving route API returns no_data or slow
           setNextInstruction('已为您选择最平顺导航路线');
           setNextRoad(destName);
-          setRemainingDistance('约 4.50公里');
-          setRemainingTime('12分钟');
+          setRemainingDistance('约 3.50公里');
+          setRemainingTime('10分钟');
+          speakVoice(`高德地图为您导航，前往【${destName}】，请沿前方主路行驶`);
         }
       }
     );
@@ -403,27 +436,31 @@ export default function NavigationView({
     // Check if driver position actually deviated off the active route path
     if (destinationCoordsRef.current && activeRoutePathRef.current.length > 1) {
       const now = Date.now();
-      // Rate-limit re-routing: at least 30 seconds between re-routes
-      if (now - lastRerouteTimestampRef.current < 30000) {
+      // Rate-limit re-routing: at least 8 seconds between re-routes
+      if (now - lastRerouteTimestampRef.current < 8000) {
         return;
       }
 
       const minDistToRoute = getMinDistanceToRoute(lng, lat);
-      // Require driver to be > 180m away from the planned route for 3 CONSECUTIVE GPS fixes
-      // This prevents single GPS jitter/drift during driving from triggering false re-routes
-      if (minDistToRoute > 180) {
+      // Standard driving off-route threshold: 40 meters
+      if (minDistToRoute > 40) {
         offRouteCountRef.current += 1;
-        if (offRouteCountRef.current >= 3) {
+        if (offRouteCountRef.current >= 2 || minDistToRoute > 70) {
           offRouteCountRef.current = 0;
           lastRerouteTimestampRef.current = now;
           const dest = destinationCoordsRef.current;
           showToast('🚗 偏离主航路线路，正在为您重新规划路线...');
-          planRoute(lng, lat, dest.lng, dest.lat, destination || '建发大阅城');
+          planRoute(lng, lat, dest.lng, dest.lat, destination || cleanDest, true);
         }
       } else {
         offRouteCountRef.current = 0;
       }
     }
+  };
+
+  const handleExit = () => {
+    stopSpeaking();
+    onClose();
   };
 
   // Toggle Overview mode (fit all route vs track driver)
@@ -500,7 +537,7 @@ export default function NavigationView({
           </div>
 
           <button
-            onClick={onClose}
+            onClick={handleExit}
             className="bg-white/10 hover:bg-white/20 active:scale-95 transition-all text-white px-3 py-1 rounded-full text-xs font-bold border border-white/10 flex items-center gap-1"
           >
             <span>退出</span>
@@ -536,7 +573,7 @@ export default function NavigationView({
         {/* Bottom Left: Exit Navigation Button */}
         <div className="absolute bottom-6 left-4 z-20">
           <button
-            onClick={onClose}
+            onClick={handleExit}
             className="bg-white hover:bg-slate-50 text-slate-900 px-5 py-3.5 rounded-2xl shadow-2xl font-black text-sm border border-slate-100 flex items-center justify-center gap-1.5 active:scale-95 transition-transform"
           >
             <span>退出导航</span>
