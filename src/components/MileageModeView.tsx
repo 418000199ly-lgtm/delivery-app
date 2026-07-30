@@ -441,7 +441,7 @@ export default function MileageModeView({
   const startEditing = (rule: BillingRules) => {
     setEditingRule(rule);
     setEditTemplateName(rule.templateName);
-    setEditSlots([...rule.slots]);
+    setEditSlots(rule.slots.map(s => ({ ...s })));
     setEditReturnFeeStartKm(rule.returnFeeStartKm);
     setEditReturnFeePerKm(rule.returnFeePerKm);
     setEditReturnFeeIntervalKm(rule.returnFeeIntervalKm || 1);
@@ -542,8 +542,9 @@ export default function MileageModeView({
     setEditSlots(editSlots.filter(s => s.id !== id));
   };
 
-  const handleUpdateSlotField = (id: string, field: keyof TimeSlot, value: any) => {
-    setEditSlots(editSlots.map(s => {
+  const handleUpdateSlotField = (id: string | null, field: keyof TimeSlot, value: any) => {
+    if (!id) return;
+    setEditSlots(prev => prev.map(s => {
       if (s.id === id) {
         return { ...s, [field]: value };
       }
@@ -551,8 +552,19 @@ export default function MileageModeView({
     }));
   };
 
-  const handleUpdatePriceAndDistance = (id: string, price: number, distance: number) => {
-    setEditSlots(editSlots.map(s => {
+  const handleUpdateSlotTimeRange = (id: string | null, startTime: string, endTime: string) => {
+    if (!id) return;
+    setEditSlots(prev => prev.map(s => {
+      if (s.id === id) {
+        return { ...s, startTime, endTime };
+      }
+      return s;
+    }));
+  };
+
+  const handleUpdatePriceAndDistance = (id: string | null, price: number, distance: number) => {
+    if (!id) return;
+    setEditSlots(prev => prev.map(s => {
       if (s.id === id) {
         return { ...s, startingPrice: price, includedDistance: distance };
       }
@@ -856,6 +868,7 @@ export default function MileageModeView({
                           <div
                             key={time}
                             onClick={() => {
+                              setTempStartTime(time);
                               if (startScrollRef.current) {
                                 startScrollRef.current.scrollTo({
                                   top: idx * 40,
@@ -904,6 +917,7 @@ export default function MileageModeView({
                           <div
                             key={time}
                             onClick={() => {
+                              setTempEndTime(time);
                               if (endScrollRef.current) {
                                 endScrollRef.current.scrollTo({
                                   top: idx * 40,
@@ -943,8 +957,23 @@ export default function MileageModeView({
                 <button
                   type="button"
                   onClick={() => {
-                    handleUpdateSlotField(activeSlotId, 'startTime', tempStartTime);
-                    handleUpdateSlotField(activeSlotId, 'endTime', tempEndTime);
+                    let finalStart = tempStartTime;
+                    let finalEnd = tempEndTime;
+
+                    if (startScrollRef.current) {
+                      const startIdx = Math.round(startScrollRef.current.scrollTop / 40);
+                      if (startIdx >= 0 && startIdx < START_TIME_OPTIONS.length) {
+                        finalStart = START_TIME_OPTIONS[startIdx];
+                      }
+                    }
+                    if (endScrollRef.current) {
+                      const endIdx = Math.round(endScrollRef.current.scrollTop / 40);
+                      if (endIdx >= 0 && endIdx < END_TIME_OPTIONS.length) {
+                        finalEnd = END_TIME_OPTIONS[endIdx];
+                      }
+                    }
+
+                    handleUpdateSlotTimeRange(activeSlotId, finalStart, finalEnd);
                     setShowTimePicker(false);
                     setActiveSlotId(null);
                   }}
