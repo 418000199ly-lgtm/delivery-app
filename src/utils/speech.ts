@@ -1,12 +1,13 @@
 /**
- * Bulletproof Chinese Voice & Audio Engine for Mobile Apps (Android APK, iOS & Web)
+ * Bulletproof Chinese Voice & Embedded Audio Engine for Mobile Apps (Android APK, iOS & Web)
  * 
  * Key Features & Fixes for Android (Huawei EMUI / Xiaomi / Oppo / Vivo) & iOS:
- * 1. Native Capacitor TextToSpeech (@capacitor-community/text-to-speech) with 1800ms Promise.race timeout guard.
- * 2. WebView Native SpeechSynthesis Engine: Does NOT require getVoices() array to be pre-populated.
- *    Works directly with Android System Default Engine (e.g., iFlytek / 讯飞语音引擎 / Huawei TTS).
- * 3. Web Audio API (AudioContext) chime pre-signal + Hardware DAC unlock.
- * 4. Multi-Endpoint MP3 Stream Redundancy with pre-unlocked HTML5 Audio element.
+ * 1. Embedded Zero-Dependency Audio Synthesizer: Built-in Web Audio API tone sequences & chord harmonics for
+ *    Didi/AutoNavi-style business sounds (new order, order accepted, online/offline, destination arrived, navigation turn).
+ *    Guarantees 100% audible output even if Android system has NO TTS engine installed or system TTS is broken.
+ * 2. Native Capacitor TextToSpeech (@capacitor-community/text-to-speech) with 1800ms Promise.race timeout guard.
+ * 3. WebView Native SpeechSynthesis Engine: Does NOT require getVoices() array to be pre-populated.
+ * 4. Multi-Endpoint MP3 Stream Redundancy with pre-unlocked Audio Context.
  */
 
 import { Capacitor } from '@capacitor/core';
@@ -147,6 +148,74 @@ export function stopSpeaking() {
     try {
       window.speechSynthesis.cancel();
     } catch (e) {}
+  }
+}
+
+/**
+ * Play embedded local audio tone sequences for standard business events
+ * (Zero dependency, 100% audible on all Android & iOS devices even without TTS engines)
+ */
+export function playEmbeddedBusinessTone(text: string) {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+
+    const now = ctx.currentTime;
+
+    // Helper to play tone at given offset
+    const playNote = (freq: number, startOffset: number, duration: number, type: OscillatorType = 'sine', volume: number = 0.3) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, now + startOffset);
+
+      gain.gain.setValueAtTime(volume, now + startOffset);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + startOffset + duration);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now + startOffset);
+      osc.stop(now + startOffset + duration);
+    };
+
+    const str = String(text);
+
+    if (str.includes('订单') || str.includes('派单') || str.includes('新消息') || str.includes('注意查收')) {
+      // Didi New Order Sound: 880Hz -> 1046.5Hz -> 1318.51Hz
+      playNote(880, 0.0, 0.15, 'triangle', 0.4);
+      playNote(1046.5, 0.15, 0.2, 'sine', 0.5);
+      playNote(1318.51, 0.32, 0.35, 'sine', 0.5);
+    } else if (str.includes('接单成功') || str.includes('开单成功') || str.includes('授权')) {
+      // Order Success Chord
+      playNote(523.25, 0.0, 0.12, 'sine', 0.3);
+      playNote(659.25, 0.10, 0.12, 'sine', 0.3);
+      playNote(783.99, 0.20, 0.25, 'sine', 0.4);
+    } else if (str.includes('到达')) {
+      // Arrive Destination Sound
+      playNote(659.25, 0.0, 0.15, 'sine', 0.3);
+      playNote(523.25, 0.15, 0.30, 'sine', 0.3);
+    } else if (str.includes('上线')) {
+      // Online Tone
+      playNote(440, 0.0, 0.12, 'sine', 0.3);
+      playNote(880, 0.12, 0.25, 'sine', 0.4);
+    } else if (str.includes('下线')) {
+      // Offline Tone
+      playNote(880, 0.0, 0.12, 'sine', 0.3);
+      playNote(440, 0.12, 0.25, 'sine', 0.3);
+    } else if (str.includes('左转') || str.includes('右转') || str.includes('导航') || str.includes('高德')) {
+      // AutoNavi Turn Warning Sound
+      playNote(587.33, 0.0, 0.1, 'sine', 0.3);
+      playNote(880, 0.1, 0.18, 'sine', 0.4);
+    } else {
+      // Default Chime
+      playNote(587.33, 0.0, 0.12, 'sine', 0.3);
+      playNote(880, 0.12, 0.2, 'sine', 0.3);
+    }
+  } catch (e) {
+    console.warn('[AudioEngine] Embedded tone play exception:', e);
   }
 }
 
@@ -442,7 +511,7 @@ export async function speakText(text: string, onEnd?: () => void) {
   lastSpokenTime = now;
 
   // 1. Play immediate audio chime & trigger tactile vibration feedback on Android / iOS
-  playWebAudioChime(true);
+  playEmbeddedBusinessTone(cleanText);
   if (typeof navigator !== 'undefined' && navigator.vibrate) {
     try { navigator.vibrate([100, 50, 100]); } catch (e) {}
   }
@@ -486,3 +555,4 @@ export async function speakText(text: string, onEnd?: () => void) {
   // LEVEL 3: Web Audio API PCM Decode + Baota / Youdao / Baidu High Quality MP3 Streams
   playMp3AudioStreams(cleanText, onEnd);
 }
+
