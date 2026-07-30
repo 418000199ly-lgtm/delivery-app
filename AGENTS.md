@@ -5,7 +5,7 @@ When the user requests GitHub sync, code push, or asks "What changes did you mak
 
 ### Latest Update Commit Message:
 ```text
-fix(android-tts): resolve Android APK voice broadcast using Web Audio API buffer engine, bypass autoplay blocks, and add speech test button
+fix(android-tts): resolve Huawei EMUI/Android TTS silence by bypassing empty getVoices requirement, adding Capacitor TTS timeout guard, and adding audio chime + vibration feedback
 ```
 
 ## Mobile & Packaging Rules

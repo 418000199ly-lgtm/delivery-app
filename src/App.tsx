@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
 import PhoneFrame from './components/PhoneFrame';
 import HomeView from './components/HomeView';
 import SettingsView, { regenerateQRCode } from './components/SettingsView';
@@ -1563,30 +1564,19 @@ export default function App() {
     }
   };
 
-  // Determine if we should render the clean single-screen view without any of the debug desktop workspace wrappers (header, watermark footer, etc.)
+  // Determine if we should render the clean single-screen view for installed native APK / iOS standalone shells
   const isMobileOrStandalone = () => {
     if (typeof window === 'undefined') return false;
     
     const params = new URLSearchParams(window.location.search);
-    const hasPassengerOrDriver = params.has('driver') || params.get('passenger') === 'true';
     
-    // 1. Native Capacitor packaged app
-    if (!!(window as any).Capacitor || window.location.protocol === 'capacitor:' || window.location.protocol === 'file:') {
+    // 1. Native Capacitor packaged app running on Android or iOS native shell (NOT browser)
+    if (Capacitor.isNativePlatform() || window.location.protocol === 'capacitor:' || window.location.protocol === 'file:') {
       return true;
     }
     
-    // 2. Query parameters indicating standalone / native mode
+    // 2. Query parameters explicitly requesting pure standalone/native mode
     if (params.get('native') === 'true' || params.get('standalone') === 'true') {
-      return true;
-    }
-    
-    // 3. Under a mobile phone screen width OR mobile user agent (e.g. when passenger scans the QR code on their phone, or driver opens it on phone)
-    if (window.innerWidth < 768) {
-      return true;
-    }
-    
-    // 4. If we are on the passenger self-service page, and it's loaded as a result of a QR scan, and not explicitly being debugged on wide screen
-    if (hasPassengerOrDriver && window.innerWidth < 1024) {
       return true;
     }
     
@@ -1656,11 +1646,11 @@ export default function App() {
           </div>
         </div>
 
-        {/* View togglers for flexible debugging */}
-        <div className="flex flex-wrap items-center bg-[#1b233a] rounded-2xl sm:rounded-full p-1 border border-gray-700/50 text-xs font-semibold shrink-0 gap-1">
+        {/* View togglers for flexible debugging (Horizontally scrollable for all screen sizes) */}
+        <div className="w-full sm:w-auto overflow-x-auto whitespace-nowrap flex items-center bg-[#1b233a] rounded-2xl sm:rounded-full p-1.5 border border-gray-700/50 text-xs font-semibold shrink-0 gap-1.5 scrollbar-none">
           <button
             onClick={() => setMobileActiveTab('app')}
-            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer ${
+            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
               mobileActiveTab === 'app'
                 ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-md'
                 : 'text-gray-400 hover:text-white'
@@ -1672,7 +1662,7 @@ export default function App() {
 
           <button
             onClick={() => setMobileActiveTab('passenger')}
-            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer ${
+            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
               mobileActiveTab === 'passenger'
                 ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-md'
                 : 'text-gray-400 hover:text-white'
@@ -1684,7 +1674,7 @@ export default function App() {
 
           <button
             onClick={() => setMobileActiveTab('qr_expired')}
-            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer ${
+            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
               mobileActiveTab === 'qr_expired'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-md font-bold'
                 : 'text-gray-400 hover:text-white'
@@ -1696,7 +1686,7 @@ export default function App() {
 
           <button
             onClick={() => setMobileActiveTab('vip_blocked')}
-            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer ${
+            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
               mobileActiveTab === 'vip_blocked'
                 ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-slate-950 font-bold shadow-md'
                 : 'text-gray-400 hover:text-white'
@@ -1708,7 +1698,7 @@ export default function App() {
 
           <button
             onClick={() => setMobileActiveTab('wechat_mini')}
-            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer ${
+            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
               mobileActiveTab === 'wechat_mini'
                 ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-md'
                 : 'text-gray-400 hover:text-white'
@@ -1720,7 +1710,7 @@ export default function App() {
           
           <button
             onClick={() => setMobileActiveTab('xianyu')}
-            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer ${
+            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
               mobileActiveTab === 'xianyu'
                 ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-bold shadow-md'
                 : 'text-gray-400 hover:text-white'
@@ -1732,7 +1722,7 @@ export default function App() {
 
           <button
             onClick={() => setMobileActiveTab('admin')}
-            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer ${
+            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
               mobileActiveTab === 'admin'
                 ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-md'
                 : 'text-gray-400 hover:text-white'
@@ -1745,7 +1735,7 @@ export default function App() {
           <a
             href="/daijia_deploy.zip"
             download="daijia_deploy.zip"
-            className="px-3 py-1.5 rounded-full flex items-center gap-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black shadow-lg shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer border border-emerald-300 ml-1"
+            className="px-3 py-1.5 rounded-full flex items-center gap-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black shadow-lg shadow-emerald-500/20 active:scale-95 transition-all cursor-pointer border border-emerald-300 ml-1 shrink-0"
             title="一键下载部署至中国大陆服务器宝塔面板的完整部署压缩包 (daijia_deploy.zip - 无解压错误)"
           >
             <Download className="w-3.5 h-3.5 text-slate-950 animate-bounce" />
