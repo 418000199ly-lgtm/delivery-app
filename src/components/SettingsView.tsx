@@ -871,6 +871,17 @@ export default function SettingsView({
             <div className="flex items-center space-x-2">
               <button 
                 type="button"
+                onClick={() => {
+                  initAudioUnlock();
+                  speakText('语音播报测试正常！黑湾代驾为您保驾护航。');
+                }}
+                className="flex items-center space-x-1 text-xs text-blue-600 bg-blue-50 font-bold py-1 px-2.5 rounded-lg border border-blue-100 active:scale-95 transition-all cursor-pointer"
+              >
+                <Volume2 className="w-3.5 h-3.5 text-blue-500" />
+                <span>测试语音</span>
+              </button>
+              <button 
+                type="button"
                 onClick={toggleVoiceBroadcast}
                 className="flex items-center space-x-1 text-teal-600 font-semibold py-1 px-2.5 hover:bg-teal-50 rounded-lg border border-teal-100 transition-colors cursor-pointer"
               >

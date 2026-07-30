@@ -5,7 +5,7 @@ When the user requests GitHub sync, code push, or asks "What changes did you mak
 
 ### Latest Update Commit Message:
 ```text
-fix(android-tts): fix Android APK voice broadcast with strict 350ms speech start guard, remove chime sounds, and route speech via Baota /api/tts endpoint
+fix(android-tts): resolve Android APK voice broadcast using Web Audio API buffer engine, bypass autoplay blocks, and add speech test button
 ```
 
 ## Mobile & Packaging Rules
