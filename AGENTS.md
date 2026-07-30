@@ -5,7 +5,7 @@ When the user requests GitHub sync, code push, or asks "What changes did you mak
 
 ### Latest Update Commit Message:
 ```text
-fix(assets): restore binary image headers for app icons, pwa assets, and mobile resources
+fix(ios): fix iOS TrollStore xcodebuild exit code 65 by aligning Capacitor 7 dependencies and Swift plugin signatures
 ```
 
 ## Mobile & Packaging Rules

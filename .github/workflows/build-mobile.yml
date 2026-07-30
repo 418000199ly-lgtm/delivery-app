@@ -99,11 +99,13 @@ jobs:
               archive \
               CODE_SIGNING_ALLOWED=NO \
               CODE_SIGNING_REQUIRED=NO \
-              CODE_SIGN_IDENTITY=""
+              CODE_SIGN_IDENTITY="" \
+              AD_HOC_CODE_SIGNING_ALLOWED=YES \
+              COMPILER_INDEX_STORE_ENABLE=NO
             
             mkdir -p Payload
             cp -r build/App.xcarchive/Products/Applications/App.app Payload/
-            zip -r Heiwan-Daijia-TrollStore.ipa Payload
+            zip -qr Heiwan-Daijia-TrollStore.ipa Payload
           fi
 
       - name: Upload iOS TrollStore IPA Artifact
