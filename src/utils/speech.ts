@@ -466,7 +466,7 @@ function tryWebSpeechSynthesis(text: string, onEnd?: () => void): Promise<boolea
       };
 
       // Safety fallback timer: if SpeechSynthesis fails to finish or start within estimated duration
-      const maxDuration = Math.max(2500, text.length * 350);
+      const maxDuration = Math.max(6000, text.length * 500);
       setTimeout(() => {
         if (!hasFinished) {
           hasFinished = true;
@@ -510,20 +510,21 @@ export async function speakText(text: string, onEnd?: () => void) {
   lastSpokenText = cleanText;
   lastSpokenTime = now;
 
+  initAudioUnlock();
+  stopSpeaking();
+
   // 1. Play immediate audio chime & trigger tactile vibration feedback on Android / iOS
   playEmbeddedBusinessTone(cleanText);
   if (typeof navigator !== 'undefined' && navigator.vibrate) {
     try { navigator.vibrate([100, 50, 100]); } catch (e) {}
   }
 
-  initAudioUnlock();
-  stopSpeaking();
-
-  // LEVEL 1: Capacitor Native Android / iOS System TTS Engine with 1800ms Timeout Guard
+  // LEVEL 1: Capacitor Native Android / iOS System TTS Engine with Dynamic Timeout Guard
   if (Capacitor.isNativePlatform()) {
     try {
       await TextToSpeech.stop().catch(() => {});
       
+      const nativeTimeoutMs = Math.max(8000, cleanText.length * 550);
       const nativeSuccess = await Promise.race([
         TextToSpeech.speak({
           text: cleanText,
@@ -532,7 +533,7 @@ export async function speakText(text: string, onEnd?: () => void) {
           pitch: 1.0,
           volume: 1.0,
         }).then(() => true).catch(() => false),
-        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1800))
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), nativeTimeoutMs))
       ]);
 
       if (nativeSuccess) {

@@ -45,7 +45,7 @@ function calculateHaversineDistance(lat1: number, lng1: number, lat2: number, ln
  * - distanceText: 乘客直线距离（例如 "280米" 或 "1.2公里"）
  */
 export function getTTSBroadcastText(
-  order: Order,
+  order: any,
   approxPrice: any,
   startLocation: string,
   destination: string,

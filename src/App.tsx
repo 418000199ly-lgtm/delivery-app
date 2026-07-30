@@ -33,6 +33,7 @@ import LoginView from './components/LoginView';
 import { db, doc, onSnapshot, setDoc, deleteDoc, collection, getDoc } from './lib/dbProxy';
 import { IncomingOrderOverlay } from './components/IncomingOrderOverlay';
 import { speakText, initAudioUnlock } from './utils/speech';
+import { getDeviceId, clearDeviceSession } from './utils/deviceSession';
 
 const getCityCenterCoords = (cityName: string): { lat: number; lng: number } => {
   const norm = (cityName || '').trim();
@@ -269,7 +270,9 @@ export default function App() {
   const lastCalibratedPhoneSettingsRef = useRef<string | null>(null);
 
   const [billingRules, setBillingRules] = useState<BillingRules>(() => {
-    const cached = localStorage.getItem('dd_billing_rules');
+    const phone = typeof window !== 'undefined' ? localStorage.getItem('dd_user_phone') : null;
+    const key = phone ? `dd_billing_rules_${phone}` : 'dd_billing_rules';
+    const cached = typeof window !== 'undefined' ? (localStorage.getItem(key) || localStorage.getItem('dd_billing_rules')) : null;
     return cached ? JSON.parse(cached) : DEFAULT_BILLING_RULES;
   });
 
@@ -638,16 +641,20 @@ export default function App() {
   }, [userPhone, isOnline, settings?.city]);
 
   const handleLogout = () => {
+    if (userPhone) {
+      clearDeviceSession(userPhone);
+    }
     // Clear all settings keys from localStorage
     try {
       localStorage.removeItem('dd_user_phone');
       localStorage.removeItem('dd_settings');
       if (userPhone) {
         localStorage.removeItem(`dd_settings_${userPhone}`);
+        localStorage.removeItem(`dd_billing_rules_${userPhone}`);
       }
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const key = localStorage.key(i);
-        if (key && (key.startsWith('dd_settings') || key.startsWith('dd_stats'))) {
+        if (key && (key.startsWith('dd_settings') || key.startsWith('dd_stats') || key.startsWith('dd_billing_rules'))) {
           localStorage.removeItem(key);
         }
       }
@@ -681,10 +688,13 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Sinks to disk
+  // Save billing rules strictly to local device storage (no cloud upload)
   useEffect(() => {
     localStorage.setItem('dd_billing_rules', JSON.stringify(billingRules));
-  }, [billingRules]);
+    if (userPhone) {
+      localStorage.setItem(`dd_billing_rules_${userPhone}`, JSON.stringify(billingRules));
+    }
+  }, [billingRules, userPhone]);
 
   useEffect(() => {
     try {
@@ -1441,7 +1451,7 @@ export default function App() {
         <IncomingOrderOverlay
           order={incomingOrder}
           driverCoords={driverCoords}
-          onlineBillingRules={onlineBillingRules}
+          onlineBillingRules={billingRules || onlineBillingRules}
           onAccept={handleAcceptIncomingOrder}
           onDecline={handleDeclineIncomingOrder}
         />
@@ -1498,7 +1508,7 @@ export default function App() {
           <ActiveTripView
             trip={currentTrip}
             settings={settings}
-            billingRules={currentTrip.isOnlineOrder ? onlineBillingRules : billingRules}
+            billingRules={billingRules}
             onUpdateTrip={handleUpdateTrip}
             onEndTrip={handleEndTrip}
           />
@@ -1510,7 +1520,7 @@ export default function App() {
           <TripCostView
             trip={currentTrip}
             settings={settings}
-            billingRules={currentTrip.isOnlineOrder ? onlineBillingRules : billingRules}
+            billingRules={billingRules}
             onNavigateBack={() => {
               // Safe fallback back to navigation
               if (currentTrip) {

@@ -5,7 +5,7 @@ When the user requests GitHub sync, code push, or asks "What changes did you mak
 
 ### Latest Update Commit Message:
 ```text
-feat(voice-engine): add zero-dependency embedded audio synthesizer for Android/iOS native apps & AutoNavi navigation voice broadcast
+fix(assets): restore binary image headers for app icons, pwa assets, and mobile resources
 ```
 
 ## Mobile & Packaging Rules

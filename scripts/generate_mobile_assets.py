@@ -52,9 +52,9 @@ def main():
     print("🚀 Starting Mobile App Icon & Asset Generation for iOS and Android...")
     
     # Source image
-    src_icon = "hwdjtb.png"
+    src_icon = "public/hwdjtb.png"
     if not os.path.exists(src_icon):
-        src_icon = "public/hwdjtb.png"
+        src_icon = "src/assets/images/hwdjtb.png"
         
     if not os.path.exists(src_icon):
         print(f"❌ Source icon {src_icon} not found!")

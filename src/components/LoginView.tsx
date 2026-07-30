@@ -159,6 +159,14 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
       setIsLoggingIn(false);
 
       if (data.success) {
+        // Enforce single device login per phone number
+        const { checkSingleDeviceLogin, registerDeviceSession } = await import('../utils/deviceSession');
+        const checkRes = await checkSingleDeviceLogin(phoneTrimmed);
+        if (!checkRes.allowed) {
+          setErrorMsg(checkRes.message || '此账号已在其他设备上登录，请退出账号后再在此登录。');
+          return;
+        }
+        await registerDeviceSession(phoneTrimmed);
         onLoginSuccess(phoneTrimmed);
       } else {
         const rawError = data.error || '验证码校验未通过';
