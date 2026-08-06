@@ -23,6 +23,153 @@ const WAITING_MIN_OPTIONS = Array.from({ length: 61 }, (_, i) => i); // 0 - 60 �
 const WAITING_YUAN_OPTIONS = Array.from({ length: 121 }, (_, i) => i); // 0 - 120 元
 import { BillingRules, TimeSlot } from '../types';
 
+interface SmoothWheelColumnProps<T extends string | number> {
+  options: T[];
+  value: T;
+  onChange: (val: T) => void;
+  unit?: string;
+  label?: string;
+}
+
+function SmoothWheelColumn<T extends string | number>({
+  options,
+  value,
+  onChange,
+  unit = '',
+  label = '',
+}: SmoothWheelColumnProps<T>) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const isDraggingRef = useRef(false);
+  const startYRef = useRef(0);
+  const startScrollTopRef = useRef(0);
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const ITEM_HEIGHT = 40;
+
+  useEffect(() => {
+    const idx = options.indexOf(value);
+    if (idx !== -1 && containerRef.current && !isDraggingRef.current) {
+      const targetTop = idx * ITEM_HEIGHT;
+      if (Math.abs(containerRef.current.scrollTop - targetTop) > 2) {
+        containerRef.current.scrollTop = targetTop;
+      }
+    }
+  }, [value, options]);
+
+  const handleScroll = () => {
+    if (!containerRef.current) return;
+    const container = containerRef.current;
+    
+    const idx = Math.min(
+      options.length - 1,
+      Math.max(0, Math.round(container.scrollTop / ITEM_HEIGHT))
+    );
+    const selected = options[idx];
+
+    if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+    scrollTimeoutRef.current = setTimeout(() => {
+      if (selected !== undefined && selected !== value) {
+        onChange(selected);
+      }
+    }, 40);
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!containerRef.current) return;
+    isDraggingRef.current = true;
+    startYRef.current = e.clientY;
+    startScrollTopRef.current = containerRef.current.scrollTop;
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingRef.current || !containerRef.current) return;
+    const dy = e.clientY - startYRef.current;
+    containerRef.current.scrollTop = startScrollTopRef.current - dy;
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingRef.current || !containerRef.current) return;
+    isDraggingRef.current = false;
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    } catch (_) {}
+    
+    if (containerRef.current) {
+      const idx = Math.min(
+        options.length - 1,
+        Math.max(0, Math.round(containerRef.current.scrollTop / ITEM_HEIGHT))
+      );
+      containerRef.current.scrollTo({
+        top: idx * ITEM_HEIGHT,
+        behavior: 'smooth'
+      });
+      if (options[idx] !== undefined) {
+        onChange(options[idx]);
+      }
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full relative overflow-hidden select-none">
+      {label && (
+        <span className="text-center text-[10px] sm:text-xs font-bold text-gray-500 mb-1.5 self-center font-sans whitespace-nowrap">
+          {label}
+        </span>
+      )}
+      <div className="flex-1 relative overflow-hidden bg-gray-50/50 rounded-2xl border border-gray-150">
+        <div className="absolute top-0 inset-x-0 h-[60px] bg-gradient-to-b from-white via-white/80 to-transparent pointer-events-none z-10" />
+        <div className="absolute bottom-0 inset-x-0 h-[60px] bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none z-10" />
+
+        <div
+          ref={containerRef}
+          onScroll={handleScroll}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          className="h-full overflow-y-auto scrollbar-none scroll-smooth snap-y snap-mandatory relative touch-pan-y cursor-grab active:cursor-grabbing"
+          style={{
+            scrollSnapType: 'y mandatory',
+            scrollbarWidth: 'none',
+            WebkitOverflowScrolling: 'touch',
+            touchAction: 'pan-y',
+          }}
+        >
+          <div className="h-[80px] pointer-events-none" />
+
+          {options.map((option, idx) => {
+            const isSelected = option === value;
+            return (
+              <div
+                key={String(option)}
+                onClick={() => {
+                  onChange(option);
+                  if (containerRef.current) {
+                    containerRef.current.scrollTo({
+                      top: idx * ITEM_HEIGHT,
+                      behavior: 'smooth'
+                    });
+                  }
+                }}
+                className={`h-[40px] flex items-center justify-center text-xs sm:text-sm font-semibold transition-all duration-150 cursor-pointer snap-center ${
+                  isSelected
+                    ? 'text-[#4dbfb3] font-bold text-sm sm:text-[16px] scale-105'
+                    : 'text-gray-400 opacity-60 scale-95 hover:text-gray-600'
+                }`}
+              >
+                {option}{unit}
+              </div>
+            );
+          })}
+
+          <div className="h-[80px] pointer-events-none" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface MileageModeViewProps {
   billingRules: BillingRules;
   onSave: (rules: BillingRules) => void;
@@ -843,103 +990,19 @@ export default function MileageModeView({
                 {/* Center selection overlay backdrop frame */}
                 <div className="absolute inset-x-0 top-[80px] h-[40px] bg-[#eefaf8]/60 border-y border-[#4dbfb3]/30 pointer-events-none z-10 rounded-xl" />
 
-                {/* Beginning time selector column */}
-                <div className="flex flex-col h-full relative overflow-hidden">
-                  <span className="text-center text-xs font-bold text-gray-500 mb-1.5 self-center">
-                    开始时间
-                  </span>
-                  
-                  <div className="flex-1 relative overflow-hidden bg-gray-50/50 rounded-2xl border border-gray-150">
-                    {/* Linear physical gloss mask */}
-                    <div className="absolute top-0 inset-x-0 h-[60px] bg-gradient-to-b from-white via-white/80 to-transparent pointer-events-none z-10" />
-                    <div className="absolute bottom-0 inset-x-0 h-[60px] bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none z-10" />
+                <SmoothWheelColumn
+                  options={START_TIME_OPTIONS}
+                  value={tempStartTime}
+                  onChange={setTempStartTime}
+                  label="开始时间"
+                />
 
-                    <div 
-                      ref={startScrollRef}
-                      onScroll={handleStartScroll}
-                      className="h-full overflow-y-auto scrollbar-none scroll-smooth snap-y snap-mandatory relative"
-                      style={{ scrollSnapType: 'y mandatory', scrollbarWidth: 'none' }}
-                    >
-                      <div className="h-[80px] pointer-events-none" />
-
-                      {START_TIME_OPTIONS.map((time, idx) => {
-                        const isSelected = tempStartTime === time;
-                        return (
-                          <div
-                            key={time}
-                            onClick={() => {
-                              setTempStartTime(time);
-                              if (startScrollRef.current) {
-                                startScrollRef.current.scrollTo({
-                                  top: idx * 40,
-                                  behavior: 'smooth'
-                                });
-                              }
-                            }}
-                            className={`h-[40px] flex items-center justify-center text-sm font-semibold transition-all duration-150 cursor-pointer snap-center ${
-                              isSelected 
-                                ? 'text-[#4dbfb3] font-bold text-[16px] scale-105' 
-                                : 'text-gray-400 opacity-60 scale-95 hover:text-gray-600'
-                            }`}
-                          >
-                            {time}
-                          </div>
-                        );
-                      })}
-
-                      <div className="h-[80px] pointer-events-none" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Ending time selector column */}
-                <div className="flex flex-col h-full relative overflow-hidden">
-                  <span className="text-center text-xs font-bold text-gray-500 mb-1.5 self-center">
-                    结束时间
-                  </span>
-                  
-                  <div className="flex-1 relative overflow-hidden bg-gray-50/50 rounded-2xl border border-gray-150">
-                    {/* Linear physical gloss mask */}
-                    <div className="absolute top-0 inset-x-0 h-[60px] bg-gradient-to-b from-white via-white/80 to-transparent pointer-events-none z-10" />
-                    <div className="absolute bottom-0 inset-x-0 h-[60px] bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none z-10" />
-
-                    <div 
-                      ref={endScrollRef}
-                      onScroll={handleEndScroll}
-                      className="h-full overflow-y-auto scrollbar-none scroll-smooth snap-y snap-mandatory relative"
-                      style={{ scrollSnapType: 'y mandatory', scrollbarWidth: 'none' }}
-                    >
-                      <div className="h-[80px] pointer-events-none" />
-
-                      {END_TIME_OPTIONS.map((time, idx) => {
-                        const isSelected = tempEndTime === time;
-                        return (
-                          <div
-                            key={time}
-                            onClick={() => {
-                              setTempEndTime(time);
-                              if (endScrollRef.current) {
-                                endScrollRef.current.scrollTo({
-                                  top: idx * 40,
-                                  behavior: 'smooth'
-                                });
-                              }
-                            }}
-                            className={`h-[40px] flex items-center justify-center text-sm font-semibold transition-all duration-150 cursor-pointer snap-center ${
-                              isSelected 
-                                ? 'text-[#4dbfb3] font-bold text-[16px] scale-105' 
-                                : 'text-gray-400 opacity-60 scale-95 hover:text-gray-600'
-                            }`}
-                          >
-                            {time}
-                          </div>
-                        );
-                      })}
-
-                      <div className="h-[80px] pointer-events-none" />
-                    </div>
-                  </div>
-                </div>
+                <SmoothWheelColumn
+                  options={END_TIME_OPTIONS}
+                  value={tempEndTime}
+                  onChange={setTempEndTime}
+                  label="结束时间"
+                />
               </div>
 
               {/* Overlay dialog buttons */}
@@ -957,23 +1020,7 @@ export default function MileageModeView({
                 <button
                   type="button"
                   onClick={() => {
-                    let finalStart = tempStartTime;
-                    let finalEnd = tempEndTime;
-
-                    if (startScrollRef.current) {
-                      const startIdx = Math.round(startScrollRef.current.scrollTop / 40);
-                      if (startIdx >= 0 && startIdx < START_TIME_OPTIONS.length) {
-                        finalStart = START_TIME_OPTIONS[startIdx];
-                      }
-                    }
-                    if (endScrollRef.current) {
-                      const endIdx = Math.round(endScrollRef.current.scrollTop / 40);
-                      if (endIdx >= 0 && endIdx < END_TIME_OPTIONS.length) {
-                        finalEnd = END_TIME_OPTIONS[endIdx];
-                      }
-                    }
-
-                    handleUpdateSlotTimeRange(activeSlotId, finalStart, finalEnd);
+                    handleUpdateSlotTimeRange(activeSlotId, tempStartTime, tempEndTime);
                     setShowTimePicker(false);
                     setActiveSlotId(null);
                   }}
@@ -1012,146 +1059,29 @@ export default function MileageModeView({
                 {/* Center selection overlay backdrop frame */}
                 <div className="absolute inset-x-0 top-[80px] h-[40px] bg-[#eefaf8]/60 border-y border-[#4dbfb3]/30 pointer-events-none z-10 rounded-xl" />
 
-                {/* Column 1: Yuan */}
-                <div className="flex flex-col h-full relative overflow-hidden">
-                  <span className="text-center text-xs font-bold text-gray-500 mb-1.5 self-center">
-                    多少元
-                  </span>
-                  
-                  <div className="flex-1 relative overflow-hidden bg-gray-50/50 rounded-2xl border border-gray-150">
-                    <div className="absolute top-0 inset-x-0 h-[60px] bg-gradient-to-b from-white via-white/80 to-transparent pointer-events-none z-10" />
-                    <div className="absolute bottom-0 inset-x-0 h-[60px] bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none z-10" />
+                <SmoothWheelColumn
+                  options={YUAN_OPTIONS}
+                  value={tempYuan}
+                  onChange={setTempYuan}
+                  unit="元"
+                  label="多少元"
+                />
 
-                    <div 
-                      ref={yuanScrollRef}
-                      onScroll={handleYuanScroll}
-                      className="h-full overflow-y-auto scrollbar-none scroll-smooth snap-y snap-mandatory relative"
-                      style={{ scrollSnapType: 'y mandatory', scrollbarWidth: 'none' }}
-                    >
-                      <div className="h-[80px] pointer-events-none" />
+                <SmoothWheelColumn
+                  options={JIAO_OPTIONS}
+                  value={tempJiao}
+                  onChange={setTempJiao}
+                  unit="角"
+                  label="多少角"
+                />
 
-                      {YUAN_OPTIONS.map((val, idx) => {
-                        const isSelected = tempYuan === val;
-                        return (
-                          <div
-                            key={`yuan-${val}`}
-                            onClick={() => {
-                              if (yuanScrollRef.current) {
-                                yuanScrollRef.current.scrollTo({
-                                  top: idx * 40,
-                                  behavior: 'smooth'
-                                });
-                              }
-                            }}
-                            className={`h-[40px] flex items-center justify-center text-sm font-semibold transition-all duration-150 cursor-pointer snap-center ${
-                              isSelected 
-                                ? 'text-[#4dbfb3] font-bold text-[16px] scale-105' 
-                                : 'text-gray-400 opacity-60 scale-95 hover:text-gray-600'
-                            }`}
-                          >
-                            {val}元
-                          </div>
-                        );
-                      })}
-
-                      <div className="h-[80px] pointer-events-none" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Column 2: Jiao */}
-                <div className="flex flex-col h-full relative overflow-hidden">
-                  <span className="text-center text-xs font-bold text-gray-500 mb-1.5 self-center">
-                    多少角
-                  </span>
-                  
-                  <div className="flex-1 relative overflow-hidden bg-gray-50/50 rounded-2xl border border-gray-150">
-                    <div className="absolute top-0 inset-x-0 h-[60px] bg-gradient-to-b from-white via-white/80 to-transparent pointer-events-none z-10" />
-                    <div className="absolute bottom-0 inset-x-0 h-[60px] bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none z-10" />
-
-                    <div 
-                      ref={jiaoScrollRef}
-                      onScroll={handleJiaoScroll}
-                      className="h-full overflow-y-auto scrollbar-none scroll-smooth snap-y snap-mandatory relative"
-                      style={{ scrollSnapType: 'y mandatory', scrollbarWidth: 'none' }}
-                    >
-                      <div className="h-[80px] pointer-events-none" />
-
-                      {JIAO_OPTIONS.map((val, idx) => {
-                        const isSelected = tempJiao === val;
-                        return (
-                          <div
-                            key={`jiao-${val}`}
-                            onClick={() => {
-                              if (jiaoScrollRef.current) {
-                                jiaoScrollRef.current.scrollTo({
-                                  top: idx * 40,
-                                  behavior: 'smooth'
-                                });
-                              }
-                            }}
-                            className={`h-[40px] flex items-center justify-center text-sm font-semibold transition-all duration-150 cursor-pointer snap-center ${
-                              isSelected 
-                                ? 'text-[#4dbfb3] font-bold text-[16px] scale-105' 
-                                : 'text-gray-400 opacity-60 scale-95 hover:text-gray-600'
-                            }`}
-                          >
-                            {val}角
-                          </div>
-                        );
-                      })}
-
-                      <div className="h-[80px] pointer-events-none" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Column 3: Km */}
-                <div className="flex flex-col h-full relative overflow-hidden">
-                  <span className="text-center text-xs font-bold text-gray-500 mb-1.5 self-center">
-                    多少公里
-                  </span>
-                  
-                  <div className="flex-1 relative overflow-hidden bg-gray-50/50 rounded-2xl border border-gray-150">
-                    <div className="absolute top-0 inset-x-0 h-[60px] bg-gradient-to-b from-white via-white/80 to-transparent pointer-events-none z-10" />
-                    <div className="absolute bottom-0 inset-x-0 h-[60px] bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none z-10" />
-
-                    <div 
-                      ref={kmScrollRef}
-                      onScroll={handleKmScroll}
-                      className="h-full overflow-y-auto scrollbar-none scroll-smooth snap-y snap-mandatory relative"
-                      style={{ scrollSnapType: 'y mandatory', scrollbarWidth: 'none' }}
-                    >
-                      <div className="h-[80px] pointer-events-none" />
-
-                      {KM_OPTIONS.map((val, idx) => {
-                        const isSelected = tempKm === val;
-                        return (
-                          <div
-                            key={`km-${val}`}
-                            onClick={() => {
-                              if (kmScrollRef.current) {
-                                kmScrollRef.current.scrollTo({
-                                  top: idx * 40,
-                                  behavior: 'smooth'
-                                });
-                              }
-                            }}
-                            className={`h-[40px] flex items-center justify-center text-sm font-semibold transition-all duration-150 cursor-pointer snap-center ${
-                              isSelected 
-                                ? 'text-[#4dbfb3] font-bold text-[16px] scale-105' 
-                                : 'text-gray-400 opacity-60 scale-95 hover:text-gray-600'
-                            }`}
-                          >
-                            {val}公里
-                          </div>
-                        );
-                      })}
-
-                      <div className="h-[80px] pointer-events-none" />
-                    </div>
-                  </div>
-                </div>
+                <SmoothWheelColumn
+                  options={KM_OPTIONS}
+                  value={tempKm}
+                  onChange={setTempKm}
+                  unit="公里"
+                  label="多少公里"
+                />
               </div>
 
               {/* Action buttons */}
@@ -1209,100 +1139,21 @@ export default function MileageModeView({
                 {/* Center selection overlay backdrop frame */}
                 <div className="absolute inset-x-0 top-[80px] h-[40px] bg-[#eefaf8]/60 border-y border-[#4dbfb3]/30 pointer-events-none z-10 rounded-xl" />
 
-                {/* Column 1: Surcharge Km */}
-                <div className="flex flex-col h-full relative overflow-hidden">
-                  <span className="text-center text-xs font-semibold text-[#4dbfb3] mb-1.5 self-center font-sans">
-                    每满多少公里
-                  </span>
-                  
-                  <div className="flex-1 relative overflow-hidden bg-gray-50/50 rounded-2xl border border-gray-150">
-                    <div className="absolute top-0 inset-x-0 h-[60px] bg-gradient-to-b from-white via-white/80 to-transparent pointer-events-none z-10" />
-                    <div className="absolute bottom-0 inset-x-0 h-[60px] bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none z-10" />
+                <SmoothWheelColumn
+                  options={SURCHARGE_KM_OPTIONS}
+                  value={tempSurchargeKm}
+                  onChange={setTempSurchargeKm}
+                  unit="公里"
+                  label="每满多少公里"
+                />
 
-                    <div 
-                      ref={surchargeKmScrollRef}
-                      onScroll={handleSurchargeKmScroll}
-                      className="h-full overflow-y-auto scrollbar-none scroll-smooth snap-y snap-mandatory relative"
-                      style={{ scrollSnapType: 'y mandatory', scrollbarWidth: 'none' }}
-                    >
-                      <div className="h-[80px] pointer-events-none" />
-
-                      {SURCHARGE_KM_OPTIONS.map((val, idx) => {
-                        const isSelected = tempSurchargeKm === val;
-                        return (
-                          <div
-                            key={`surcharge-km-${val}`}
-                            onClick={() => {
-                              if (surchargeKmScrollRef.current) {
-                                surchargeKmScrollRef.current.scrollTo({
-                                  top: idx * 40,
-                                  behavior: 'smooth'
-                                });
-                              }
-                            }}
-                            className={`h-[40px] flex items-center justify-center text-sm font-semibold transition-all duration-150 cursor-pointer snap-center ${
-                              isSelected 
-                                ? 'text-[#4dbfb3] font-bold text-[16px] scale-105' 
-                                : 'text-gray-400 opacity-60 scale-95 hover:text-gray-600'
-                            }`}
-                          >
-                            {val}公里
-                          </div>
-                        );
-                      })}
-
-                      <div className="h-[80px] pointer-events-none" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Column 2: Surcharge Yuan */}
-                <div className="flex flex-col h-full relative overflow-hidden">
-                  <span className="text-center text-xs font-semibold text-gray-500 mb-1.5 self-center font-sans">
-                    增加多少元
-                  </span>
-                  
-                  <div className="flex-1 relative overflow-hidden bg-gray-50/50 rounded-2xl border border-gray-150">
-                    <div className="absolute top-0 inset-x-0 h-[60px] bg-gradient-to-b from-white via-white/80 to-transparent pointer-events-none z-10" />
-                    <div className="absolute bottom-0 inset-x-0 h-[60px] bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none z-10" />
-
-                    <div 
-                      ref={surchargeYuanScrollRef}
-                      onScroll={handleSurchargeYuanScroll}
-                      className="h-full overflow-y-auto scrollbar-none scroll-smooth snap-y snap-mandatory relative"
-                      style={{ scrollSnapType: 'y mandatory', scrollbarWidth: 'none' }}
-                    >
-                      <div className="h-[80px] pointer-events-none" />
-
-                      {SURCHARGE_YUAN_OPTIONS.map((val, idx) => {
-                        const isSelected = tempSurchargeYuan === val;
-                        return (
-                          <div
-                            key={`surcharge-yuan-${val}`}
-                            onClick={() => {
-                              if (surchargeYuanScrollRef.current) {
-                                surchargeYuanScrollRef.current.scrollTo({
-                                  top: idx * 40,
-                                  behavior: 'smooth'
-                                });
-                              }
-                            }}
-                            className={`h-[40px] flex items-center justify-center text-sm font-semibold transition-all duration-150 cursor-pointer snap-center ${
-                              isSelected 
-                                ? 'text-[#4dbfb3] font-bold text-[16px] scale-105' 
-                                : 'text-gray-400 opacity-60 scale-95 hover:text-gray-600'
-                            }`}
-                          >
-                            {val}元
-                          </div>
-                        );
-                      })}
-
-                      <div className="h-[80px] pointer-events-none" />
-                    </div>
-                  </div>
-                </div>
-
+                <SmoothWheelColumn
+                  options={SURCHARGE_YUAN_OPTIONS}
+                  value={tempSurchargeYuan}
+                  onChange={setTempSurchargeYuan}
+                  unit="元"
+                  label="增加多少元"
+                />
               </div>
 
               {/* Action buttons */}
@@ -1360,194 +1211,33 @@ export default function MileageModeView({
                 {/* Center selection overlay backdrop frame */}
                 <div className="absolute inset-x-0 top-[80px] h-[40px] bg-[#eefaf8]/60 border-y border-[#4dbfb3]/30 pointer-events-none z-10 rounded-xl" />
 
-                {/* Column 1: Start Km */}
-                <div className="flex flex-col h-full relative overflow-hidden">
-                  <span className="text-center text-[10px] sm:text-xs font-bold text-gray-500 mb-1.5 self-center font-sans whitespace-nowrap">
-                    行程超(km)
-                  </span>
-                  
-                  <div className="flex-1 relative overflow-hidden bg-gray-50/50 rounded-2xl border border-gray-150">
-                    <div className="absolute top-0 inset-x-0 h-[60px] bg-gradient-to-b from-white via-white/80 to-transparent pointer-events-none z-10" />
-                    <div className="absolute bottom-0 inset-x-0 h-[60px] bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none z-10" />
+                <SmoothWheelColumn
+                  options={RETURN_FEE_KM_OPTIONS}
+                  value={tempReturnFeeStartKm}
+                  onChange={setTempReturnFeeStartKm}
+                  label="行程超(km)"
+                />
 
-                    <div 
-                      ref={returnFeeStartKmScrollRef}
-                      onScroll={handleReturnFeeStartKmScroll}
-                      className="h-full overflow-y-auto scrollbar-none scroll-smooth snap-y snap-mandatory relative"
-                      style={{ scrollSnapType: 'y mandatory', scrollbarWidth: 'none' }}
-                    >
-                      <div className="h-[80px] pointer-events-none" />
+                <SmoothWheelColumn
+                  options={RETURN_FEE_KM_OPTIONS}
+                  value={tempReturnFeeIntervalKm}
+                  onChange={setTempReturnFeeIntervalKm}
+                  label="每超(km)"
+                />
 
-                      {RETURN_FEE_KM_OPTIONS.map((val, idx) => {
-                        const isSelected = tempReturnFeeStartKm === val;
-                        return (
-                          <div
-                            key={`rf-start-${val}`}
-                            onClick={() => {
-                              if (returnFeeStartKmScrollRef.current) {
-                                returnFeeStartKmScrollRef.current.scrollTo({
-                                  top: idx * 40,
-                                  behavior: 'smooth'
-                                });
-                              }
-                            }}
-                            className={`h-[40px] flex items-center justify-center text-xs font-semibold transition-all duration-150 cursor-pointer snap-center ${
-                              isSelected 
-                                ? 'text-[#4dbfb3] font-bold text-sm scale-110 magnet-active' 
-                                : 'text-gray-400 opacity-60 scale-95 hover:text-gray-600'
-                            }`}
-                          >
-                            {val}
-                          </div>
-                        );
-                      })}
+                <SmoothWheelColumn
+                  options={RETURN_FEE_YUAN_OPTIONS}
+                  value={tempReturnFeeYuan}
+                  onChange={setTempReturnFeeYuan}
+                  label="增加(元)"
+                />
 
-                      <div className="h-[80px] pointer-events-none" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Column 2: Interval Km */}
-                <div className="flex flex-col h-full relative overflow-hidden">
-                  <span className="text-center text-[10px] sm:text-xs font-bold text-gray-500 mb-1.5 self-center font-sans whitespace-nowrap">
-                    每超(km)
-                  </span>
-                  
-                  <div className="flex-1 relative overflow-hidden bg-gray-50/50 rounded-2xl border border-gray-150">
-                    <div className="absolute top-0 inset-x-0 h-[60px] bg-gradient-to-b from-white via-white/80 to-transparent pointer-events-none z-10" />
-                    <div className="absolute bottom-0 inset-x-0 h-[60px] bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none z-10" />
-
-                    <div 
-                      ref={returnFeeIntervalScrollRef}
-                      onScroll={handleReturnFeeIntervalScroll}
-                      className="h-full overflow-y-auto scrollbar-none scroll-smooth snap-y snap-mandatory relative"
-                      style={{ scrollSnapType: 'y mandatory', scrollbarWidth: 'none' }}
-                    >
-                      <div className="h-[80px] pointer-events-none" />
-
-                      {RETURN_FEE_KM_OPTIONS.map((val, idx) => {
-                        const isSelected = tempReturnFeeIntervalKm === val;
-                        return (
-                          <div
-                            key={`rf-interval-${val}`}
-                            onClick={() => {
-                              if (returnFeeIntervalScrollRef.current) {
-                                returnFeeIntervalScrollRef.current.scrollTo({
-                                  top: idx * 40,
-                                  behavior: 'smooth'
-                                });
-                              }
-                            }}
-                            className={`h-[40px] flex items-center justify-center text-xs font-semibold transition-all duration-150 cursor-pointer snap-center ${
-                              isSelected 
-                                ? 'text-[#4dbfb3] font-bold text-sm scale-110 magnet-active' 
-                                : 'text-gray-400 opacity-60 scale-95 hover:text-gray-600'
-                            }`}
-                          >
-                            {val}
-                          </div>
-                        );
-                      })}
-
-                      <div className="h-[80px] pointer-events-none" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Column 3: Yuan */}
-                <div className="flex flex-col h-full relative overflow-hidden">
-                  <span className="text-center text-[10px] sm:text-xs font-bold text-gray-500 mb-1.5 self-center font-sans whitespace-nowrap">
-                    增加(元)
-                  </span>
-                  
-                  <div className="flex-1 relative overflow-hidden bg-gray-50/50 rounded-2xl border border-gray-150">
-                    <div className="absolute top-0 inset-x-0 h-[60px] bg-gradient-to-b from-white via-white/80 to-transparent pointer-events-none z-10" />
-                    <div className="absolute bottom-0 inset-x-0 h-[60px] bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none z-10" />
-
-                    <div 
-                      ref={returnFeeYuanScrollRef}
-                      onScroll={handleReturnFeeYuanScroll}
-                      className="h-full overflow-y-auto scrollbar-none scroll-smooth snap-y snap-mandatory relative"
-                      style={{ scrollSnapType: 'y mandatory', scrollbarWidth: 'none' }}
-                    >
-                      <div className="h-[80px] pointer-events-none" />
-
-                      {RETURN_FEE_YUAN_OPTIONS.map((val, idx) => {
-                        const isSelected = tempReturnFeeYuan === val;
-                        return (
-                          <div
-                            key={`rf-yuan-${val}`}
-                            onClick={() => {
-                              if (returnFeeYuanScrollRef.current) {
-                                returnFeeYuanScrollRef.current.scrollTo({
-                                  top: idx * 40,
-                                  behavior: 'smooth'
-                                });
-                              }
-                            }}
-                            className={`h-[40px] flex items-center justify-center text-xs font-semibold transition-all duration-150 cursor-pointer snap-center ${
-                              isSelected 
-                                ? 'text-[#4dbfb3] font-bold text-sm scale-110 magnet-active' 
-                                : 'text-gray-400 opacity-60 scale-95 hover:text-gray-600'
-                            }`}
-                          >
-                            {val}
-                          </div>
-                        );
-                      })}
-
-                      <div className="h-[80px] pointer-events-none" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Column 4: Jiao */}
-                <div className="flex flex-col h-full relative overflow-hidden">
-                  <span className="text-center text-[10px] sm:text-xs font-bold text-gray-500 mb-1.5 self-center font-sans whitespace-nowrap">
-                    增加(角)
-                  </span>
-                  
-                  <div className="flex-1 relative overflow-hidden bg-gray-50/50 rounded-2xl border border-gray-150">
-                    <div className="absolute top-0 inset-x-0 h-[60px] bg-gradient-to-b from-white via-white/80 to-transparent pointer-events-none z-10" />
-                    <div className="absolute bottom-0 inset-x-0 h-[60px] bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none z-10" />
-
-                    <div 
-                      ref={returnFeeJiaoScrollRef}
-                      onScroll={handleReturnFeeJiaoScroll}
-                      className="h-full overflow-y-auto scrollbar-none scroll-smooth snap-y snap-mandatory relative"
-                      style={{ scrollSnapType: 'y mandatory', scrollbarWidth: 'none' }}
-                    >
-                      <div className="h-[80px] pointer-events-none" />
-
-                      {RETURN_FEE_JIAO_OPTIONS.map((val, idx) => {
-                        const isSelected = tempReturnFeeJiao === val;
-                        return (
-                          <div
-                            key={`rf-jiao-${val}`}
-                            onClick={() => {
-                              if (returnFeeJiaoScrollRef.current) {
-                                returnFeeJiaoScrollRef.current.scrollTo({
-                                  top: idx * 40,
-                                  behavior: 'smooth'
-                                });
-                              }
-                            }}
-                            className={`h-[40px] flex items-center justify-center text-xs font-semibold transition-all duration-150 cursor-pointer snap-center ${
-                              isSelected 
-                                ? 'text-[#4dbfb3] font-bold text-sm scale-110 magnet-active' 
-                                : 'text-gray-400 opacity-60 scale-95 hover:text-gray-600'
-                            }`}
-                          >
-                            {val}
-                          </div>
-                        );
-                      })}
-
-                      <div className="h-[80px] pointer-events-none" />
-                    </div>
-                  </div>
-                </div>
-
+                <SmoothWheelColumn
+                  options={RETURN_FEE_JIAO_OPTIONS}
+                  value={tempReturnFeeJiao}
+                  onChange={setTempReturnFeeJiao}
+                  label="增加(角)"
+                />
               </div>
 
               {/* Action buttons */}
@@ -1613,147 +1303,26 @@ export default function MileageModeView({
                 {/* Center selection overlay backdrop frame */}
                 <div className="absolute inset-x-0 top-[80px] h-[40px] bg-[#eefaf8]/60 border-y border-[#4dbfb3]/30 pointer-events-none z-10 rounded-xl" />
 
-                {/* Column 1: Free Waiting Mins (0 - 60) */}
-                <div className="flex flex-col h-full relative overflow-hidden">
-                  <span className="text-center text-[10px] sm:text-xs font-bold text-gray-500 mb-1.5 self-center font-sans whitespace-nowrap">
-                    免费等候(分钟)
-                  </span>
-                  
-                  <div className="flex-1 relative overflow-hidden bg-gray-50/50 rounded-2xl border border-gray-150">
-                    <div className="absolute top-0 inset-x-0 h-[60px] bg-gradient-to-b from-white via-white/80 to-transparent pointer-events-none z-10" />
-                    <div className="absolute bottom-0 inset-x-0 h-[60px] bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none z-10" />
+                <SmoothWheelColumn
+                  options={WAITING_MIN_OPTIONS}
+                  value={tempFreeWaitingTime}
+                  onChange={setTempFreeWaitingTime}
+                  label="免费等候(分钟)"
+                />
 
-                    <div 
-                      ref={waitingFreeMinsScrollRef}
-                      onScroll={handleWaitingFreeMinsScroll}
-                      className="h-full overflow-y-auto scrollbar-none scroll-smooth snap-y snap-mandatory relative"
-                      style={{ scrollSnapType: 'y mandatory', scrollbarWidth: 'none' }}
-                    >
-                      <div className="h-[80px] pointer-events-none" />
+                <SmoothWheelColumn
+                  options={WAITING_MIN_OPTIONS}
+                  value={tempWaitingIntervalMin}
+                  onChange={setTempWaitingIntervalMin}
+                  label="每满多少分钟"
+                />
 
-                      {WAITING_MIN_OPTIONS.map((val, idx) => {
-                        const isSelected = tempFreeWaitingTime === val;
-                        return (
-                          <div
-                            key={`wf-free-${val}`}
-                            onClick={() => {
-                              if (waitingFreeMinsScrollRef.current) {
-                                waitingFreeMinsScrollRef.current.scrollTo({
-                                  top: idx * 40,
-                                  behavior: 'smooth'
-                                });
-                              }
-                            }}
-                            className={`h-[40px] flex items-center justify-center text-xs font-semibold transition-all duration-150 cursor-pointer snap-center ${
-                              isSelected 
-                                ? 'text-[#4dbfb3] font-bold text-sm scale-110 magnet-active' 
-                                : 'text-gray-400 opacity-60 scale-95 hover:text-gray-600'
-                            }`}
-                          >
-                            {val}
-                          </div>
-                        );
-                      })}
-
-                      <div className="h-[80px] pointer-events-none" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Column 2: Waiting Interval Mins (0 - 60) */}
-                <div className="flex flex-col h-full relative overflow-hidden">
-                  <span className="text-center text-[10px] sm:text-xs font-bold text-gray-500 mb-1.5 self-center font-sans whitespace-nowrap">
-                    每满多少分钟
-                  </span>
-                  
-                  <div className="flex-1 relative overflow-hidden bg-gray-50/50 rounded-2xl border border-gray-150">
-                    <div className="absolute top-0 inset-x-0 h-[60px] bg-gradient-to-b from-white via-white/80 to-transparent pointer-events-none z-10" />
-                    <div className="absolute bottom-0 inset-x-0 h-[60px] bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none z-10" />
-
-                    <div 
-                      ref={waitingIntervalMinsScrollRef}
-                      onScroll={handleWaitingIntervalMinsScroll}
-                      className="h-full overflow-y-auto scrollbar-none scroll-smooth snap-y snap-mandatory relative"
-                      style={{ scrollSnapType: 'y mandatory', scrollbarWidth: 'none' }}
-                    >
-                      <div className="h-[80px] pointer-events-none" />
-
-                      {WAITING_MIN_OPTIONS.map((val, idx) => {
-                        const isSelected = tempWaitingIntervalMin === val;
-                        return (
-                          <div
-                            key={`wf-interval-${val}`}
-                            onClick={() => {
-                              if (waitingIntervalMinsScrollRef.current) {
-                                waitingIntervalMinsScrollRef.current.scrollTo({
-                                  top: idx * 40,
-                                  behavior: 'smooth'
-                                });
-                              }
-                            }}
-                            className={`h-[40px] flex items-center justify-center text-xs font-semibold transition-all duration-150 cursor-pointer snap-center ${
-                              isSelected 
-                                ? 'text-[#4dbfb3] font-bold text-sm scale-110 magnet-active' 
-                                : 'text-gray-400 opacity-60 scale-95 hover:text-gray-600'
-                            }`}
-                          >
-                            {val}
-                          </div>
-                        );
-                      })}
-
-                      <div className="h-[80px] pointer-events-none" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Column 3: Waiting Increase Yuan (0 - 120) */}
-                <div className="flex flex-col h-full relative overflow-hidden">
-                  <span className="text-center text-[10px] sm:text-xs font-bold text-gray-500 mb-1.5 self-center font-sans whitespace-nowrap">
-                    加收多少元
-                  </span>
-                  
-                  <div className="flex-1 relative overflow-hidden bg-gray-50/50 rounded-2xl border border-gray-150">
-                    <div className="absolute top-0 inset-x-0 h-[60px] bg-gradient-to-b from-white via-white/80 to-transparent pointer-events-none z-10" />
-                    <div className="absolute bottom-0 inset-x-0 h-[60px] bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none z-10" />
-
-                    <div 
-                      ref={waitingYuanScrollRef}
-                      onScroll={handleWaitingYuanScroll}
-                      className="h-full overflow-y-auto scrollbar-none scroll-smooth snap-y snap-mandatory relative"
-                      style={{ scrollSnapType: 'y mandatory', scrollbarWidth: 'none' }}
-                    >
-                      <div className="h-[80px] pointer-events-none" />
-
-                      {WAITING_YUAN_OPTIONS.map((val, idx) => {
-                        const isSelected = tempWaitingIncreaseYuan === val;
-                        return (
-                          <div
-                            key={`wf-yuan-${val}`}
-                            onClick={() => {
-                              if (waitingYuanScrollRef.current) {
-                                waitingYuanScrollRef.current.scrollTo({
-                                  top: idx * 40,
-                                  behavior: 'smooth'
-                                });
-                              }
-                            }}
-                            className={`h-[40px] flex items-center justify-center text-xs font-semibold transition-all duration-150 cursor-pointer snap-center ${
-                              isSelected 
-                                ? 'text-[#4dbfb3] font-bold text-sm scale-110 magnet-active' 
-                                : 'text-gray-400 opacity-60 scale-95 hover:text-gray-600'
-                            }`}
-                          >
-                            {val}
-                          </div>
-                        );
-                      })}
-
-                      <div className="h-[80px] pointer-events-none" />
-                    </div>
-                  </div>
-                </div>
-
+                <SmoothWheelColumn
+                  options={WAITING_YUAN_OPTIONS}
+                  value={tempWaitingIncreaseYuan}
+                  onChange={setTempWaitingIncreaseYuan}
+                  label="加收多少元"
+                />
               </div>
 
               {/* Action buttons */}

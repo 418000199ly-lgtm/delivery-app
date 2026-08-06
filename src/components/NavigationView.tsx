@@ -450,7 +450,7 @@ export default function NavigationView({
           lastRerouteTimestampRef.current = now;
           const dest = destinationCoordsRef.current;
           showToast('🚗 偏离主航路线路，正在为您重新规划路线...');
-          planRoute(lng, lat, dest.lng, dest.lat, destination || cleanDest, true);
+          planRoute(lng, lat, dest.lng, dest.lat, destination || '目的地', true);
         }
       } else {
         offRouteCountRef.current = 0;

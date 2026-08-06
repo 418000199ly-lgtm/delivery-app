@@ -3,6 +3,7 @@ import jsQR from 'jsqr';
 import QRCode from 'qrcode';
 import { TripState, ChauffeurSettings } from '../types';
 import DriverIllustration from './DriverIllustration';
+import MerchantValetPaymentView from './MerchantValetPaymentView';
 import { MOCK_ALBUM_PHOTOS } from '../utils/mockImages';
 
 function cleanAndRegenerate(dataUrl: string, type: 'wechat' | 'alipay'): Promise<string> {
@@ -74,6 +75,15 @@ export default function PaymentQRView({
   const [wechatClean, setWechatClean] = useState<string>('');
   const [alipayClean, setAlipayClean] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState<boolean>(true);
+  const [showValetFeePayment, setShowValetFeePayment] = useState<boolean>(false);
+
+  const isMerchantValetOrder = Boolean(
+    (trip as any)?.isValetOrder ||
+    (trip as any)?.isPlatformDispatch ||
+    trip?.orderType === '后台指派订单' ||
+    (trip as any)?.orderRemark === '商户代叫' ||
+    (trip as any)?.isMerchantValet
+  );
 
   useEffect(() => {
     const processQrs = async () => {
@@ -122,6 +132,18 @@ export default function PaymentQRView({
   const handleConfirmPayment = () => {
     onFinishTrip(trip.calculatedTotalFee);
   };
+
+  if (showValetFeePayment) {
+    return (
+      <MerchantValetPaymentView
+        trip={trip}
+        settings={settings}
+        wechatClean={wechatClean}
+        onNavigateBack={() => setShowValetFeePayment(false)}
+        onFinishTrip={onFinishTrip}
+      />
+    );
+  }
 
   return (
     <div className="flex-1 flex flex-col justify-between h-full bg-[#F8FAFC] text-[#333333] select-none font-sans overflow-hidden">
@@ -265,13 +287,25 @@ export default function PaymentQRView({
 
       {/* FOOTER */}
       <footer className="p-4 bg-white sm:bg-transparent shrink-0">
-        <button 
-          onClick={handleConfirmPayment}
-          className="w-full py-3 bg-[#3B4257] text-white text-base font-medium rounded-lg shadow-md active:bg-[#2D3344] hover:bg-[#2D3344] transition-all" 
-          data-purpose="confirm-payment-button"
-        >
-          我已收款，返回首页
-        </button>
+        {isMerchantValetOrder ? (
+          <button 
+            type="button"
+            onClick={() => setShowValetFeePayment(true)}
+            className="w-full py-3 bg-[#ff7d00] hover:bg-[#e06d00] text-white text-base font-bold rounded-xl shadow-md active:scale-[0.99] transition-all cursor-pointer" 
+            data-purpose="confirm-payment-button"
+          >
+            已收款，点击发送代叫费用
+          </button>
+        ) : (
+          <button 
+            type="button"
+            onClick={handleConfirmPayment}
+            className="w-full py-3 bg-[#3B4257] text-white text-base font-medium rounded-lg shadow-md active:bg-[#2D3344] hover:bg-[#2D3344] transition-all cursor-pointer" 
+            data-purpose="confirm-payment-button"
+          >
+            我已收款，返回首页
+          </button>
+        )}
       </footer>
     </div>
   );

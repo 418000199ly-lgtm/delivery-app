@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { checkVipActive } from '../types';
-import { ALL_CITIES_FLAT } from '../constants/cities';
+import { ALL_CITIES_FLAT, ALL_CHINA_CITIES, PROVINCES_DATA } from '../constants/cities';
 import { 
   db,
   collection, 
@@ -48,6 +48,7 @@ import {
   RefreshCw,
   ShieldCheck,
   KeyRound,
+  MapPin,
   AlertCircle,
   Power,
   Database
@@ -351,6 +352,170 @@ export default function AdminPanel({
       alert(`操作失败：${err.message}`);
     }
   };
+
+  // City feature configs and squad names map state
+  const [cityConfigs, setCityConfigs] = useState<Record<string, {
+    online_app_enabled: boolean;
+    merchant_dispatch_enabled: boolean;
+    squad_management_enabled: boolean;
+    squadNames: string[];
+  }>>({});
+
+  const [citySearchQuery, setCitySearchQuery] = useState('');
+  const [selectedProvince, setSelectedProvince] = useState('全部');
+  const [editingSquadModal, setEditingSquadModal] = useState<{
+    cityName: string;
+    oldName?: string;
+    value: string;
+  } | null>(null);
+
+  // Real-time listener for `/config/city_configs`
+  useEffect(() => {
+    if (!db) return;
+    const docRef = doc(db, 'config', 'city_configs');
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data && data.configs) {
+          setCityConfigs(data.configs);
+          localStorage.setItem('dd_city_configs_v2', JSON.stringify(data.configs));
+        }
+      } else {
+        const saved = localStorage.getItem('dd_city_configs_v2');
+        if (saved) {
+          try { setCityConfigs(JSON.parse(saved)); } catch(e){}
+        }
+      }
+    }, (error) => {
+      console.error("Error subscribing to city configs:", error);
+      const saved = localStorage.getItem('dd_city_configs_v2');
+      if (saved) {
+        try { setCityConfigs(JSON.parse(saved)); } catch(e){}
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const saveCityConfigsMap = async (newMap: Record<string, any>) => {
+    setCityConfigs(newMap);
+    localStorage.setItem('dd_city_configs_v2', JSON.stringify(newMap));
+    window.dispatchEvent(new CustomEvent('cityConfigsUpdated', { detail: newMap }));
+    if (db) {
+      try {
+        await setDoc(doc(db, 'config', 'city_configs'), { configs: newMap }, { merge: true });
+      } catch (err) {
+        console.error("Error saving city configs:", err);
+      }
+    }
+  };
+
+  const getCityConfig = (cityName: string) => {
+    const norm = cityName.replace(/市$/, '').trim();
+    const existing = cityConfigs[norm] || cityConfigs[`${norm}市`] || cityConfigs[cityName];
+    if (existing) {
+      return {
+        online_app_enabled: existing.online_app_enabled === true,
+        merchant_dispatch_enabled: existing.merchant_dispatch_enabled === true,
+        squad_management_enabled: existing.squad_management_enabled === true,
+        squadNames: Array.isArray(existing.squadNames) && existing.squadNames.length > 0
+          ? existing.squadNames
+          : [`${norm}代驾小队`]
+      };
+    }
+    return {
+      online_app_enabled: false,
+      merchant_dispatch_enabled: false,
+      squad_management_enabled: false,
+      squadNames: [`${norm}代驾小队`]
+    };
+  };
+
+  const handleToggleCityFeature = async (cityName: string, key: 'online_app_enabled' | 'merchant_dispatch_enabled' | 'squad_management_enabled', value: boolean) => {
+    const norm = cityName.replace(/市$/, '').trim();
+    const current = getCityConfig(norm);
+    const updatedCity = {
+      ...current,
+      [key]: value
+    };
+    const newMap = {
+      ...cityConfigs,
+      [norm]: updatedCity
+    };
+    await saveCityConfigsMap(newMap);
+    const label = key === 'online_app_enabled' ? '线上单开通' : key === 'merchant_dispatch_enabled' ? '商户代叫' : '小队管理';
+    triggerToast(`✨ 已为 ${norm}市 ${value ? '开通' : '关闭'} ${label} 功能！`);
+  };
+
+  const handleSaveCitySquad = async (cityName: string, oldName: string | undefined, newSquadName: string) => {
+    const norm = cityName.replace(/市$/, '').trim();
+    const trimmed = newSquadName.trim();
+    if (!trimmed) {
+      alert('小队名称不能为空！');
+      return;
+    }
+    const current = getCityConfig(norm);
+    let updatedNames: string[];
+    if (oldName) {
+      updatedNames = current.squadNames.map(s => s === oldName ? trimmed : s);
+    } else {
+      if (current.squadNames.includes(trimmed)) {
+        alert('该小队名称已存在！');
+        return;
+      }
+      updatedNames = [...current.squadNames, trimmed];
+    }
+    const updatedCity = {
+      ...current,
+      squadNames: updatedNames
+    };
+    const newMap = {
+      ...cityConfigs,
+      [norm]: updatedCity
+    };
+    await saveCityConfigsMap(newMap);
+
+    // Real-time sync with app's team_config and dispatch events
+    localStorage.setItem('dd_dispatch_team_name', trimmed);
+    localStorage.setItem('dd_team_config_name', trimmed);
+    window.dispatchEvent(new Event('teamNameUpdated'));
+    if (db) {
+      try {
+        await setDoc(doc(db, 'config', 'team_config'), { teamName: trimmed, updatedAt: new Date().toISOString() }, { merge: true });
+      } catch(e) {}
+    }
+
+    setEditingSquadModal(null);
+    triggerToast(`✨ 已成功${oldName ? '修改' : '添加'} ${norm}市 小队名称：${trimmed}`);
+  };
+
+  const handleDeleteCitySquad = async (cityName: string, squadNameToDelete: string) => {
+    const norm = cityName.replace(/市$/, '').trim();
+    if (!confirm(`确定要彻底删除 ${norm}市 的小队【${squadNameToDelete}】吗？`)) {
+      return;
+    }
+    const current = getCityConfig(norm);
+    const updatedNames = current.squadNames.filter(s => s !== squadNameToDelete);
+    const updatedCity = {
+      ...current,
+      squadNames: updatedNames.length > 0 ? updatedNames : [`${norm}代驾小队`]
+    };
+    const newMap = {
+      ...cityConfigs,
+      [norm]: updatedCity
+    };
+    await saveCityConfigsMap(newMap);
+    triggerToast(`🗑️ 已成功删除 ${norm}市 小队：${squadNameToDelete}`);
+  };
+
+  const filteredChinaCities = ALL_CHINA_CITIES.filter(city => {
+    const matchesProvince = selectedProvince === '全部' || city.province === selectedProvince;
+    const q = citySearchQuery.trim().toLowerCase();
+    const matchesSearch = !q || 
+      city.name.toLowerCase().includes(q) || 
+      city.pinyin.toLowerCase().includes(q) || 
+      city.province.toLowerCase().includes(q);
+    return matchesProvince && matchesSearch;
+  });
 
   const handleMigrateDatabase = async () => {
     setMigrationLoading(true);
@@ -4499,136 +4664,310 @@ export default function AdminPanel({
         {/* 11. MASTER CONTROLS TAB */}
         {activeTab === 'master_controls' && (
           <div className="space-y-6 animate-in fade-in duration-200">
-            <div className="max-w-4xl bg-[#12141F] rounded-2xl border border-slate-900 p-6 space-y-6">
-              <div className="flex items-center space-x-2 border-b border-indigo-950/20 pb-4">
-                <div className="p-2 rounded-xl bg-rose-500/10 text-rose-400">
-                  <Power className="w-5 h-5" />
+            {/* 中国大陆所有城市独立功能开关与小队名称管理 */}
+            <div className="bg-[#12141F] rounded-2xl border border-slate-900 p-6 space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-indigo-950/20 pb-4">
+                <div className="flex items-center space-x-2">
+                  <div className="p-2 rounded-xl bg-teal-500/10 text-teal-400">
+                    <MapPin className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-sans font-black text-sm text-slate-200">中国大陆城市独立开通控制 & 小队名称管理</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">选择大陆任意城市，独立开启/关闭三大组件（线上单开通、商户代叫、小队管理），并维护所在城市的小队名称</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-sans font-black text-sm text-slate-200">核心功能控制中心</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">控制软件App首页组件的正常开放与一键临时关闭</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={async () => {
+                      if (confirm(`确定要【一键全部开启】中国大陆所有 300+ 城市的线上单、商户代叫与小队管理功能吗？`)) {
+                        const newMap = { ...cityConfigs };
+                        ALL_CHINA_CITIES.forEach(c => {
+                          const norm = c.name.replace(/市$/, '').trim();
+                          const curr = getCityConfig(norm);
+                          newMap[norm] = { ...curr, online_app_enabled: true, merchant_dispatch_enabled: true, squad_management_enabled: true };
+                        });
+                        await saveCityConfigsMap(newMap);
+                        await updateMasterSwitch('online_app_enabled', true);
+                        await updateMasterSwitch('merchant_dispatch_enabled', true);
+                        await updateMasterSwitch('squad_management_enabled', true);
+                        triggerToast(`✨ 已成功一键开启中国大陆全部城市的 线上单、商户代叫 与 小队管理 功能！`);
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-teal-500 text-slate-950 hover:bg-teal-400 font-black rounded-xl text-xs flex items-center gap-1 transition-all cursor-pointer shadow-md shadow-teal-500/20"
+                  >
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    一键开启大陆全部城市
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (confirm(`确定要批量为当前筛选的这 ${filteredChinaCities.length} 个城市全部【开启】三项功能吗？`)) {
+                        const newMap = { ...cityConfigs };
+                        filteredChinaCities.forEach(c => {
+                          const norm = c.name.replace(/市$/, '').trim();
+                          const curr = getCityConfig(norm);
+                          newMap[norm] = { ...curr, online_app_enabled: true, merchant_dispatch_enabled: true, squad_management_enabled: true };
+                        });
+                        saveCityConfigsMap(newMap);
+                        triggerToast(`✨ 已一键开启 ${filteredChinaCities.length} 个城市的全部功能！`);
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-emerald-600/20 border border-emerald-500/30 hover:bg-emerald-600/30 text-emerald-400 font-bold rounded-xl text-xs flex items-center gap-1 transition-all cursor-pointer"
+                  >
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    批量开启筛选城市
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (confirm(`确定要批量为当前筛选的这 ${filteredChinaCities.length} 个城市全部【关闭】三项功能吗？`)) {
+                        const newMap = { ...cityConfigs };
+                        filteredChinaCities.forEach(c => {
+                          const norm = c.name.replace(/市$/, '').trim();
+                          const curr = getCityConfig(norm);
+                          newMap[norm] = { ...curr, online_app_enabled: false, merchant_dispatch_enabled: false, squad_management_enabled: false };
+                        });
+                        saveCityConfigsMap(newMap);
+                        triggerToast(`🛑 已一键关闭 ${filteredChinaCities.length} 个城市的全部功能！`);
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-rose-600/20 border border-rose-500/30 hover:bg-rose-600/30 text-rose-400 font-bold rounded-xl text-xs flex items-center gap-1 transition-all cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    批量关闭筛选城市
+                  </button>
                 </div>
               </div>
 
-              <div className="divide-y divide-slate-800/60">
-                {/* 1. 线上单开通 */}
-                <div className="py-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-black text-slate-200">线上单开通</span>
-                      <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${
-                        masterSwitches.online_app_enabled ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400'
-                      }`}>
-                        {masterSwitches.online_app_enabled ? '已开启' : '已关闭'}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400 max-w-xl">
-                      控制司机端App首页“线上单开通”按钮。关闭后，点击该组件将拦截并提示“测试阶段，未开放”。
-                    </p>
+              {/* Search & Province Filter Bar */}
+              <div className="space-y-3">
+                <div className="flex flex-col md:flex-row gap-3">
+                  {/* Search Input */}
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={citySearchQuery}
+                      onChange={(e) => setCitySearchQuery(e.target.value)}
+                      placeholder="🔍 搜索城市名、省份或拼音 (例如: 广州、银川、宁夏...)"
+                      className="w-full bg-[#090B11] border border-slate-800 rounded-xl pl-9 pr-8 py-2.5 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-teal-500 transition-all font-mono"
+                    />
+                    {citySearchQuery && (
+                      <button 
+                        onClick={() => setCitySearchQuery('')} 
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => updateMasterSwitch('online_app_enabled', false)}
-                      className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${
-                        !masterSwitches.online_app_enabled 
-                          ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/20 font-black' 
-                          : 'bg-slate-900 hover:bg-slate-800 text-slate-300'
-                      }`}
+
+                  {/* Province Filter Dropdown */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400 font-bold whitespace-nowrap">省份筛选:</span>
+                    <select
+                      value={selectedProvince}
+                      onChange={(e) => setSelectedProvince(e.target.value)}
+                      className="bg-[#090B11] border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-teal-400 font-bold outline-none focus:border-teal-500 transition-all cursor-pointer"
                     >
-                      一键关闭
-                    </button>
-                    <button
-                      onClick={() => updateMasterSwitch('online_app_enabled', true)}
-                      className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${
-                        masterSwitches.online_app_enabled 
-                          ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 font-black' 
-                          : 'bg-slate-900 hover:bg-slate-800 text-slate-300'
-                      }`}
-                    >
-                      一键开启
-                    </button>
+                      <option value="全部">全部省份/直辖市 (共{ALL_CHINA_CITIES.length}市)</option>
+                      {PROVINCES_DATA.map(p => (
+                        <option key={p.province} value={p.province}>{p.province} ({p.cities.length}市)</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
-                {/* 2. 商户代叫 */}
-                <div className="py-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-black text-slate-200">商户代叫</span>
-                      <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${
-                        masterSwitches.merchant_dispatch_enabled ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400'
-                      }`}>
-                        {masterSwitches.merchant_dispatch_enabled ? '已开启' : '已关闭'}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400 max-w-xl">
-                      控制司机端App首页“商户代叫”按钮。关闭后，点击该组件将拦截并提示“测试阶段，未开放”。
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                {/* Quick Province Pills */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-[11px]">
+                  <button
+                    onClick={() => setSelectedProvince('全部')}
+                    className={`px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all cursor-pointer ${
+                      selectedProvince === '全部' ? 'bg-teal-500 text-slate-950 shadow-sm' : 'bg-slate-900 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    全部 ({ALL_CHINA_CITIES.length})
+                  </button>
+                  {['直辖市', '宁夏', '广东', '浙江', '江苏', '四川', '山东', '湖北', '陕西', '福建'].map(prov => (
                     <button
-                      onClick={() => updateMasterSwitch('merchant_dispatch_enabled', false)}
-                      className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${
-                        !masterSwitches.merchant_dispatch_enabled 
-                          ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/20 font-black' 
-                          : 'bg-slate-900 hover:bg-slate-800 text-slate-300'
+                      key={prov}
+                      onClick={() => setSelectedProvince(prov)}
+                      className={`px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all cursor-pointer ${
+                        selectedProvince === prov ? 'bg-teal-500 text-slate-950 shadow-sm' : 'bg-slate-900 text-slate-400 hover:text-slate-200'
                       }`}
                     >
-                      一键关闭
+                      {prov}
                     </button>
-                    <button
-                      onClick={() => updateMasterSwitch('merchant_dispatch_enabled', true)}
-                      className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${
-                        masterSwitches.merchant_dispatch_enabled 
-                          ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 font-black' 
-                          : 'bg-slate-900 hover:bg-slate-800 text-slate-300'
-                      }`}
-                    >
-                      一键开启
-                    </button>
-                  </div>
+                  ))}
                 </div>
+              </div>
 
-                {/* 3. 小队管理 */}
-                <div className="py-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-black text-slate-200">小队管理</span>
-                      <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${
-                        masterSwitches.squad_management_enabled ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400'
-                      }`}>
-                        {masterSwitches.squad_management_enabled ? '已开启' : '已关闭'}
-                      </span>
+              {/* Cities Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[600px] overflow-y-auto pr-1">
+                {filteredChinaCities.map(city => {
+                  const norm = city.name.replace(/市$/, '').trim();
+                  const cfg = getCityConfig(norm);
+                  return (
+                    <div 
+                      key={city.name}
+                      className="bg-[#090B11] border border-slate-800/80 hover:border-slate-700 rounded-xl p-4 space-y-3 transition-all"
+                    >
+                      {/* Header */}
+                      <div className="flex items-center justify-between border-b border-slate-800/60 pb-2.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-black text-slate-200">📍 {norm}市</span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                            {city.province}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 text-[10px] font-mono text-slate-500">
+                          <span>{cfg.squadNames.length}个小队</span>
+                        </div>
+                      </div>
+
+                      {/* 3 Feature Toggles */}
+                      <div className="grid grid-cols-3 gap-2">
+                        {/* 1. 线上单开通 */}
+                        <div className="bg-[#12141F] p-2 rounded-lg border border-slate-800 flex flex-col justify-between items-center text-center gap-1.5">
+                          <span className="text-[10px] font-bold text-slate-300">线上单开通</span>
+                          <button
+                            onClick={() => handleToggleCityFeature(norm, 'online_app_enabled', !cfg.online_app_enabled)}
+                            className={`w-full py-1 rounded text-[10px] font-black transition-all cursor-pointer ${
+                              cfg.online_app_enabled 
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
+                                : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                            }`}
+                          >
+                            {cfg.online_app_enabled ? '已开通' : '未开通'}
+                          </button>
+                        </div>
+
+                        {/* 2. 商户代叫 */}
+                        <div className="bg-[#12141F] p-2 rounded-lg border border-slate-800 flex flex-col justify-between items-center text-center gap-1.5">
+                          <span className="text-[10px] font-bold text-slate-300">商户代叫</span>
+                          <button
+                            onClick={() => handleToggleCityFeature(norm, 'merchant_dispatch_enabled', !cfg.merchant_dispatch_enabled)}
+                            className={`w-full py-1 rounded text-[10px] font-black transition-all cursor-pointer ${
+                              cfg.merchant_dispatch_enabled 
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
+                                : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                            }`}
+                          >
+                            {cfg.merchant_dispatch_enabled ? '已开通' : '未开通'}
+                          </button>
+                        </div>
+
+                        {/* 3. 小队管理 */}
+                        <div className="bg-[#12141F] p-2 rounded-lg border border-slate-800 flex flex-col justify-between items-center text-center gap-1.5">
+                          <span className="text-[10px] font-bold text-slate-300">小队管理</span>
+                          <button
+                            onClick={() => handleToggleCityFeature(norm, 'squad_management_enabled', !cfg.squad_management_enabled)}
+                            className={`w-full py-1 rounded text-[10px] font-black transition-all cursor-pointer ${
+                              cfg.squad_management_enabled 
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
+                                : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                            }`}
+                          >
+                            {cfg.squad_management_enabled ? '已开通' : '未开通'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Squad Names Section */}
+                      <div className="bg-[#12141F] p-2.5 rounded-lg border border-slate-800 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-teal-400 flex items-center gap-1">
+                            <Users className="w-3 h-3" /> 城市所属小队名称
+                          </span>
+                          <button
+                            onClick={() => setEditingSquadModal({ cityName: norm, value: '' })}
+                            className="text-[10px] text-teal-400 font-bold hover:underline flex items-center gap-0.5 cursor-pointer"
+                          >
+                            <Plus className="w-3 h-3" /> 添加小队
+                          </button>
+                        </div>
+
+                        <div className="flex flex-wrap gap-1.5">
+                          {cfg.squadNames.map(sName => (
+                            <div 
+                              key={sName}
+                              className="bg-slate-900 border border-slate-700/80 rounded-md px-2 py-1 text-[10px] font-bold text-slate-200 flex items-center gap-1.5 group"
+                            >
+                              <span>{sName}</span>
+                              <button
+                                onClick={() => setEditingSquadModal({ cityName: norm, oldName: sName, value: sName })}
+                                title="修改名称"
+                                className="text-slate-400 hover:text-amber-400 transition-colors cursor-pointer"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteCitySquad(norm, sName)}
+                                title="删除小队"
+                                className="text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-xs text-slate-400 max-w-xl">
-                      控制司机端App首页“小队管理”按钮。关闭后，点击该组件将拦截并提示“测试阶段，未开放”。
-                    </p>
+                  );
+                })}
+
+                {filteredChinaCities.length === 0 && (
+                  <div className="col-span-full py-12 text-center text-slate-500 text-xs">
+                    未找到与搜索或筛选匹配的城市
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => updateMasterSwitch('squad_management_enabled', false)}
-                      className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${
-                        !masterSwitches.squad_management_enabled 
-                          ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/20 font-black' 
-                          : 'bg-slate-900 hover:bg-slate-800 text-slate-300'
-                      }`}
-                    >
-                      一键关闭
-                    </button>
-                    <button
-                      onClick={() => updateMasterSwitch('squad_management_enabled', true)}
-                      className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${
-                        masterSwitches.squad_management_enabled 
-                          ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 font-black' 
-                          : 'bg-slate-900 hover:bg-slate-800 text-slate-300'
-                      }`}
-                    >
-                      一键开启
-                    </button>
-                  </div>
-                </div>
+                )}
               </div>
             </div>
+
+            {/* Edit/Add City Squad Modal */}
+            {editingSquadModal && (
+              <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                <div className="bg-[#12141F] border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-150">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <h3 className="text-sm font-black text-slate-200 flex items-center gap-2">
+                      <Users className="w-4 h-4 text-teal-400" />
+                      {editingSquadModal.oldName ? '修改小队名称' : '添加城市小队'} - {editingSquadModal.cityName}市
+                    </h3>
+                    <button 
+                      onClick={() => setEditingSquadModal(null)}
+                      className="text-slate-500 hover:text-slate-300"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-400 block">小队名称</label>
+                    <input
+                      type="text"
+                      value={editingSquadModal.value}
+                      onChange={(e) => setEditingSquadModal({ ...editingSquadModal, value: e.target.value })}
+                      placeholder={`例如: ${editingSquadModal.cityName}雷霆小队`}
+                      className="w-full bg-[#090B11] border border-slate-800 rounded-xl px-4 py-3 text-sm text-slate-200 outline-none focus:border-teal-500 transition-all font-bold"
+                      autoFocus
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end gap-3 pt-2">
+                    <button
+                      onClick={() => setEditingSquadModal(null)}
+                      className="px-4 py-2 text-xs font-bold text-slate-400 hover:text-slate-200 bg-slate-900 rounded-xl cursor-pointer"
+                    >
+                      取消
+                    </button>
+                    <button
+                      onClick={() => handleSaveCitySquad(editingSquadModal.cityName, editingSquadModal.oldName, editingSquadModal.value)}
+                      className="px-5 py-2 text-xs font-black text-slate-950 bg-teal-400 hover:bg-teal-300 rounded-xl shadow-lg shadow-teal-500/20 transition-all cursor-pointer"
+                    >
+                      确定保存
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Database Migration & Aliyun MySQL Configuration Panel */}
             <div className="max-w-4xl bg-[#12141F] rounded-2xl border border-slate-900 p-6 space-y-6 mt-6">

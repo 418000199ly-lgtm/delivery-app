@@ -264,13 +264,11 @@ export const IncomingOrderOverlay: React.FC<IncomingOrderOverlayProps> = ({
 
         {/* Income Display */}
         <div className="flex flex-col items-center my-2">
-          {order.isPlatformDispatch || order.isValetOrder || approxPrice === '未知' ? (
+          {order.isPlatformDispatch || order.isValetOrder || approxPrice === '未知' || approxPrice === '自行协商' ? (
             <div className="flex items-baseline justify-center">
-              <span className="text-xl font-bold mr-1 opacity-90">约</span>
-              <span className="text-5xl font-black tracking-tight animate-pulse" style={{ fontFamily: 'sans-serif' }}>
-                未知
+              <span className="text-4xl font-black tracking-tight animate-pulse" style={{ fontFamily: 'sans-serif' }}>
+                自行协商
               </span>
-              <span className="text-xl font-bold ml-1 opacity-90">元</span>
             </div>
           ) : (
             <div className="flex items-baseline justify-center">

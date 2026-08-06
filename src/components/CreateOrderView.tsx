@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { QrCode, Clock, RotateCw, CheckCircle2, Plus, Minus } from 'lucide-react';
+import { QrCode, Clock, RotateCw, CheckCircle2, Plus, Minus, Phone } from 'lucide-react';
 import { BillingRules, TripState, ChauffeurSettings, checkVipActive, DriverStats } from '../types';
 import { db, doc, onSnapshot, deleteDoc, setDoc } from '../lib/dbProxy';
 import { speakText } from '../utils/speech';
@@ -433,10 +433,86 @@ export default function CreateOrderView({
   activeOnlineOrder,
   onClearOnlineOrder
 }: CreateOrderViewProps) {
+  const isMerchantValetOrder = Boolean(
+    activeOnlineOrder && (
+      activeOnlineOrder.isValetOrder ||
+      activeOnlineOrder.isPlatformDispatch ||
+      activeOnlineOrder.orderRemark === '商户代叫' ||
+      activeOnlineOrder.orderType === '商户代叫' ||
+      activeOnlineOrder.orderType === '后台指派订单' ||
+      activeOnlineOrder.type === '商户代叫' ||
+      activeOnlineOrder.type === '后台指派订单'
+    )
+  );
+
+  const [arrivedAtDeparture, setArrivedAtDeparture] = useState(false);
+
+  // Dedicated back button handler for Arrived at Origin page: returns home and ensures order does NOT re-appear in hall
+  const handleBackButtonClick = async () => {
+    if (activeOnlineOrder) {
+      const orderId = activeOnlineOrder.id || activeOnlineOrder.orderId;
+      if (orderId) {
+        try {
+          if (db) {
+            await setDoc(doc(db, 'merchant_orders', orderId), {
+              in_hall: false,
+              status: 'dispatched',
+              statusCategory: '已接单',
+              dispatchedDriverPhone: userPhone || activeOnlineOrder.dispatchedDriverPhone || ''
+            }, { merge: true });
+          }
+        } catch (e) {
+          console.error("Error updating merchant order state on back:", e);
+        }
+
+        try {
+          const saved = JSON.parse(localStorage.getItem('dd_merchant_orders_v2') || '[]');
+          const updated = saved.map((o: any) => {
+            if (o.id === orderId || o.orderId === orderId) {
+              return {
+                ...o,
+                in_hall: false,
+                status: 'dispatched',
+                statusCategory: '已接单',
+                dispatchedDriverPhone: userPhone || o.dispatchedDriverPhone || ''
+              };
+            }
+            return o;
+          });
+          localStorage.setItem('dd_merchant_orders_v2', JSON.stringify(updated));
+          window.dispatchEvent(new CustomEvent('merchant_orders_updated'));
+        } catch (_) {}
+      }
+    }
+    onNavigateBack();
+  };
+
   const registeredCity = settings?.city || '';
+
+  // Driver's current location address name
+  const getDriverGpsName = () => {
+    const cachedName = localStorage.getItem('dd_bg_driver_coords_name');
+    if (cachedName && cachedName !== '正在获取当前位置...' && cachedName !== '请授权开启定位权限' && cachedName !== '未定位起点') {
+      return cachedName;
+    }
+    return '玉皇阁北街铂金大厦';
+  };
+
+  // Passenger's pickup / departure address name
+  const getPassengerDepartureAddress = () => {
+    const addr = activeOnlineOrder?.startLocation || activeOnlineOrder?.originName;
+    if (addr && addr.trim() !== '' && addr !== '出发地') {
+      return addr.trim();
+    }
+    return '银川大悦城音乐餐吧';
+  };
+
   const [startLocation, setStartLocation] = useState(() => {
     if (activeOnlineOrder) {
-      return '我的当前位置';
+      if (isMerchantValetOrder && !arrivedAtDeparture) {
+        return getDriverGpsName();
+      }
+      return getPassengerDepartureAddress();
     }
     const cachedName = localStorage.getItem('dd_bg_driver_coords_name');
     if (cachedName) {
@@ -444,12 +520,46 @@ export default function CreateOrderView({
     }
     return '正在获取当前位置...';
   });
+
   const [destination, setDestination] = useState(() => {
     if (activeOnlineOrder) {
-      return activeOnlineOrder.startLocation || '';
+      if (isMerchantValetOrder && !arrivedAtDeparture) {
+        // Stage 1: Destination input is automatically filled with passenger departure address!
+        return getPassengerDepartureAddress();
+      }
+      // Stage 2 or regular order: fill passenger destination if valid
+      const passDest = activeOnlineOrder.destination;
+      if (passDest && passDest !== activeOnlineOrder.startLocation && !passDest.includes('口头协商')) {
+        return passDest;
+      }
+      return '';
     }
     return '';
   });
+
+  // Synchronize startLocation and destination when activeOnlineOrder or arrivedAtDeparture state changes
+  useEffect(() => {
+    if (isMerchantValetOrder && activeOnlineOrder) {
+      if (!arrivedAtDeparture) {
+        // Stage 1: Heading to passenger departure location
+        // Departure input (startLocation): Driver's current GPS location
+        setStartLocation(getDriverGpsName());
+        // Destination input (destination): Passenger's departure address (e.g. "凯宾斯基饭店宴会厅")
+        setDestination(getPassengerDepartureAddress());
+      } else {
+        // Stage 2: Arrived at passenger departure location
+        // Departure input (startLocation): Passenger's departure address
+        setStartLocation(getPassengerDepartureAddress());
+        // Destination input (destination): Passenger's final destination if specified, else empty for verbal negotiation
+        const passDest = activeOnlineOrder.destination;
+        if (passDest && passDest !== activeOnlineOrder.startLocation && !passDest.includes('口头协商')) {
+          setDestination(passDest);
+        } else {
+          setDestination('');
+        }
+      }
+    }
+  }, [isMerchantValetOrder, arrivedAtDeparture, activeOnlineOrder?.id, activeOnlineOrder?.startLocation, activeOnlineOrder?.destination]);
   const [phoneNumber, setPhoneNumber] = useState(() => {
     if (activeOnlineOrder) {
       return activeOnlineOrder.passengerPhone || '';
@@ -653,6 +763,9 @@ export default function CreateOrderView({
           };
 
           const fallbackGeolocation = () => {
+            if (isMerchantValetOrder) {
+              return;
+            }
             isMapMovingProgrammaticallyRef.current = true;
             
             // If the current text is generic/unlocated, let's default to a friendly city location
@@ -754,8 +867,10 @@ export default function CreateOrderView({
           }
 
           const updateAddressFromMapCenter = () => {
-            // LOCK DEPARTURE ADDRESS IF DESTINATION IS SET:
-            // If a destination exists, do not overwrite startLocation when user moves or drags the map!
+            // LOCK DEPARTURE ADDRESS IF DESTINATION IS SET OR IF IT'S A MERCHANT VALET ORDER:
+            if (isMerchantValetOrder) {
+              return;
+            }
             if (destinationRef.current && destinationRef.current.trim() !== '') {
               return;
             }
@@ -966,11 +1081,170 @@ export default function CreateOrderView({
   const ridingInstanceRef = useRef<any>(null);
   const lastPlannedRouteKeyRef = useRef<string>('');
 
+  // Reset route planning key on mount or state change to ensure route is re-planned every time page opens
+  useEffect(() => {
+    lastPlannedRouteKeyRef.current = '';
+  }, [activeOnlineOrder?.id, arrivedAtDeparture]);
+
   useEffect(() => {
     const AMap = (window as any).AMap;
     const map = mapInstanceRef.current;
     if (!AMap || !map || !mapLoaded) return;
 
+    // 1. Merchant Valet Order Riding Navigation: Driver location (startLocation) -> Passenger Pickup Location (getPassengerDepartureAddress)
+    if (isMerchantValetOrder && !arrivedAtDeparture) {
+      const pickupLoc = activeOnlineOrder?.startLocation || activeOnlineOrder?.originName || getPassengerDepartureAddress();
+      if (!pickupLoc.trim()) return;
+
+      const currentRouteKey = `riding|${startLocation.trim()}|${pickupLoc.trim()}|${activeOnlineOrder?.id || ''}`;
+      if (lastPlannedRouteKeyRef.current === currentRouteKey) {
+        return;
+      }
+
+      const delayDebounce = setTimeout(() => {
+        AMap.plugin(['AMap.Riding', 'AMap.Driving'], () => {
+          try {
+            if (drivingInstanceRef.current) {
+              try { drivingInstanceRef.current.clear(); } catch (_) {}
+            }
+            if (!ridingInstanceRef.current) {
+              ridingInstanceRef.current = new AMap.Riding({
+                map: map,
+                hideMarkers: false,
+                autoFitView: true,
+                city: registeredCity || '银川市'
+              });
+            } else {
+              try { ridingInstanceRef.current.clear(); } catch (_) {}
+            }
+
+            isMapMovingProgrammaticallyRef.current = true;
+
+            // Geocode origin (startLocation) and destination (passenger departure address) for robust Riding route planning
+            AMap.plugin(['AMap.Riding', 'AMap.PlaceSearch', 'AMap.Geocoder', 'AMap.Driving'], () => {
+              const resolveOrigin = (cb: (originParam: any) => void) => {
+                if (driverCoords && typeof driverCoords.lng === 'number' && typeof driverCoords.lat === 'number' && !isDefaultYinchuanCoords(driverCoords)) {
+                  cb(new AMap.LngLat(driverCoords.lng, driverCoords.lat));
+                  return;
+                }
+                if (prefetchedCoordsRef.current && !isDefaultYinchuanCoords(prefetchedCoordsRef.current)) {
+                  cb(new AMap.LngLat(prefetchedCoordsRef.current.lng, prefetchedCoordsRef.current.lat));
+                  return;
+                }
+                const driverKeyword = (startLocation && startLocation !== '我的当前位置' && startLocation !== '正在获取当前位置...')
+                  ? startLocation
+                  : '玉皇阁北街铂金大厦';
+
+                const placeSearch = new AMap.PlaceSearch({ city: registeredCity || '银川市', pageSize: 1 });
+                placeSearch.search(driverKeyword, (status: string, result: any) => {
+                  if (status === 'complete' && result.poiList && result.poiList.pois && result.poiList.pois.length > 0) {
+                    const loc = result.poiList.pois[0].location;
+                    cb(new AMap.LngLat(loc.lng, loc.lat));
+                  } else {
+                    const geocoder = new AMap.Geocoder({ city: registeredCity || '银川市' });
+                    geocoder.getLocation(driverKeyword, (gStatus: string, gResult: any) => {
+                      if (gStatus === 'complete' && gResult.geocodes && gResult.geocodes[0]) {
+                        const loc = gResult.geocodes[0].location;
+                        cb(new AMap.LngLat(loc.lng, loc.lat));
+                      } else {
+                        cb({ keyword: driverKeyword, city: registeredCity || '银川市' });
+                      }
+                    });
+                  }
+                });
+              };
+
+              const resolveDest = (cb: (destParam: any) => void) => {
+                const orderCoords = activeOnlineOrder?.startCoords || activeOnlineOrder?.originCoords || activeOnlineOrder?.startLocationCoords;
+                if (orderCoords && typeof orderCoords.lng === 'number' && typeof orderCoords.lat === 'number' && !isDefaultYinchuanCoords(orderCoords)) {
+                  cb(new AMap.LngLat(orderCoords.lng, orderCoords.lat));
+                  return;
+                }
+
+                const destKeyword = pickupLoc.trim();
+                const placeSearch = new AMap.PlaceSearch({ city: registeredCity || '银川市', pageSize: 1 });
+                placeSearch.search(destKeyword, (status: string, result: any) => {
+                  if (status === 'complete' && result.poiList && result.poiList.pois && result.poiList.pois.length > 0) {
+                    const loc = result.poiList.pois[0].location;
+                    cb(new AMap.LngLat(loc.lng, loc.lat));
+                  } else {
+                    const geocoder = new AMap.Geocoder({ city: registeredCity || '银川市' });
+                    geocoder.getLocation(destKeyword, (gStatus: string, gResult: any) => {
+                      if (gStatus === 'complete' && gResult.geocodes && gResult.geocodes[0]) {
+                        const loc = gResult.geocodes[0].location;
+                        cb(new AMap.LngLat(loc.lng, loc.lat));
+                      } else {
+                        cb({ keyword: destKeyword, city: registeredCity || '银川市' });
+                      }
+                    });
+                  }
+                });
+              };
+
+              resolveOrigin((originLngLat) => {
+                resolveDest((destLngLat) => {
+                  if (drivingInstanceRef.current) {
+                    try { drivingInstanceRef.current.clear(); } catch (_) {}
+                  }
+                  if (!ridingInstanceRef.current) {
+                    ridingInstanceRef.current = new AMap.Riding({
+                      map: map,
+                      hideMarkers: false,
+                      autoFitView: true,
+                      city: registeredCity || '银川市'
+                    });
+                  } else {
+                    try { ridingInstanceRef.current.clear(); } catch (_) {}
+                  }
+
+                  ridingInstanceRef.current.search(
+                    originLngLat,
+                    destLngLat,
+                    (status: string, result: any) => {
+                      setTimeout(() => {
+                        isMapMovingProgrammaticallyRef.current = false;
+                      }, 1200);
+
+                      if (status === 'complete' && result.routes && result.routes[0]) {
+                        lastPlannedRouteKeyRef.current = currentRouteKey;
+                        const distanceMeters = result.routes[0].distance;
+                        const distanceKm = Number((distanceMeters / 1000).toFixed(2));
+                        setRouteDistance(distanceKm);
+                      } else {
+                        console.warn('AMap.Riding search status:', status, result);
+                        // Fallback to Driving route line if riding path unavailable
+                        if (!drivingInstanceRef.current) {
+                          drivingInstanceRef.current = new AMap.Driving({
+                            map: map,
+                            hideMarkers: false,
+                            autoFitView: true,
+                            city: registeredCity || '银川市'
+                          });
+                        }
+                        drivingInstanceRef.current.search(originLngLat, destLngLat, (st3: string, res3: any) => {
+                          if (st3 === 'complete' && res3.routes && res3.routes[0]) {
+                            lastPlannedRouteKeyRef.current = currentRouteKey;
+                            setRouteDistance(Number((res3.routes[0].distance / 1000).toFixed(2)));
+                          } else {
+                            setRouteDistance(null);
+                          }
+                        });
+                      }
+                    }
+                  );
+                });
+              });
+            });
+          } catch (e) {
+            console.warn('Initializing or using AMap.Riding failed:', e);
+          }
+        });
+      }, 150);
+
+      return () => clearTimeout(delayDebounce);
+    }
+
+    // 2. Standard Driving Route for normal orders OR after arriving at departure
     if (!startLocation || !destination || !destination.trim()) {
       if (drivingInstanceRef.current) {
         try { drivingInstanceRef.current.clear(); } catch (_) {}
@@ -983,16 +1257,13 @@ export default function CreateOrderView({
       return;
     }
 
-    const currentRouteKey = `${startLocation.trim()}|${destination.trim()}|${activeOnlineOrder?.id || ''}`;
+    const currentRouteKey = `driving|${startLocation.trim()}|${destination.trim()}|${activeOnlineOrder?.id || ''}`;
     if (lastPlannedRouteKeyRef.current === currentRouteKey) {
-      // Route already planned once for this exact departure and destination pair.
-      // Do NOT re-plan infinitely when moving/dragging the map!
       return;
     }
 
     const delayDebounce = setTimeout(() => {
-      // Always plan driving route from start location to specified destination
-      AMap.plugin('AMap.Driving', () => {
+      AMap.plugin(['AMap.Driving', 'AMap.PlaceSearch', 'AMap.Geocoder'], () => {
         try {
           if (ridingInstanceRef.current) {
             try { ridingInstanceRef.current.clear(); } catch (_) {}
@@ -1009,27 +1280,50 @@ export default function CreateOrderView({
           }
 
           isMapMovingProgrammaticallyRef.current = true;
-          drivingInstanceRef.current.search(
-            [
-              { keyword: startLocation, city: registeredCity || '银川市' },
-              { keyword: destination, city: registeredCity || '银川市' }
-            ],
-            (status: string, result: any) => {
-              setTimeout(() => {
-                isMapMovingProgrammaticallyRef.current = false;
-              }, 1500);
 
-              if (status === 'complete' && result.routes && result.routes[0]) {
-                lastPlannedRouteKeyRef.current = currentRouteKey;
-                const distanceMeters = result.routes[0].distance;
-                const distanceKm = Number((distanceMeters / 1000).toFixed(2));
-                setRouteDistance(distanceKm);
+          const resolvePlace = (kw: string, cb: (res: any) => void) => {
+            const placeSearch = new AMap.PlaceSearch({ city: registeredCity || '银川市', pageSize: 1 });
+            placeSearch.search(kw, (status: string, result: any) => {
+              if (status === 'complete' && result.poiList && result.poiList.pois && result.poiList.pois.length > 0) {
+                const loc = result.poiList.pois[0].location;
+                cb(new AMap.LngLat(loc.lng, loc.lat));
               } else {
-                console.warn('AMap.Driving status:', status, result);
-                setRouteDistance(null);
+                const geocoder = new AMap.Geocoder({ city: registeredCity || '银川市' });
+                geocoder.getLocation(kw, (gStatus: string, gResult: any) => {
+                  if (gStatus === 'complete' && gResult.geocodes && gResult.geocodes[0]) {
+                    const loc = gResult.geocodes[0].location;
+                    cb(new AMap.LngLat(loc.lng, loc.lat));
+                  } else {
+                    cb({ keyword: kw, city: registeredCity || '银川市' });
+                  }
+                });
               }
-            }
-          );
+            });
+          };
+
+          resolvePlace(startLocation.trim(), (origParam) => {
+            resolvePlace(destination.trim(), (destParam) => {
+              drivingInstanceRef.current.search(
+                origParam,
+                destParam,
+                (status: string, result: any) => {
+                  setTimeout(() => {
+                    isMapMovingProgrammaticallyRef.current = false;
+                  }, 1500);
+
+                  if (status === 'complete' && result.routes && result.routes[0]) {
+                    lastPlannedRouteKeyRef.current = currentRouteKey;
+                    const distanceMeters = result.routes[0].distance;
+                    const distanceKm = Number((distanceMeters / 1000).toFixed(2));
+                    setRouteDistance(distanceKm);
+                  } else {
+                    console.warn('AMap.Driving status:', status, result);
+                    setRouteDistance(null);
+                  }
+                }
+              );
+            });
+          });
         } catch (e) {
           console.warn('Initializing or using AMap.Driving failed:', e);
         }
@@ -1037,7 +1331,7 @@ export default function CreateOrderView({
     }, 150);
 
     return () => clearTimeout(delayDebounce);
-  }, [startLocation, destination, mapLoaded, registeredCity, activeOnlineOrder, driverCoords]);
+  }, [startLocation, destination, mapLoaded, registeredCity, activeOnlineOrder, driverCoords, isMerchantValetOrder, arrivedAtDeparture]);
 
   // Clean up driving and riding instances on unmount
   useEffect(() => {
@@ -1091,20 +1385,25 @@ export default function CreateOrderView({
         const data = docSnap.data();
         // Check if the submission occurred within the last 5 minutes to avoid stale entries
         if (data.status === 'submitted' && data.timestamp > Date.now() - 300000) {
+          const isValet = data.isValetOrder || data.isPlatformDispatch || data.orderRemark === '商户代叫';
+
           if (data.passengerPhone) setPhoneNumber(data.passengerPhone);
-          if (data.destination) setDestination(data.destination);
-          if (data.startLocation) setStartLocation(data.startLocation);
 
-          setScanSuccessMsg(true);
+          if (!isValet) {
+            if (data.destination) setDestination(data.destination);
+            if (data.startLocation) setStartLocation(data.startLocation);
+            setScanSuccessMsg(true);
+
+            // Audio vocal broadcast announcement
+            if (settings?.voiceBroadcast === '开单语音播报') {
+              speakText('乘客已授权，扫码开单成功！');
+            }
+            if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+              try { navigator.vibrate([100, 50, 100]); } catch(e){}
+            }
+          }
+
           setShowQrModal(false);
-
-          // Audio vocal broadcast announcement
-          if (settings?.voiceBroadcast === '开单语音播报') {
-            speakText('乘客已授权，扫码开单成功！');
-          }
-          if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-            try { navigator.vibrate([100, 50, 100]); } catch(e){}
-          }
 
           // Clear the processed link to prevent infinite populating loops
           deleteDoc(docRef).catch(err => console.error('Error clearing passenger link document:', err));
@@ -1392,7 +1691,7 @@ export default function CreateOrderView({
       {/* BEGIN: NavigationHeader (Floating top panel bar) */}
       <header className="relative p-4 header-safe-pt flex justify-between items-start z-10 pointer-events-none">
         <button 
-          onClick={onNavigateBack}
+          onClick={handleBackButtonClick}
           className="bg-white rounded-full p-2.5 shadow-lg active:scale-90 transition-transform pointer-events-auto" 
           data-purpose="back-button"
         >
@@ -1403,7 +1702,11 @@ export default function CreateOrderView({
         {activeOnlineOrder ? (
           <div className="bg-teal-600 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-1.5 border border-teal-500/10 pointer-events-auto animate-pulse">
             <span className="w-1.5 h-1.5 bg-white rounded-full"></span>
-            <span className="text-xs font-black">接单骑行：前往乘客起点</span>
+            <span className="text-xs font-black">
+              {isMerchantValetOrder
+                ? (!arrivedAtDeparture ? "接单骑行：前往乘客出发地" : "已到达出发地：点击下方创建订单")
+                : "线上订单：准备创建订单"}
+            </span>
           </div>
         ) : (
           <div 
@@ -1545,7 +1848,7 @@ export default function CreateOrderView({
 
       {/* BEGIN: OrderDetailsCard */}
       <div className="bg-white rounded-t-3xl shadow-2xl z-20 px-6 pt-5 pb-6 shrink-0 border-t border-gray-100" data-purpose="order-form-container">
-        {scanSuccessMsg && (
+        {scanSuccessMsg && !isMerchantValetOrder && (
           <div className="mb-4 bg-teal-50 border border-teal-200 rounded-2xl p-3.5 flex items-center justify-between animate-in slide-in-from-top-3 duration-200">
             <div className="flex items-center gap-2.5">
               <CheckCircle2 className="w-5 h-5 text-teal-600 shrink-0" />
@@ -1588,18 +1891,34 @@ export default function CreateOrderView({
           {/* Destination Input Row */}
           <div 
             onClick={() => {
-              setSearchText(destination);
-              setShowDestinationSearch(true);
+              if (isMerchantValetOrder && !arrivedAtDeparture) {
+                setSearchText(getPassengerDepartureAddress());
+                setShowDestinationSearch(true);
+              } else {
+                setSearchText(destination);
+                setShowDestinationSearch(true);
+              }
             }}
             className="flex items-center gap-3 bg-gray-50 hover:bg-white rounded-2xl px-4 py-2.5 border border-transparent hover:border-teal-500/20 active:scale-[0.99] transition-all cursor-pointer select-none"
             id="destination-trigger"
           >
             <div className="w-2.5 h-2.5 bg-rose-500 rounded-full shrink-0"></div>
             <div className="flex-grow flex items-center justify-between overflow-hidden">
-              <span className={`text-sm tracking-wide truncate ${destination ? 'font-bold text-gray-800' : 'text-gray-400 font-normal font-sans'}`}>
-                {destination || "请填写目的地（选填）"}
-              </span>
-              <svg className="h-4 w-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              {isMerchantValetOrder && !arrivedAtDeparture ? (
+                <div className="flex items-center gap-2 overflow-hidden flex-grow">
+                  <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/80 shrink-0">
+                    乘客出发地
+                  </span>
+                  <span className="text-sm font-bold text-gray-800 truncate">
+                    {getPassengerDepartureAddress()}
+                  </span>
+                </div>
+              ) : (
+                <span className={`text-sm tracking-wide truncate ${destination ? 'font-bold text-gray-800' : 'text-gray-400 font-normal font-sans'}`}>
+                  {destination || "请填写目的地（选填）"}
+                </span>
+              )}
+              <svg className="h-4 w-4 text-gray-400 shrink-0 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path d="M9 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"></path>
               </svg>
             </div>
@@ -1617,6 +1936,20 @@ export default function CreateOrderView({
               className="bg-transparent border-none focus:ring-0 p-0 text-sm font-bold text-gray-800 flex-grow placeholder:text-gray-400 placeholder:font-normal focus:outline-hidden" 
               placeholder="客户手机号（选填）" 
             />
+            {phoneNumber.trim() !== '' && (
+              <a
+                href={`tel:${phoneNumber.trim()}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.location.href = `tel:${phoneNumber.trim()}`;
+                }}
+                className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white px-3 py-1.5 rounded-xl text-xs font-bold shadow-xs transition-all shrink-0 cursor-pointer"
+                title="一键拨打电话"
+              >
+                <Phone className="w-3.5 h-3.5 fill-current" />
+                <span>一键拨打</span>
+              </a>
+            )}
           </div>
 
         </div>
@@ -1626,28 +1959,54 @@ export default function CreateOrderView({
           <div data-purpose="price-estimation" className="text-left">
             <div className="flex items-baseline leading-none">
               <span className="text-gray-500 text-[11px] font-semibold mr-1.5">预估费用</span>
-              <span className="text-orange-500 font-bold text-sm">¥</span>
-              <span className="text-orange-500 font-black text-3xl ml-0.5 tracking-tight">
-                {estimatedPrice.toFixed(2)}
-              </span>
-            </div>
-            <p className="text-gray-400 text-[10px] scale-95 origin-left mt-1 font-medium select-none">
-              {routeDistance !== null && destination.trim() !== '' ? (
-                <span className="text-teal-600 font-bold">
-                  预估里程: {routeDistance.toFixed(2)}公里 (起步含{activeSlot.includedDistance || 7}公里)
+              {isMerchantValetOrder ? (
+                <span className="text-orange-500 font-black text-2xl tracking-tight ml-0.5">
+                  自行协商
                 </span>
-              ) : destination.trim() !== '' ? (
-                `正在规划最优路线并计算距离...`
-              ) : null}
-            </p>
+              ) : (
+                <>
+                  <span className="text-orange-500 font-bold text-sm">¥</span>
+                  <span className="text-orange-500 font-black text-3xl ml-0.5 tracking-tight">
+                    {estimatedPrice.toFixed(2)}
+                  </span>
+                </>
+              )}
+            </div>
+            {!isMerchantValetOrder && (
+              <p className="text-gray-400 text-[10px] scale-95 origin-left mt-1 font-medium select-none">
+                {routeDistance !== null && destination.trim() !== '' ? (
+                  <span className="text-teal-600 font-bold">
+                    预估里程: {routeDistance.toFixed(2)}公里 (起步含{activeSlot.includedDistance || 7}公里)
+                  </span>
+                ) : destination.trim() !== '' ? (
+                  `正在规划最优路线并计算距离...`
+                ) : null}
+              </p>
+            )}
           </div>
           
           <button 
-            onClick={handleCreateOrder}
-            className="bg-[#189F95] hover:bg-[#158C83] text-white px-8 py-3.5 rounded-xl font-bold text-base active:scale-95 shadow-md shadow-[#189F95]/25 transition-all font-sans" 
+            onClick={() => {
+              if (isMerchantValetOrder && !arrivedAtDeparture) {
+                setArrivedAtDeparture(true);
+                const passStart = activeOnlineOrder?.startLocation || activeOnlineOrder?.originName || '出发地';
+                const passDest = activeOnlineOrder?.destination && activeOnlineOrder.destination !== activeOnlineOrder.startLocation
+                  ? activeOnlineOrder.destination
+                  : '';
+                setStartLocation(passStart);
+                setDestination(passDest);
+                return;
+              }
+              handleCreateOrder();
+            }}
+            className="bg-[#189F95] hover:bg-[#158C83] text-white px-8 py-3.5 rounded-xl font-bold text-base active:scale-95 shadow-md shadow-[#189F95]/25 transition-all font-sans cursor-pointer whitespace-nowrap shrink-0" 
             data-purpose="submit-order"
           >
-            {activeOnlineOrder ? "创建订单 (开始计费)" : "创建订单"}
+            {isMerchantValetOrder ? (
+              !arrivedAtDeparture ? "到达出发地" : "创建订单（开始计费）"
+            ) : (
+              activeOnlineOrder ? "创建订单 (开始计费)" : "创建订单"
+            )}
           </button>
         </div>
 

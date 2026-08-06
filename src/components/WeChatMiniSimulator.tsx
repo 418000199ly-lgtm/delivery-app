@@ -3466,9 +3466,7 @@ Page({
                       <div className="flex-1">
                         <div className="flex items-center gap-1.5">
                           <span className="text-base font-extrabold tracking-tight text-slate-900">
-                            {passengerPhone && passengerPhone.length === 11 
-                              ? `${passengerPhone.slice(0, 3)}****${passengerPhone.slice(7)}` 
-                              : '155****1222'}
+                            {passengerPhone || '15509601222'}
                           </span>
                           <span className="bg-orange-100 text-[#FF8200] text-[8px] px-1.5 py-0.5 rounded-full font-black flex items-center shadow-2xs">
                             至尊VIP

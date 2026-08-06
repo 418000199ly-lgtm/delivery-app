@@ -467,17 +467,38 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
           </div>
 
           {/* Footer Text */}
-          <footer className="px-5 py-4 text-center space-y-1.5 mt-auto">
+          <footer className="px-2 py-4 text-center space-y-1.5 mt-auto">
             <p className="text-[10px] font-medium leading-relaxed px-2" style={{ color: '#d97706' }}>
               代驾司机助手，代驾司机模拟器，仅教学模拟、本地演练工具，不对接任何第三方代驾平台正式服务，所有违规使用后果完全由使用者自行承担。
             </p>
-            <div className="space-y-0.5 text-[10px] font-semibold" style={{ color: '#000000' }}>
-              <p style={{ color: '#000000' }}>© 2026 All Rights Reserved</p>
-              <p style={{ color: '#000000' }}>
-                <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer" className="hover:underline" style={{ color: '#000000' }}>
+            <div className="space-y-1 text-[9px] font-normal" style={{ color: '#000000' }}>
+              <p className="font-normal" style={{ color: '#000000' }}>© 2026 All Rights Reserved</p>
+              <div className="flex items-center justify-center gap-1 text-[6.5px] xs:text-[7.5px] sm:text-[8.5px] whitespace-nowrap font-normal py-0.5" style={{ color: '#000000' }}>
+                <img 
+                  src="/beiantubiao.png" 
+                  alt="备案图标" 
+                  className="inline-block align-middle shrink-0" 
+                  style={{ height: '1em', width: '1em', objectFit: 'contain' }}
+                />
+                <a 
+                  href="https://beian.mps.gov.cn/#/query/webSearch?code=64010002000234" 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  className="hover:underline shrink-0 font-normal" 
+                  style={{ color: '#000000' }}
+                >
+                  宁公网安备64010002000234号
+                </a>
+                <a 
+                  href="https://beian.miit.gov.cn/" 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  className="hover:underline shrink-0 font-normal" 
+                  style={{ color: '#000000' }}
+                >
                   宁 ICP 备 2026002469 号 - 1
                 </a>
-              </p>
+              </div>
             </div>
           </footer>
         </main>
@@ -572,7 +593,7 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
                   &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;五星司机&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;(5.0<span style={{ color: 'rgb(255, 215, 0)' }}>★★★★★</span>)
                 </h3>
                 <p className="font-semibold text-xs text-[#584235]">
-                  乘客手机：{passengerPhone ? passengerPhone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2') : '187****9593'}
+                  乘客手机：{passengerPhone || '18709519593'}
                 </p>
               </div>
               <div 
@@ -722,7 +743,7 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
           <div className="flex-grow text-left">
             <p className="text-[10px] font-extrabold text-amber-800 uppercase tracking-wider mb-0.5">司机 service 通道</p>
             <p className="text-sm font-bold text-[#1a1c1c] leading-tight">
-              正在链接至司机 <span className="text-[#ff7d00] font-black font-mono text-base">{driverPhone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2')}</span>
+              正在链接至司机 <span className="text-[#ff7d00] font-black font-mono text-base">{driverPhone}</span>
             </p>
             <div className="flex items-center mt-1 text-amber-800 gap-1.5">
               <span className="relative flex h-2 w-2">
@@ -872,11 +893,11 @@ export default function PassengerOrderView({ driverPhone, onClose, onUnlockAdmin
                 )}
                 <div className="flex justify-between">
                   <span className="text-[#584235] font-medium">乘客手机：</span>
-                  <span className="text-[#984800] font-bold font-mono">{passengerPhone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2')}</span>
+                  <span className="text-[#984800] font-bold font-mono">{passengerPhone}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-[#584235] font-medium">司机手机：</span>
-                  <span className="text-[#1a1c1c] font-bold font-mono">{driverPhone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2')}</span>
+                  <span className="text-[#1a1c1c] font-bold font-mono">{driverPhone}</span>
                 </div>
               </div>
             </div>

@@ -415,27 +415,7 @@
           </div>
         </div>
 
-        <!-- Destination Input -->
-        <div class="space-y-1.5">
-          <label class="text-xs font-bold text-slate-700 flex items-center gap-1">
-            行驶目的地 <span class="text-slate-400 font-normal">(选填)</span>
-          </label>
-          <div class="relative">
-            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-              <!-- Flag SVG -->
-              <svg class="text-slate-400 w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3 3v1.5M3 21v-6m0 0l2.77-.693a9 9 0 016.208.682l.108.054a9 9 0 006.086.71l3.114-.732a48.524 48.524 0 01-.005-10.499l-3.11.732a9 9 0 01-6.085-.711l-.108-.054a9 9 0 00-6.208-.682L3 4.5M3 15V4.5"></path>
-              </svg>
-            </div>
-            <input
-              type="text"
-              id="destination"
-              placeholder="可选填此去向的目的地"
-              style="pointer-events: auto !important; user-select: text !important; -webkit-user-select: text !important; position: relative; z-index: 20;"
-              class="w-full pl-12 pr-4 py-4 bg-white border-2 border-amber-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none text-base transition-all font-semibold"
-            />
-          </div>
-        </div>
+
 
         <!-- Authorization Checkbox -->
         <label class="flex items-center gap-3 py-2 cursor-pointer group select-none" for="agreement">
@@ -706,13 +686,17 @@
         <p class="text-[10px] font-medium leading-relaxed px-2" style="color: #d97706 !important;">
           代驾司机助手，代驾司机模拟器，仅教学模拟、本地演练工具，不对接任何第三方代驾平台正式服务，所有违规使用后果完全由使用者自行承担。
         </p>
-        <div class="space-y-0.5 text-[10px] font-semibold" style="color: #000000 !important;">
-          <p style="color: #000000 !important;">© 2026 All Rights Reserved</p>
-          <p style="color: #000000 !important;">
-            <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer" class="hover:underline" style="color: #000000 !important;">
+        <div class="space-y-0.5 text-[9px] font-normal" style="color: #000000 !important;">
+          <p style="color: #000000 !important; font-weight: normal !important;">© 2026 All Rights Reserved</p>
+          <div class="flex items-center justify-center gap-1 text-[6.5px] xs:text-[7.5px] sm:text-[8.5px] whitespace-nowrap font-normal py-0.5" style="color: #000000 !important; font-weight: normal !important;">
+            <img src="/beiantubiao.png" alt="备案图标" style="height: 1em; width: 1em; display: inline-block; vertical-align: middle; object-fit: contain;" />
+            <a href="https://beian.mps.gov.cn/#/query/webSearch?code=64010002000234" target="_blank" rel="noreferrer" class="hover:underline" style="color: #000000 !important; font-weight: normal !important;">
+              宁公网安备64010002000234号
+            </a>
+            <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer" class="hover:underline" style="color: #000000 !important; font-weight: normal !important;">
               宁 ICP 备 2026002469 号 - 1
             </a>
-          </p>
+          </div>
         </div>
       </footer>
     </main>

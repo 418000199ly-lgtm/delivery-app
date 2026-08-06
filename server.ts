@@ -1015,6 +1015,40 @@ async function startServer() {
     }
   });
 
+  // 4b. CLEAR COLLECTION PROXY
+  app.post('/api/db/clear-collection', async (req, res) => {
+    const { col } = req.body;
+    if (!col) {
+      return res.status(400).json({ error: 'Missing col in body' });
+    }
+
+    if (isMySQLEnabled && mysqlPool) {
+      try {
+        await mysqlPool.query(
+          'DELETE FROM `daijia_documents` WHERE `collection` = ?',
+          [String(col)]
+        );
+        res.json({ success: true });
+      } catch (err: any) {
+        console.error(`[MySQL Database] Failed to clear collection ${col}:`, err);
+        res.status(500).json({ error: err.message || 'MySQL database error' });
+      }
+      return;
+    }
+
+    try {
+      const dbData = readLocalJsonDb();
+      if (dbData[String(col)]) {
+        dbData[String(col)] = {};
+        writeLocalJsonDb(dbData);
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error(`[Local DB] Failed to clear collection ${col}:`, err);
+      res.status(500).json({ error: err.message || 'Local database error' });
+    }
+  });
+
   // 5. ADD DOCUMENT (AUTO GENERATE ID) PROXY
   app.post('/api/db/add', async (req, res) => {
     const { col, data } = req.body;

@@ -677,23 +677,7 @@ function getHTMLTemplate(driverPhone, driverName, rawStartLocation, adminUrl = "
           </div>
 
           <!-- Destination Input -->
-          <div class="space-y-1">
-            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
-              🏁 您的目的地 (选填)
-            </label>
-            <div class="relative flex items-center bg-slate-50 border border-slate-200 focus-within-style rounded-xl px-3 py-2.5 transition-all">
-              <svg class="w-4 h-4 text-rose-500 mr-2 shrink-0" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="3 11 22 2 13 21 11 13 3 11"/>
-              </svg>
-              <input
-                type="text"
-                id="destination"
-                placeholder="请输入行驶目的地"
-                class="bg-transparent border-none w-full text-slate-950 outline-none font-bold text-sm p-0 placeholder-slate-400 focus:ring-0"
-                style="outline: none; border: none; background: none; padding: 0;"
-              />
-            </div>
-          </div>
+
 
           <!-- Consent Agreement Box -->
           <div class="pt-1.5 flex items-start gap-2 text-[9.5px] text-slate-500 leading-tight">

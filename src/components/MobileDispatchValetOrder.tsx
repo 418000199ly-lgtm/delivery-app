@@ -247,7 +247,7 @@ const formatMerchantOrderNo = (data: any, idx?: number, totalCount?: number) => 
   return `YC${yyyy}${mm}${dd}${hh}${min}${seqStr}`;
 };
 
-interface DispatchValetOrderProps {
+interface MobileDispatchValetOrderProps {
   onShowToast: (msg: string) => void;
   userPhone?: string | null;
   userRole?: string;
@@ -255,20 +255,20 @@ interface DispatchValetOrderProps {
   onClose?: () => void;
 }
 
-export default function DispatchValetOrder({ 
+export default function MobileDispatchValetOrder({ 
   onShowToast,
   userPhone = null,
   userRole = '普通司机',
   userTeamCity = '',
   onClose
-}: DispatchValetOrderProps) {
+}: MobileDispatchValetOrderProps) {
   
-  // Team management state
-  const [teamName, setTeamName] = useState(() => {
-    return localStorage.getItem('dd_dispatch_team_name') || '黑湾代驾小队';
-  });
-  const [isEditingTeamName, setIsEditingTeamName] = useState(false);
-  const [tempTeamName, setTempTeamName] = useState(teamName);
+  // Team management state (Default and fixed as requested)
+  const teamName = '黑湾代驾小队';
+  const setTeamName = (_name: string) => {};
+  const tempTeamName = '黑湾代驾小队';
+  const setTempTeamName = (_name: string) => {};
+  const setIsEditingTeamName = (_editing: boolean) => {};
 
   // Network IP auto-detected current city state
   const [currentCity, setCurrentCity] = useState<string>(userTeamCity || '银川市');
@@ -1201,7 +1201,7 @@ export default function DispatchValetOrder({
     return '000001';
   };
 
-  // Auto-detect driver network IP city location
+  // Auto-detect driver network IP city location via AMap / IP API
   useEffect(() => {
     let isMounted = true;
 
@@ -1220,11 +1220,96 @@ export default function DispatchValetOrder({
     };
 
     detectCityByIp();
-    const timer = setTimeout(detectCityByIp, 1200);
+    const timer = setTimeout(detectCityByIp, 800);
     return () => {
       isMounted = false;
       clearTimeout(timer);
     };
+  }, []);
+
+  // GPS Precise Location handler (triggers geolocation and reverse geocodes address name)
+  const [isLocatingGPS, setIsLocatingGPS] = useState(false);
+
+  const handleFetchGPSLocation = (silent: boolean = false) => {
+    setIsLocatingGPS(true);
+    if (!silent) {
+      onShowToast('🌐 正在获取手机GPS精准定位...');
+    }
+
+    if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          setPassengerCoords({ lat, lng });
+
+          const AMap = (window as any).AMap;
+          if (AMap) {
+            AMap.plugin(['AMap.Geocoder', 'AMap.convertFrom'], () => {
+              AMap.convertFrom([lng, lat], 'gps', (status: string, result: any) => {
+                const searchLng = (status === 'complete' && result?.locations?.[0]) ? result.locations[0].lng : lng;
+                const searchLat = (status === 'complete' && result?.locations?.[0]) ? result.locations[0].lat : lat;
+                
+                setPassengerCoords({ lat: searchLat, lng: searchLng });
+
+                const geocoder = new AMap.Geocoder({ city: currentCity || '银川市' });
+                geocoder.getAddress([searchLng, searchLat], (geoStatus: string, geoResult: any) => {
+                  setIsLocatingGPS(false);
+                  if (geoStatus === 'complete' && geoResult?.regeocode?.formattedAddress) {
+                    const formatted = geoResult.regeocode.formattedAddress;
+                    setPassengerAddress(formatted);
+                    onShowToast(`📍 手机GPS精准定位成功：${formatted}`);
+                  } else {
+                    onShowToast(`📍 手机GPS精准定位成功`);
+                  }
+                });
+              });
+            });
+          } else {
+            setIsLocatingGPS(false);
+          }
+        },
+        (error) => {
+          console.warn('GPS location permission denied or failed:', error);
+          setIsLocatingGPS(false);
+          
+          // Fallback to AMap Geolocation plugin
+          const AMap = (window as any).AMap;
+          if (AMap) {
+            AMap.plugin('AMap.Geolocation', () => {
+              const geolocation = new AMap.Geolocation({
+                enableHighAccuracy: true,
+                timeout: 8000
+              });
+              geolocation.getCurrentPosition((status: string, result: any) => {
+                if (status === 'complete' && result?.formattedAddress) {
+                  setPassengerAddress(result.formattedAddress);
+                  if (result.position) {
+                    setPassengerCoords({ lat: result.position.lat, lng: result.position.lng });
+                  }
+                  onShowToast(`📍 高精度定位成功：${result.formattedAddress}`);
+                } else if (!silent) {
+                  onShowToast('📍 GPS定位超时，请手动点击商家推荐或搜索起点');
+                }
+              });
+            });
+          } else if (!silent) {
+            onShowToast('📍 GPS定位超时，请手动点击商家推荐或搜索起点');
+          }
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    } else {
+      setIsLocatingGPS(false);
+      if (!silent) {
+        onShowToast('⚠️ 当前设备或浏览器不支持获取手机GPS定位');
+      }
+    }
+  };
+
+  // Trigger GPS positioning automatically on webpage / component load
+  useEffect(() => {
+    handleFetchGPSLocation(false);
   }, []);
 
   // Dynamically load AMap JS API for AutoComplete support
@@ -1414,8 +1499,8 @@ export default function DispatchValetOrder({
   const handleOneKeyDispatch = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!passengerAddress.trim()) {
-      alert('请填写代驾商家起点');
+    if (!passengerAddress.trim() || !passengerPhone.trim()) {
+      onShowToast('❌ 请先完整填写代驾商家起点和乘客手机号码！');
       return;
     }
 
@@ -1587,7 +1672,7 @@ export default function DispatchValetOrder({
   const currentQrUrl = wechatQrUrl;
 
   return (
-    <div className="min-h-full bg-[#f9f9f9] text-[#1a1c1c] font-sans relative flex flex-col justify-between select-text">
+    <div className="h-full w-full overflow-y-auto bg-[#f9f9f9] text-[#1a1c1c] font-sans relative flex flex-col select-text">
       
       {/* Hidden File Input for QR Code */}
       <input 
@@ -1601,42 +1686,15 @@ export default function DispatchValetOrder({
       {/* TopAppBar */}
       <header className="sticky top-0 w-full z-40 bg-[#f9f9f9] border-b border-[#e2e2e2] flex items-center justify-between px-3 sm:px-5 h-14 shadow-sm shrink-0 relative">
         <div className="flex items-center gap-1.5 shrink-0">
-          <h1 className="font-bold text-sm sm:text-base text-[#984800] tracking-tight">商户代叫系统</h1>
-        </div>
-
-        {/* Centered Member Application Button */}
-        <div className="absolute left-1/2 -translate-x-1/2 flex items-center justify-center">
-          <button 
-            type="button"
-            onClick={() => setShowApplicantApprovalModal(true)}
-            className="relative flex items-center gap-1 px-2.5 py-1 bg-[#ffdbc8] text-[#311300] hover:bg-[#ffbfa3] rounded-full text-[11px] font-bold shadow-xs active:scale-95 transition-all border border-[#ff7d00]/20 shrink-0"
-            title="成员申请"
-          >
-            <UserPlus className="w-3.5 h-3.5 text-[#984800]" />
-            <span className="whitespace-nowrap">成员申请</span>
-            {pendingApplicantCount > 0 && (
-              <span className="flex h-3.5 min-w-[14px] px-1 items-center justify-center rounded-full bg-[#ba1a1a] text-[9px] font-bold text-white leading-none">
-                {pendingApplicantCount}
-              </span>
-            )}
-          </button>
+          <h1 className="font-bold text-sm sm:text-base text-[#984800] tracking-tight">商户代叫派单系统</h1>
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          <button 
-            type="button"
-            onClick={() => setShowOrderCenterModal(true)}
-            className="text-[11px] font-bold text-[#ff7d00] bg-[#ff7d00]/10 hover:bg-[#ff7d00]/20 px-2 py-1 rounded-full transition-all flex items-center gap-1 shrink-0"
-            title="商户代叫订单中心"
-          >
-            <History className="w-3.5 h-3.5 shrink-0" />
-            <span className="whitespace-nowrap">商户代叫订单中心</span>
-          </button>
           {onClose && (
             <button 
               type="button"
               onClick={onClose} 
-              className="p-1 rounded-full hover:bg-black/5 transition-colors text-[#584235] shrink-0"
+              className="p-1.5 rounded-full hover:bg-black/5 transition-colors text-[#584235] shrink-0 flex items-center gap-1"
               aria-label="关闭页面"
             >
               <X className="w-5 h-5" />
@@ -1646,55 +1704,22 @@ export default function DispatchValetOrder({
       </header>
 
       {/* Main Form Content */}
-      <main className="max-w-xl mx-auto pt-4 px-5 space-y-5 flex-1 w-full pb-6">
+      <main className="max-w-xl mx-auto pt-4 px-5 space-y-5 flex-1 w-full pb-8">
         
-        {/* Section 1: Team Management (小队管理) */}
+        {/* Section: Booking Form (商户代叫下单信息) */}
         <section className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="font-bold text-base text-[#1a1c1c] flex items-center gap-1.5 min-w-0">
-              <Users className="w-5 h-5 text-[#984800] fill-[#ff7d00]/20 shrink-0" />
-              <span className="shrink-0">小队管理</span>
-              {isEditingTeamName ? (
-                <div className="inline-flex items-center gap-1 ml-1">
-                  <input
-                    type="text"
-                    value={tempTeamName}
-                    onChange={(e) => setTempTeamName(e.target.value)}
-                    className="text-xs font-medium px-2 py-0.5 border border-[#ff7d00] rounded bg-white outline-none w-24"
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    onClick={handleSaveTeamName}
-                    className="text-[11px] bg-[#ff7d00] text-white px-2 py-0.5 rounded font-bold shrink-0"
-                  >
-                    保存
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-0.5 min-w-0">
-                  <span className="text-[#584235] text-xs font-normal truncate max-w-[80px]">（{teamName}）</span>
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      setTempTeamName(teamName);
-                      setIsEditingTeamName(true);
-                    }}
-                    className="flex items-center gap-0.5 text-[#ff7d00]/80 hover:text-[#ff7d00] transition-colors shrink-0"
-                  >
-                    <span className="text-[11px] font-semibold">修改</span>
-                    <Edit2 className="w-3 h-3" />
-                  </button>
-                </div>
-              )}
+            <h2 className="font-bold text-base text-[#1a1c1c] flex items-center gap-1.5">
+              <Car className="w-5 h-5 text-[#984800] fill-[#ff7d00]/20" />
+              <span>商户代叫下单信息</span>
             </h2>
 
-            {/* Current City display tag on the right side (IP located) */}
+            {/* Current City display tag */}
             <div className="flex items-center gap-1 shrink-0 ml-2">
               <div 
-                onClick={() => onShowToast(`📍 手机网络IP定位城市：${currentCity}\n🔒 隔离规则：仅限同城经审批加入的小队成员接收商户代叫订单，多小队（每城最多10个）互不相通`)}
+                onClick={() => onShowToast(`📍 手机网络IP定位城市：${currentCity}\n🔒 派单规则：默认自动派单给【${teamName}】审批成功的同城普通司机及团队管理员`)}
                 className="flex items-center gap-1 bg-[#ffdbc8]/90 hover:bg-[#ffdbc8] border border-[#dfc0af] px-2.5 py-1 rounded-full text-xs font-bold text-[#984800] shadow-xs cursor-pointer transition-all active:scale-95"
-                title="点击查看城市与小队隔离规则"
+                title="点击查看城市与派单规则"
               >
                 <MapPin className="w-3.5 h-3.5 text-[#ff7d00] shrink-0" />
                 <span>当前城市：{currentCity}</span>
@@ -1702,107 +1727,25 @@ export default function DispatchValetOrder({
             </div>
           </div>
 
-          {/* Admin Card */}
-          <div className="bg-white/95 border border-[#e0e0e0] rounded-2xl p-4 flex items-center gap-3.5 shadow-sm backdrop-blur-md">
-            <div className="relative">
-              <div className="w-14 h-14 rounded-full bg-[#eeeeee] overflow-hidden border-2 border-[#ff7d00]">
-                <img 
-                  src={
-                    (!adminProfile.avatar || adminProfile.avatar.includes('photo-1560250097-0b93528c311a')) 
-                      ? driverAvatar 
-                      : adminProfile.avatar
-                  } 
-                  alt="代驾司机头像" 
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <div className="absolute -bottom-1 -right-1 bg-[#984800] text-white text-[9px] font-bold px-1.5 py-0.2 rounded-full border border-white">
-                管理
-              </div>
-            </div>
-
-            <div className="flex-1 min-w-0">
-              <div className="flex flex-col">
-                <span className="text-[11px] font-bold text-[#984800]">管理员级别</span>
-                {isEditingAdminName ? (
-                  <div className="inline-flex items-center gap-1 mt-0.5">
-                    <input
-                      type="text"
-                      maxLength={8}
-                      value={tempAdminName}
-                      onChange={(e) => setTempAdminName(e.target.value)}
-                      className="text-xs font-bold px-2 py-0.5 border border-[#ff7d00] rounded bg-white outline-none w-28 text-[#1a1c1c]"
-                      placeholder="最多8字"
-                      autoFocus
-                    />
-                    <button
-                      type="button"
-                      onClick={handleSaveAdminName}
-                      className="text-[11px] bg-[#ff7d00] text-white px-2 py-0.5 rounded font-bold shrink-0 shadow-xs active:scale-95 transition-transform"
-                    >
-                      保存
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsEditingAdminName(false)}
-                      className="text-[11px] bg-[#e0e0e0] text-[#584235] px-1.5 py-0.5 rounded font-bold shrink-0"
-                    >
-                      取消
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5 min-w-0 mt-0.5">
-                    <span className="font-bold text-base text-[#1a1c1c] truncate">{adminProfile.name}</span>
-                    {isManagementRole && (
-                      <button 
-                        type="button"
-                        onClick={() => {
-                          setTempAdminName(adminProfile.name);
-                          setIsEditingAdminName(true);
-                        }}
-                        className="flex items-center gap-0.5 text-[#ff7d00] hover:text-[#984800] transition-colors shrink-0"
-                        title="修改管理员名字"
-                      >
-                        <span className="text-[11px] font-bold">修改名字</span>
-                        <Edit2 className="w-3 h-3" />
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div className="mt-1 flex items-center gap-2">
-                <span className="inline-flex items-center px-2 py-0.5 rounded bg-[#ffdbc8] text-[#311300] text-[10px] font-bold">
-                  {userRole || '开发者司机'}
-                </span>
-                <span className="text-[#584235] text-[10px] font-mono">
-                  ID:{getSquadMemberId(userPhone)}
-                </span>
-              </div>
-            </div>
-
-            <button 
-              type="button"
-              onClick={() => setShowTeamManagementModal(true)}
-              className="p-2.5 rounded-xl bg-[#eeeeee] hover:bg-[#e8e8e8] transition-colors text-[#584235]"
-              title="查看管理详情"
-            >
-              <Settings className="w-5 h-5" />
-            </button>
-          </div>
-        </section>
-
-        {/* Section 2: Booking Form (商户代叫下单信息) */}
-        <section className="space-y-3">
-          <h2 className="font-bold text-base text-[#1a1c1c] flex items-center gap-1.5">
-            <Car className="w-5 h-5 text-[#984800] fill-[#ff7d00]/20" />
-            <span>商户代叫下单信息</span>
-          </h2>
-
           <div className="bg-white/95 border border-[#e0e0e0] rounded-2xl p-4 space-y-3.5 shadow-sm backdrop-blur-md">
             
             {/* Field 1: Pickup Point */}
             <div className="space-y-1 relative">
-              <label className="text-xs font-bold text-[#584235] block">代驾商家起点</label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-[#584235] block">代驾商家起点</label>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleFetchGPSLocation(false);
+                  }}
+                  disabled={isLocatingGPS}
+                  className="text-[11px] font-bold text-[#ff7d00] flex items-center gap-1 hover:underline active:scale-95 transition-all cursor-pointer"
+                >
+                  <Navigation className={`w-3 h-3 ${isLocatingGPS ? 'animate-spin' : ''}`} />
+                  <span>{isLocatingGPS ? 'GPS定位中...' : 'GPS重新定位'}</span>
+                </button>
+              </div>
               <div 
                 onClick={() => {
                   setOriginSearchText(passengerAddress);
@@ -1844,21 +1787,6 @@ export default function DispatchValetOrder({
                   onChange={(e) => setPassengerPhone(e.target.value)}
                   placeholder="请输入乘客手机号"
                   className="w-full h-11 pl-9 pr-4 bg-[#f3f3f3] border border-[#dfc0af] rounded-xl focus:ring-2 focus:ring-[#ff7d00]/30 focus:border-[#ff7d00] outline-none transition-all text-xs font-mono text-[#1a1c1c]"
-                />
-              </div>
-            </div>
-
-            {/* Field 3: Order Source Remark */}
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-[#584235] block">订单来源备注</label>
-              <div className="relative flex items-center">
-                <ClipboardList className="w-4 h-4 absolute left-3 text-[#584235] shrink-0" />
-                <input
-                  type="text"
-                  value={orderRemark}
-                  onChange={(e) => setOrderRemark(e.target.value)}
-                  placeholder="请输入订单来源备注（选填）"
-                  className="w-full h-11 pl-9 pr-4 bg-[#f3f3f3] border border-[#dfc0af] rounded-xl focus:ring-2 focus:ring-[#ff7d00]/30 focus:border-[#ff7d00] outline-none transition-all text-xs text-[#1a1c1c]"
                 />
               </div>
             </div>
@@ -2268,142 +2196,10 @@ export default function DispatchValetOrder({
         </div>
       )}
 
-      {/* Dispatched Order Center Modal (商户代叫订单中心) */}
-      {showOrderCenterModal && (() => {
-        const displayOrders = allDispatchedOrders;
-        const filteredOrders = displayOrders.filter((ord: any) => {
-          if (orderCenterTab === '全部') return true;
-          return ord.statusCategory === orderCenterTab;
-        });
 
-        return (
-          <div className="absolute inset-0 z-50 bg-[#f9f9f9] text-[#1a1c1c] flex flex-col overflow-hidden animate-in fade-in duration-200">
-            {/* TopAppBar Header */}
-            <header className="w-full sticky top-0 z-50 flex items-center justify-between px-4 h-14 bg-[#f9f9f9] border-b border-[#dfc0af] shrink-0 relative">
-              <div className="flex items-center gap-2">
-                <button 
-                  type="button"
-                  onClick={() => setShowOrderCenterModal(false)}
-                  className="flex items-center justify-center w-9 h-9 rounded-full hover:bg-[#f3f3f3] active:opacity-80 transition-all text-[#984800]"
-                  title="返回"
-                >
-                  <ArrowLeft className="w-5 h-5 text-[#984800]" />
-                </button>
-                <h1 className="text-base font-bold text-[#984800] shrink-0">商户代叫订单中心</h1>
-              </div>
 
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-bold px-2.5 py-1 bg-[#ffdbc8] text-[#311300] rounded-full">
-                  共 {filteredOrders.length} 单
-                </span>
-                <button
-                  type="button"
-                  title="点击一键清空列表所有订单"
-                  aria-label="点击一键清空列表所有订单"
-                  data-action="点击一键清空列表所有订单"
-                  onClick={() => {
-                    if (allDispatchedOrders.length === 0) {
-                      onShowToast('当前代叫订单中心列表已经是空的');
-                      return;
-                    }
-                    setShowConfirmClearOrdersModal(true);
-                  }}
-                  className="text-[11px] font-bold px-2.5 py-1 bg-rose-100 text-rose-700 rounded-lg hover:bg-rose-200 active:scale-95 transition-all cursor-pointer shrink-0"
-                >
-                  清空列表
-                </button>
-              </div>
-            </header>
-
-            <main className="flex-1 px-4 py-3 overflow-y-auto space-y-3 pb-28">
-              {/* Filter Tabs */}
-              <div className="flex bg-white p-1 rounded-xl border border-[#dfc0af] shadow-xs">
-                {(['全部', '呼叫中', '服务中', '已完成', '已取消'] as const).map((tab) => {
-                  const isActive = orderCenterTab === tab;
-                  return (
-                    <button
-                      key={tab}
-                      type="button"
-                      onClick={() => setOrderCenterTab(tab)}
-                      className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                        isActive
-                          ? 'bg-[#ff7d00] text-white shadow-xs'
-                          : 'text-[#584235] hover:bg-[#f3f3f3]'
-                      }`}
-                    >
-                      {tab}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Orders List */}
-              {filteredOrders.length === 0 ? (
-                <div className="py-16 text-center text-[#584235] space-y-2 bg-white rounded-2xl border border-[#dfc0af] shadow-xs">
-                  <FileText className="w-10 h-10 mx-auto text-[#dfc0af]" />
-                  <p className="text-sm font-bold">暂无【{orderCenterTab}】状态的代叫订单</p>
-                  <p className="text-xs text-[#584235]/70">商户下单后会自动同步显示在这里</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {filteredOrders.map((order: any, idx: number) => {
-                    const statusBg = order.statusCategory === '服务中' ? 'bg-[#00aafc]/10 text-[#006496] border-[#00aafc]/20' :
-                                     order.statusCategory === '已完成' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                                     order.statusCategory === '已取消' ? 'bg-gray-100 text-gray-600 border-gray-200' :
-                                     'bg-[#ff7d00]/10 text-[#ff7d00] border-[#ff7d00]/20';
-
-                    return (
-                      <div 
-                        key={order.id || order.orderNo || idx}
-                        onClick={() => setSelectedOrderDetail(order)}
-                        className="bg-white p-4 rounded-2xl border border-[#dfc0af] shadow-2xs hover:border-[#ff7d00] transition-all cursor-pointer space-y-3 active:scale-[0.99]"
-                      >
-                        <div className="flex items-center justify-between border-b border-[#f0f0f0] pb-2.5">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-xs text-[#1a1c1c] font-mono">
-                              {order.orderNo || formatMerchantOrderNo(order, idx, filteredOrders.length)}
-                            </span>
-                            <span className="text-[10px] text-[#584235] bg-[#f3f3f3] px-2 py-0.5 rounded">
-                              {order.city || userTeamCity || '银川市'}
-                            </span>
-                          </div>
-                          <span className={`px-2 py-0.5 font-bold text-[10px] rounded border ${statusBg}`}>
-                            {order.statusCategory || '呼叫中'}
-                          </span>
-                        </div>
-
-                        <div className="space-y-2 text-xs">
-                          <div className="flex items-center gap-2 text-[#1a1c1c]">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                            <span className="font-bold truncate">{order.originName || order.startLocation || '顾客设定起点'}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-[#1a1c1c]">
-                            <span className="w-2 h-2 rounded-full bg-[#ff7d00] shrink-0" />
-                            <span className="font-bold truncate">{order.destName || order.destination || order.endLocation || '顾客指定目的地'}</span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between pt-2 border-t border-[#f0f0f0] text-xs text-[#584235]">
-                          <div className="flex items-center gap-3">
-                            <span>乘客: <strong className="text-[#1a1c1c]">{order.passengerPhone || '真实乘客'}</strong></span>
-                            <span>派单人: <strong className="text-[#1a1c1c]">{order.adminName || order.dispatchedByName || adminProfile.name || '系统派单'}</strong></span>
-                          </div>
-                          <span className="font-bold text-sm text-[#ff7d00]">
-                            {getOrderSyncPrice(order)}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </main>
-          </div>
-        );
-      })()}
-
-      {/* Management Team Modal (管理团队) */}
-      {showTeamManagementModal && (
+      {/* Management Team Modal (管理团队) - Removed as requested */}
+      {false && showTeamManagementModal && (
         <div className="absolute inset-0 z-50 bg-[#f9f9f9] text-[#1a1c1c] flex flex-col overflow-hidden animate-in fade-in duration-200">
           
           {/* TopAppBar Header */}
@@ -3415,8 +3211,8 @@ export default function DispatchValetOrder({
         </div>
       )}
 
-      {/* Applicant Approval Modal (团队审核 - 申请审批) */}
-      {showApplicantApprovalModal && (
+      {/* Applicant Approval Modal (团队审核 - 申请审批) - Removed as requested */}
+      {false && showApplicantApprovalModal && (
         <div className="absolute inset-0 z-50 bg-[#f9f9f9] text-[#1a1c1c] flex flex-col overflow-hidden animate-in fade-in duration-200">
           {/* TopAppBar */}
           <header className="bg-[#f9f9f9] w-full sticky top-0 z-50 border-b border-[#e2e2e2] flex justify-between items-center px-4 sm:px-5 h-14 shrink-0">
@@ -3572,8 +3368,8 @@ export default function DispatchValetOrder({
         </div>
       )}
 
-      {/* Custom Confirmation Modal for Clearing Orders */}
-      {showConfirmClearOrdersModal && (
+      {/* Custom Confirmation Modal for Clearing Orders - Removed as requested */}
+      {false && showConfirmClearOrdersModal && (
         <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-rose-100 flex flex-col gap-4 animate-in zoom-in-95 duration-200">
             <div className="flex items-center gap-3">

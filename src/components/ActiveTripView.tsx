@@ -554,15 +554,11 @@ export default function ActiveTripView({
 
   const stepKm = settings.deviationKm ?? 1.0;
   const stepWaitSec = settings.deviationWaitSec ?? 30;
-  const isForbiddenOnlineOrder = !!(trip.isOnlineOrder && trip.orderType === '后台指派订单');
 
   // Adjust distance manually (deviation helper to adjust on simulated app preview)
   const handleAdjustDistance = (amount: number) => {
-    if (isForbiddenOnlineOrder) {
-      return;
-    }
     if (!checkVipActive(settings.vipExpiry)) {
-      triggerToast('🔒 提示：纠偏功能为VIP会员专属特权！');
+      triggerToast('🔒 提示：纠偏功能为VIP会员专属特权！请先激活VIP。');
       return;
     }
     if (!settings.deviationMitigation) {
@@ -582,11 +578,8 @@ export default function ActiveTripView({
 
   // Adjust waiting time manually (deviation helper to adjust waiting duration in seconds)
   const handleAdjustWaitingTime = (amountSecs: number) => {
-    if (isForbiddenOnlineOrder) {
-      return;
-    }
     if (!checkVipActive(settings.vipExpiry)) {
-      triggerToast('🔒 提示：纠偏功能为VIP会员专属特权！');
+      triggerToast('🔒 提示：纠偏功能为VIP会员专属特权！请先激活VIP。');
       return;
     }
     if (!settings.deviationMitigation) {
@@ -726,33 +719,21 @@ export default function ActiveTripView({
             {/* Left half clickable area: Click to correct +stepKm */}
             <button
               onClick={(e) => { e.stopPropagation(); handleAdjustDistance(stepKm); }}
-              className={`w-1/2 bg-white ${
-                isForbiddenOnlineOrder
-                  ? 'cursor-default'
-                  : settings.deviationMitigation 
-                    ? 'hover:bg-emerald-50/5 active:bg-emerald-50/20 cursor-pointer' 
-                    : 'cursor-not-allowed opacity-90'
-              } transition-colors flex items-center justify-center p-3 relative focus:outline-hidden focus:ring-0 select-none`}
-              title={isForbiddenOnlineOrder ? undefined : (settings.deviationMitigation ? `纠偏里程增加 ${stepKm} 公里` : "纠偏功能已在设置中禁用")}
+              className="w-1/2 bg-white hover:bg-emerald-50/10 active:bg-emerald-50/25 cursor-pointer transition-colors flex items-center justify-center p-3 relative focus:outline-hidden focus:ring-0 select-none"
+              title={settings.deviationMitigation ? `纠偏里程增加 ${stepKm} 公里` : "点击使用纠偏功能"}
             >
             </button>
 
             {/* Right half clickable area: Click to correct -stepKm */}
             <button
               onClick={(e) => { e.stopPropagation(); handleAdjustDistance(-stepKm); }}
-              className={`w-1/2 bg-white ${
-                isForbiddenOnlineOrder
-                  ? 'cursor-default'
-                  : settings.deviationMitigation 
-                    ? 'hover:bg-rose-50/5 active:bg-rose-50/20 cursor-pointer' 
-                    : 'cursor-not-allowed opacity-90'
-              } transition-colors flex items-center justify-center p-3 relative focus:outline-hidden focus:ring-0 select-none`}
-              title={isForbiddenOnlineOrder ? undefined : (settings.deviationMitigation ? `纠偏里程减少 ${stepKm} 公里` : "纠偏功能已在设置中禁用")}
+              className="w-1/2 bg-white hover:bg-rose-50/10 active:bg-rose-50/25 cursor-pointer transition-colors flex items-center justify-center p-3 relative focus:outline-hidden focus:ring-0 select-none"
+              title={settings.deviationMitigation ? `纠偏里程减少 ${stepKm} 公里` : "点击使用纠偏功能"}
             >
             </button>
 
             {/* Centered Overlay Badge: Show current distance value and status label */}
-            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none select-none z-10 flex flex-col items-center justify-center min-w-[100px] ${(!settings.deviationMitigation || isForbiddenOnlineOrder) ? 'opacity-65' : ''}`}>
+            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none select-none z-10 flex flex-col items-center justify-center min-w-[100px] ${!settings.deviationMitigation ? 'opacity-80' : ''}`}>
               <div className="text-2xl font-black text-[#26a69a] font-mono leading-none mb-1">
                 {trip.currentDistance.toFixed(2)}
               </div>
@@ -770,33 +751,21 @@ export default function ActiveTripView({
             {/* Left half clickable area: Click to increase waiting by stepWaitSec */}
             <button
               onClick={(e) => { e.stopPropagation(); handleAdjustWaitingTime(stepWaitSec); }}
-              className={`w-1/2 bg-white ${
-                isForbiddenOnlineOrder
-                  ? 'cursor-default'
-                  : settings.deviationMitigation 
-                    ? 'hover:bg-emerald-50/5 active:bg-emerald-50/20 cursor-pointer' 
-                    : 'cursor-not-allowed opacity-90'
-              } transition-colors flex items-center justify-center p-3 relative focus:outline-hidden focus:ring-0 select-none`}
-              title={isForbiddenOnlineOrder ? undefined : (settings.deviationMitigation ? `纠偏等候增加 ${stepWaitSec} 秒` : "纠偏功能已在设置中禁用")}
+              className="w-1/2 bg-white hover:bg-emerald-50/10 active:bg-emerald-50/25 cursor-pointer transition-colors flex items-center justify-center p-3 relative focus:outline-hidden focus:ring-0 select-none"
+              title={settings.deviationMitigation ? `纠偏等候增加 ${stepWaitSec} 秒` : "点击使用纠偏功能"}
             >
             </button>
 
             {/* Right half clickable area: Click to decrease waiting by stepWaitSec */}
             <button
               onClick={(e) => { e.stopPropagation(); handleAdjustWaitingTime(-stepWaitSec); }}
-              className={`w-1/2 bg-white ${
-                isForbiddenOnlineOrder
-                  ? 'cursor-default'
-                  : settings.deviationMitigation 
-                    ? 'hover:bg-rose-50/5 active:bg-rose-50/20 cursor-pointer' 
-                    : 'cursor-not-allowed opacity-90'
-              } transition-colors flex items-center justify-center p-3 relative focus:outline-hidden focus:ring-0 select-none`}
-              title={isForbiddenOnlineOrder ? undefined : (settings.deviationMitigation ? `纠偏等候减少 ${stepWaitSec} 秒` : "纠偏功能已在设置中禁用")}
+              className="w-1/2 bg-white hover:bg-rose-50/10 active:bg-rose-50/25 cursor-pointer transition-colors flex items-center justify-center p-3 relative focus:outline-hidden focus:ring-0 select-none"
+              title={settings.deviationMitigation ? `纠偏等候减少 ${stepWaitSec} 秒` : "点击使用纠偏功能"}
             >
             </button>
 
             {/* Centered Overlay Badge: Show current waiting metrics and status labels */}
-            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none select-none z-10 flex flex-col items-center justify-center min-w-[124px] ${(!settings.deviationMitigation || isForbiddenOnlineOrder) ? 'opacity-65' : ''}`}>
+            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none select-none z-10 flex flex-col items-center justify-center min-w-[124px] ${!settings.deviationMitigation ? 'opacity-80' : ''}`}>
               <div className="text-2xl font-black text-[#26a69a] font-mono leading-none text-center">
                 {formatHms(waitingSeconds)}
               </div>

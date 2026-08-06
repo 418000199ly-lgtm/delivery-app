@@ -27,10 +27,11 @@ import {
   DEFAULT_SETTINGS,
   checkVipActive
 } from './types';
-import { Sparkles, CheckCircle, Database, Smartphone, Users, ShieldAlert, FileCode, Bot, Download } from 'lucide-react';
+import { Sparkles, CheckCircle, Database, Smartphone, Users, ShieldAlert, FileCode, Bot, Download, Store } from 'lucide-react';
 import AdminPanel from './components/AdminPanel';
 import LoginView from './components/LoginView';
-import { db, doc, onSnapshot, setDoc, deleteDoc, collection, getDoc } from './lib/dbProxy';
+import MobileDispatchValetOrder from './components/MobileDispatchValetOrder';
+import { db, doc, onSnapshot, setDoc, deleteDoc, collection, getDoc, getBaseApiUrl } from './lib/dbProxy';
 import { IncomingOrderOverlay } from './components/IncomingOrderOverlay';
 import { speakText, initAudioUnlock } from './utils/speech';
 import { getDeviceId, clearDeviceSession } from './utils/deviceSession';
@@ -496,149 +497,169 @@ export default function App() {
     }
   }, []);
 
-  // Periodically track physical geolocation of the driver, and update/sync it onto their driver_user document in Firestore
+  // State to check if driver is approved squad member or management team member
+  const [isSquadApprovedOrManagement, setIsSquadApprovedOrManagement] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!userPhone) {
+      setIsSquadApprovedOrManagement(false);
+      return;
+    }
+
+    const managementRoles = ['开发者司机', '城市老板司机', '城市管理司机', '城市派单员司机', '总指挥官', '开发者'];
+    if (userPhone === '15509601222') {
+      setIsSquadApprovedOrManagement(true);
+      return;
+    }
+
+    const unsub1 = onSnapshot(doc(db, 'driver_users', userPhone), (snap) => {
+      if (snap.exists()) {
+        const d = snap.data();
+        if (d && managementRoles.includes(d.role || d.userRole)) {
+          setIsSquadApprovedOrManagement(true);
+          return;
+        }
+      }
+    });
+
+    const unsub2 = onSnapshot(doc(db, 'squad_members', userPhone), (snap) => {
+      if (snap.exists()) {
+        const sm = snap.data();
+        const st = sm?.status || sm?.approvalStatus || '';
+        if (['已通过', 'approved', '通过'].includes(st)) {
+          setIsSquadApprovedOrManagement(true);
+        } else {
+          setIsSquadApprovedOrManagement(false);
+        }
+      } else {
+        try {
+          const saved = localStorage.getItem('dd_squad_members_v2');
+          if (saved) {
+            const members = JSON.parse(saved);
+            const m = members.find((mem: any) => mem.phone === userPhone);
+            if (m && ['已通过', 'approved', '通过'].includes(m.status || m.approvalStatus)) {
+              setIsSquadApprovedOrManagement(true);
+              return;
+            }
+          }
+        } catch (_) {}
+        setIsSquadApprovedOrManagement(false);
+      }
+    });
+
+    return () => {
+      unsub1();
+      unsub2();
+    };
+  }, [userPhone]);
+
+  // 20-Second Automatic Location Upload to Baota Server & Firestore
+  // Strict Rules:
+  // 1. Only run if driver is ONLINE (isOnline === true).
+  // 2. Only run if driver is an approved squad member OR a management team member.
+  // 3. OFFLINE state -> DO NOT fetch location, DO NOT upload location.
+  // 4. NOT approved / NOT in squad -> DO NOT fetch location, DO NOT upload location.
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    const syncDriverLocation = () => {
+    if (!userPhone || !isOnline || !isSquadApprovedOrManagement) {
+      return;
+    }
+
+    const report20sLocation = () => {
       const city = settings?.city || '银川市';
       const fallbackGrid = getCityCenterCoords(city);
       const AMap = (window as any).AMap;
 
-      const updateCoords = (latitude: number, longitude: number, methodUsed: string) => {
+      const performUpload = (latitude: number, longitude: number, methodUsed: string) => {
         setDriverCoords({ lat: latitude, lng: longitude });
         localStorage.setItem('dd_bg_driver_coords_lat', latitude.toString());
         localStorage.setItem('dd_bg_driver_coords_lng', longitude.toString());
-        
-        // Silently store coordinate updates directly onto the active DB document to let simulated matching query work stably
-        if (userPhone && isOnline) {
-          const uRef = doc(db, 'driver_users', userPhone);
-          setDoc(uRef, { 
-            lat: latitude, 
-            lng: longitude, 
-            lastUpdatedBy: methodUsed, 
-            lastUpdatedTime: new Date().toISOString() 
-          }, { merge: true }).catch((e) => {
-            console.error("Failed to sync driver GPS location coordinates to Firestore:", e);
-          });
-        }
 
-        // Trigger real-time reverse geocoding on coordinate update to keep high-precision location name in sync in background
-        if (AMap) {
-          AMap.plugin('AMap.Geocoder', () => {
-            try {
-              const geocoder = new AMap.Geocoder({
-                city: city,
-                extensions: 'all'
-              });
-              geocoder.getAddress([longitude, latitude], (geoStatus: string, geoResult: any) => {
-                if (geoStatus === 'complete' && geoResult.regeocode) {
-                  const name = getHighPrecisionLocationName(geoResult.regeocode, geoResult.regeocode.formattedAddress, longitude, latitude);
-                  localStorage.setItem('dd_bg_driver_coords_name', name);
-                }
-              });
-            } catch (e) {
-              console.warn("Geocoder background execution failed:", e);
-            }
-          });
-        }
+        const timestampIso = new Date().toISOString();
+        const payload = {
+          phone: userPhone,
+          driverName: settings.driverName || '代驾司机',
+          lat: latitude,
+          lng: longitude,
+          isOnline: true,
+          onlineOrdersEnabled: true,
+          isBusy: !!currentTrip,
+          city: city,
+          lastUpdatedBy: methodUsed,
+          lastUpdatedTime: timestampIso
+        };
+
+        // 1. Update driver_users collection
+        setDoc(doc(db, 'driver_users', userPhone), payload, { merge: true }).catch(() => {});
+
+        // 2. Update squad_members collection
+        setDoc(doc(db, 'squad_members', userPhone), payload, { merge: true }).catch(() => {});
+
+        // 3. Update driver_locations collection
+        setDoc(doc(db, 'driver_locations', userPhone), payload, { merge: true }).catch(() => {});
+
+        // 4. Directly upload to Alibaba Cloud Baota Server Panel API endpoint
+        try {
+          const baseUrl = getBaseApiUrl();
+          fetch(`${baseUrl}/api/driver/location`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              phone: userPhone,
+              lat: latitude,
+              lng: longitude,
+              isOnline: true,
+              isBusy: !!currentTrip,
+              timestamp: Date.now()
+            })
+          }).catch(() => {});
+        } catch (_) {}
       };
 
-      const fallbackToBrowserGeolocation = () => {
-        if (navigator.geolocation) {
-          try {
-            navigator.geolocation.getCurrentPosition(
-              (pos) => {
-                const latitude = pos.coords.latitude;
-                const longitude = pos.coords.longitude;
-                updateCoords(latitude, longitude, "HTML5 Geolocation (High Accuracy)");
-              },
-              (err) => {
-                console.warn("⚡ [App GPS] High-accuracy tracking failed, trying lower accuracy fallback:", err.message);
-                navigator.geolocation.getCurrentPosition(
-                  (pos2) => {
-                    const latitude2 = pos2.coords.latitude;
-                    const longitude2 = pos2.coords.longitude;
-                    updateCoords(latitude2, longitude2, "HTML5 Geolocation (Standard Accuracy)");
-                  },
-                  (err2) => {
-                    console.warn("⚡ [App GPS] All tracking attempts failed, using city center fallback:", err2.message);
-                    setDriverCoords(fallbackGrid);
-
-                    if (userPhone && isOnline) {
-                      const uRef = doc(db, 'driver_users', userPhone);
-                      setDoc(uRef, { 
-                        ...fallbackGrid, 
-                        lastUpdatedBy: "City Center Fallback", 
-                        lastUpdatedTime: new Date().toISOString() 
-                      }, { merge: true }).catch((e) => {
-                        console.error("Failed to sync driver fallback coordinates to Firestore:", e);
-                      });
-                    }
-                  },
-                  { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 }
-                );
-              },
-              { enableHighAccuracy: true, timeout: 8000, maximumAge: 300000 }
-            );
-          } catch (geoErr) {
-            console.warn("Synchronous geolocation error caught inside iframe fallback:", geoErr);
-            setDriverCoords(fallbackGrid);
-          }
-        } else {
-          setDriverCoords(fallbackGrid);
-          if (userPhone && isOnline) {
-            const uRef = doc(db, 'driver_users', userPhone);
-            setDoc(uRef, { 
-              ...fallbackGrid, 
-              lastUpdatedBy: "City Center Fallback No GPS Support", 
-              lastUpdatedTime: new Date().toISOString() 
-            }, { merge: true }).catch((e) => {
-              console.error("Failed to sync driver fallback coordinates to Firestore:", e);
-            });
-          }
-        }
-      };
-
-      // If Gaode Map AMap SDK is loaded, prefer AMap Geolocation (highly optimized for domestic high accuracy and fast positioning)
       if (AMap) {
         AMap.plugin('AMap.Geolocation', () => {
           try {
             const geolocation = new AMap.Geolocation({
-              enableHighAccuracy: true,  // Use GPS/high accuracy
-              timeout: 8000,             // 8s timeout to allow satellite lock
-              noIpLocate: 0,             // Support IP fallback if GPS fails
+              enableHighAccuracy: true,
+              timeout: 8000,
+              noIpLocate: 0,
               noGeoLocation: 0,
             });
 
             geolocation.getCurrentPosition((status: string, result: any) => {
               if (status === 'complete' && result.position) {
-                const lat = result.position.lat;
-                const lng = result.position.lng;
-                updateCoords(lat, lng, "Gaode Map (AMap) Geolocation API");
+                performUpload(result.position.lat, result.position.lng, "Gaode AMap 20s Auto Reporter");
+              } else if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                  (pos) => performUpload(pos.coords.latitude, pos.coords.longitude, "HTML5 Geolocation 20s Reporter"),
+                  () => performUpload(fallbackGrid.lat, fallbackGrid.lng, "City Center Fallback 20s Reporter"),
+                  { enableHighAccuracy: true, timeout: 8000 }
+                );
               } else {
-                console.warn("Gaode AMap Geolocation plugin failed, falling back to browser API. Details:", status, result);
-                fallbackToBrowserGeolocation();
+                performUpload(fallbackGrid.lat, fallbackGrid.lng, "City Center Fallback 20s Reporter");
               }
             });
-          } catch (e) {
-            console.error("Exception during Gaode AMap Geolocation:", e);
-            fallbackToBrowserGeolocation();
+          } catch (_) {
+            performUpload(fallbackGrid.lat, fallbackGrid.lng, "City Center Fallback 20s Reporter");
           }
         });
-      } else {
-        // Fallback directly to native browser API if AMap is not ready yet
-        fallbackToBrowserGeolocation();
+      } else if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => performUpload(pos.coords.latitude, pos.coords.longitude, "HTML5 Geolocation 20s Reporter"),
+          () => performUpload(fallbackGrid.lat, fallbackGrid.lng, "City Center Fallback 20s Reporter"),
+          { enableHighAccuracy: true, timeout: 8000 }
+        );
       }
     };
 
-    // Trigger instant location alignment on mount / status transitions
-    syncDriverLocation();
+    // Trigger initial report
+    report20sLocation();
 
-    // Recheck location every 12 seconds to ensure high accuracy
-    const trackTimer = setInterval(syncDriverLocation, 12000);
-    return () => clearInterval(trackTimer);
-  }, [userPhone, isOnline, settings?.city]);
+    // Setup 20s recurring interval timer
+    const timer20s = setInterval(report20sLocation, 20000);
+    return () => clearInterval(timer20s);
+  }, [userPhone, isOnline, isSquadApprovedOrManagement, settings?.city, currentTrip]);
 
   const handleLogout = () => {
     if (userPhone) {
@@ -1021,7 +1042,19 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('dd_is_online', isOnline ? 'true' : 'false');
-  }, [isOnline]);
+    if (userPhone) {
+      setDoc(doc(db, 'driver_users', userPhone), {
+        isOnline: isOnline,
+        onlineOrdersEnabled: isOnline,
+        lastUpdatedTime: new Date().toISOString()
+      }, { merge: true }).catch(() => {});
+
+      setDoc(doc(db, 'squad_members', userPhone), {
+        isOnline: isOnline,
+        lastUpdatedTime: new Date().toISOString()
+      }, { merge: true }).catch(() => {});
+    }
+  }, [isOnline, userPhone]);
 
   // Active Account Ban Listener: automatically force-offline banned driver
   useEffect(() => {
@@ -1065,6 +1098,27 @@ export default function App() {
     return () => unsubscribe();
   }, [userPhone, currentView, isOnline]);
 
+  // Listen for real-time cancellation of driver's active online order
+  useEffect(() => {
+    if (!activeOnlineOrder) return;
+    const activeOrderId = activeOnlineOrder.id || activeOnlineOrder.orderId;
+    if (!activeOrderId) return;
+
+    const unsubscribe = onSnapshot(doc(db, 'merchant_orders', activeOrderId), (docSnap) => {
+      if (!docSnap.exists() || docSnap.data()?.status === 'cancelled') {
+        setActiveOnlineOrder(null);
+        if (currentView === 'create_order') {
+          setCurrentView('home');
+          triggerToast('⚠️ 当前订单已被派单管理员或商户取消，软件已自动为您回到 App 首页');
+        }
+      }
+    }, (err) => {
+      console.warn("Error listening to active order status:", err);
+    });
+
+    return () => unsubscribe();
+  }, [activeOnlineOrder, currentView]);
+
   const handleAcceptIncomingOrder = (trip: TripState) => {
     if (!userPhone) return;
     setActiveOnlineOrder(incomingOrder);
@@ -1079,8 +1133,29 @@ export default function App() {
 
   const handleDeclineIncomingOrder = () => {
     if (!userPhone) return;
+    if (incomingOrder) {
+      const orderId = incomingOrder.orderId || incomingOrder.id;
+      if (orderId) {
+        setDoc(doc(db, 'merchant_orders', orderId), {
+          status: 'hall',
+          dispatchedDriverPhone: ''
+        }, { merge: true }).catch(err => {
+          console.error("Error updating merchant_orders status to hall:", err);
+        });
+      }
+      try {
+        const saved = JSON.parse(localStorage.getItem('dd_merchant_orders_v2') || '[]');
+        const updated = saved.map((o: any) => {
+          if (o.id === orderId || (incomingOrder.passengerPhone && o.passengerPhone === incomingOrder.passengerPhone)) {
+            return { ...o, status: 'hall', dispatchedDriverPhone: '' };
+          }
+          return o;
+        });
+        localStorage.setItem('dd_merchant_orders_v2', JSON.stringify(updated));
+      } catch (_) {}
+    }
     setIncomingOrder(null);
-    triggerToast('已拒收/取消当前派发的线上订单。');
+    triggerToast('已取消接单，订单已转移至【选单大厅】。');
     // Clear/delete the passenger link doc to finish the session
     deleteDoc(doc(db, 'passenger_links', userPhone)).catch(err => {
       console.error("Error clearing declined passenger order link document:", err);
@@ -1414,6 +1489,18 @@ export default function App() {
       );
     }
 
+    if (mobileActiveTab === 'dispatch_valet') {
+      return (
+        <MobileDispatchValetOrder
+          onShowToast={triggerToast}
+          userPhone={userPhone}
+          userRole={userRole}
+          userTeamCity={userTeamCity}
+          onClose={() => setMobileActiveTab('app')}
+        />
+      );
+    }
+
     if (mobileActiveTab === 'passenger' || mobileActiveTab === 'qr_expired' || mobileActiveTab === 'vip_blocked' || passengerDriverPhone) {
       return (
         <PassengerOrderView 
@@ -1497,7 +1584,42 @@ export default function App() {
             stats={stats}
             userPhone={userPhone}
             onStartTrip={handleStartTrip}
-            onNavigateBack={() => {
+            onNavigateBack={async () => {
+              if (activeOnlineOrder) {
+                const orderId = activeOnlineOrder.id || activeOnlineOrder.orderId;
+                if (orderId) {
+                  try {
+                    if (db) {
+                      await setDoc(doc(db, 'merchant_orders', orderId), {
+                        in_hall: false,
+                        status: 'dispatched',
+                        statusCategory: '已接单',
+                        dispatchedDriverPhone: userPhone || activeOnlineOrder.dispatchedDriverPhone || ''
+                      }, { merge: true });
+                    }
+                  } catch (e) {
+                    console.error("Error updating merchant order status on navigate back:", e);
+                  }
+
+                  try {
+                    const saved = JSON.parse(localStorage.getItem('dd_merchant_orders_v2') || '[]');
+                    const updated = saved.map((o: any) => {
+                      if (o.id === orderId || o.orderId === orderId) {
+                        return {
+                          ...o,
+                          in_hall: false,
+                          status: 'dispatched',
+                          statusCategory: '已接单',
+                          dispatchedDriverPhone: userPhone || o.dispatchedDriverPhone || ''
+                        };
+                      }
+                      return o;
+                    });
+                    localStorage.setItem('dd_merchant_orders_v2', JSON.stringify(updated));
+                    window.dispatchEvent(new CustomEvent('merchant_orders_updated'));
+                  } catch (_) {}
+                }
+              }
               setActiveOnlineOrder(null);
               setCurrentView('home');
             }}
@@ -1689,6 +1811,18 @@ export default function App() {
           </button>
 
           <button
+            onClick={() => setMobileActiveTab('dispatch_valet')}
+            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
+              mobileActiveTab === 'dispatch_valet'
+                ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-slate-950 font-bold shadow-md'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            <Store className="w-3.5 h-3.5 text-amber-300" />
+            <span>商户代叫(手机网页版)</span>
+          </button>
+
+          <button
             onClick={() => setMobileActiveTab('passenger')}
             className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
               mobileActiveTab === 'passenger'
@@ -1790,7 +1924,7 @@ export default function App() {
           <>
             {/* Left pane: Smartphone simulator containing driver client app or passenger self booking view */}
             <div className={`flex flex-col items-center justify-center transition-all duration-300 shrink-0 ${
-              mobileActiveTab === 'app' || mobileActiveTab === 'passenger' || mobileActiveTab === 'qr_expired' || mobileActiveTab === 'vip_blocked' ? 'flex-1 max-w-[420px] w-full' : 'hidden lg:flex lg:w-[400px]'
+              mobileActiveTab === 'app' || mobileActiveTab === 'dispatch_valet' || mobileActiveTab === 'passenger' || mobileActiveTab === 'qr_expired' || mobileActiveTab === 'vip_blocked' ? 'flex-1 max-w-[420px] w-full' : 'hidden lg:flex lg:w-[400px]'
             }`}>
               <div className="relative w-full h-full sm:h-[82vh] sm:max-h-[820px] sm:rounded-[40px] sm:shadow-[0_25px_60px_-15px_rgba(0,0,0,0.95)] sm:border-8 sm:border-[#1e293b] bg-[#f8fafc] flex flex-col overflow-hidden">
                 <div className="flex-1 flex flex-col relative overflow-hidden text-[#333333]">

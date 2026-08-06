@@ -33,12 +33,20 @@ import {
   Trash2,
   Search,
   Shield,
+  ShieldAlert,
   UserCheck,
   UserX,
   Check,
   Loader2,
   Briefcase,
-  Phone
+  Phone,
+  ArrowLeft,
+  Send,
+  ShieldCheck,
+  Smartphone,
+  Info,
+  Headset,
+  FileX
 } from 'lucide-react';
 import { ChauffeurSettings, DriverStats, TripState, BillingRules, checkVipActive } from '../types';
 import DriverIllustration from './DriverIllustration';
@@ -221,6 +229,473 @@ export default function HomeView({
   const [squadKickConfirm, setSquadKickConfirm] = useState<{ phone: string; name?: string } | null>(null);
   const [squadNotification, setSquadNotification] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // --- Order Selection Hall States & Real-time Subscription ---
+  const [hallOrders, setHallOrders] = useState<any[]>([]);
+
+  useEffect(() => {
+    const handleOrdersUpdated = () => {
+      try {
+        const saved = JSON.parse(localStorage.getItem('dd_merchant_orders_v2') || '[]');
+        if (saved.length === 0) {
+          setHallOrders([]);
+        } else {
+          const validIds = new Set(
+            saved
+              .filter((o: any) => 
+                o && 
+                o.in_hall !== false && 
+                (o.status === 'hall' || (!o.status && o.in_hall === true)) && 
+                !o.dispatchedDriverPhone &&
+                o.status !== 'cancelled' && 
+                o.status !== 'dispatched' && 
+                o.status !== 'claimed' && 
+                o.status !== 'accepted' && 
+                o.status !== 'taken' && 
+                o.status !== 'arrived' && 
+                o.status !== 'serving' && 
+                o.status !== 'completed'
+              )
+              .map((o: any) => o.id || o.orderId)
+          );
+          setHallOrders((prev) => prev.filter((ord: any) => validIds.has(ord.id) || validIds.has(ord.orderId)));
+        }
+      } catch (_) {
+        setHallOrders([]);
+      }
+    };
+
+    window.addEventListener('merchant_orders_updated', handleOrdersUpdated);
+
+    if (!db) return () => window.removeEventListener('merchant_orders_updated', handleOrdersUpdated);
+    try {
+      const q = collection(db, 'merchant_orders');
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const list: any[] = [];
+        const now = Date.now();
+        const TIMEOUT_20_MIN = 20 * 60 * 1000;
+
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          const isHallOrder = Boolean(
+            data && 
+            data.in_hall !== false && 
+            (data.status === 'hall' || (!data.status && data.in_hall === true)) && 
+            !data.dispatchedDriverPhone &&
+            data.status !== 'cancelled' && 
+            data.status !== 'dispatched' && 
+            data.status !== 'claimed' && 
+            data.status !== 'accepted' && 
+            data.status !== 'taken' && 
+            data.status !== 'arrived' && 
+            data.status !== 'serving' && 
+            data.status !== 'completed'
+          );
+
+          if (isHallOrder) {
+            const age = data.timestamp ? (now - data.timestamp) : 0;
+            if (age >= TIMEOUT_20_MIN) {
+              // Auto cancel expired hall orders after 20 minutes
+              setDoc(doc(db, 'merchant_orders', docSnap.id), {
+                status: 'cancelled',
+                statusCategory: '已取消',
+                cancelReason: '选单大厅20分钟无人接单，系统自动取消',
+                cancelledAt: now
+              }, { merge: true }).catch(() => {});
+            } else {
+              list.push({ id: docSnap.id, ...data });
+            }
+          }
+        });
+        list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        setHallOrders(list);
+      }, (err) => {
+        console.warn("Error listening to merchant_orders in HomeView:", err);
+      });
+      return () => {
+        window.removeEventListener('merchant_orders_updated', handleOrdersUpdated);
+        unsubscribe();
+      };
+    } catch (e) {
+      console.warn("Failed to subscribe to merchant_orders:", e);
+      return () => window.removeEventListener('merchant_orders_updated', handleOrdersUpdated);
+    }
+  }, []);
+
+  // --- Order Selection Hall Simulation Removed for Real Dispatches ---
+  useEffect(() => {
+    // Only real orders are dispatched now
+  }, []);
+
+  const handleClaimHallOrder = async (ord: any) => {
+    if (!checkApprovalStatus() || ord?.isSimulated) {
+      alert('您没有加入小队，无商户代叫订单权限！');
+      return;
+    }
+
+    try {
+      if (db) {
+        await setDoc(doc(db, 'merchant_orders', ord.id), {
+          status: 'claimed',
+          dispatchedDriverPhone: userPhone || ''
+        }, { merge: true });
+      }
+
+      try {
+        const saved = JSON.parse(localStorage.getItem('dd_merchant_orders_v2') || '[]');
+        const updated = saved.filter((o: any) => o.id !== ord.id);
+        localStorage.setItem('dd_merchant_orders_v2', JSON.stringify(updated));
+      } catch (_) {}
+
+      if (db && userPhone) {
+        await setDoc(doc(db, 'passenger_links', userPhone), {
+          passengerPhone: ord.passengerPhone,
+          startLocation: ord.startLocation,
+          destination: '由司机根据现场口头协商规划行程',
+          status: 'submitted',
+          timestamp: Date.now(),
+          isValetOrder: true,
+          isPlatformDispatch: true,
+          approxPrice: '未知',
+          calculatedTotalFee: 40.00,
+          estimatedPrice: '40.00',
+          orderRemark: ord.orderRemark || '商户代叫',
+          needScooter: ord.needScooter,
+          scheduledTime: ord.scheduledTime,
+          passengerLat: ord.passengerLat,
+          passengerLng: ord.passengerLng,
+          orderId: ord.id
+        });
+      }
+
+      triggerToast('✓ 已成功接单！正为您弹出的新来单页面...');
+    } catch (err: any) {
+      alert('接单失败：' + err.message);
+    }
+  };
+
+  // --- Apply to Join Squad Modal States ---
+  const [showApplySquadModal, setShowApplySquadModal] = useState(false);
+  const [showAdminDispatchView, setShowAdminDispatchView] = useState(false);
+  const initialDriverName = (settings as any)?.driverName || (settings as any)?.name || '';
+  const [applyName, setApplyName] = useState(initialDriverName === '张三' ? '' : initialDriverName);
+  const [applyPhone, setApplyPhone] = useState(userPhone || '13812345678');
+  const [applyRemarks, setApplyRemarks] = useState('');
+  const [isSubmittingApply, setIsSubmittingApply] = useState(false);
+  const [isReapplying, setIsReapplying] = useState(false);
+
+  useEffect(() => {
+    if (userPhone) {
+      setApplyPhone(userPhone);
+    }
+  }, [userPhone]);
+
+  // 秒级提交申请加入小队处理函数
+  const processApplicationSubmission = (closeModalCallback: () => void) => {
+    if (!applyName.trim()) {
+      setLocalAlert({ title: '提示', message: '请输入申请人真实姓名', type: 'error' });
+      return;
+    }
+    const currentPhone = (userPhone || applyPhone || '').trim();
+    if (!currentPhone || !/^1[3-9]\d{9}$/.test(currentPhone)) {
+      setLocalAlert({ title: '提示', message: '请输入正确的11位手机号码', type: 'error' });
+      return;
+    }
+
+    setIsSubmittingApply(true);
+
+    // 100ms 秒级提交响应
+    setTimeout(() => {
+      try {
+        const noteText = applyRemarks.trim() || '身份信息确认填写正确，申请加入小队！';
+        
+        // 1. 本地存储更新 dd_applicants_v2
+        const savedApps = localStorage.getItem('dd_applicants_v2');
+        const existingApps = savedApps ? JSON.parse(savedApps) : [];
+        const newApp = {
+          id: `app-${Date.now()}`,
+          name: applyName.trim(),
+          phone: currentPhone,
+          status: '待审核',
+          note: noteText,
+          showReasons: false,
+          selectedReasons: [],
+          createdAt: new Date().toLocaleString()
+        };
+        const updatedApps = [newApp, ...existingApps.filter((a: any) => a.phone !== currentPhone)];
+        localStorage.setItem('dd_applicants_v2', JSON.stringify(updatedApps));
+
+        // 2. 本地存储更新 dd_squad_members_v2 (支持国内宝塔面板单机部署)
+        const savedMembers = localStorage.getItem('dd_squad_members_v2');
+        const existingMembers = savedMembers ? JSON.parse(savedMembers) : [];
+        const updatedMembers = [
+          {
+            id: currentPhone,
+            phone: currentPhone,
+            name: applyName.trim(),
+            role: '普通司机',
+            status: '待审核',
+            note: noteText,
+            city: effectiveCity || '银川市',
+            createdAt: Date.now()
+          },
+          ...existingMembers.filter((m: any) => m.phone !== currentPhone)
+        ];
+        localStorage.setItem('dd_squad_members_v2', JSON.stringify(updatedMembers));
+
+        // 3. 兼容写入 Firestore (在非国内环境或配置了DB时同步，报错静默容错)
+        if (db) {
+          setDoc(doc(db, 'squad_members', currentPhone), {
+            name: applyName.trim(),
+            phone: currentPhone,
+            status: '待审核',
+            note: noteText,
+            lastUpdatedTime: new Date().toLocaleString()
+          }, { merge: true }).catch(() => {});
+        }
+      } catch (_) {}
+
+      setIsSubmittingApply(false);
+      setIsReapplying(false);
+      closeModalCallback();
+      setLocalAlert({
+        title: '申请提交成功',
+        message: '🎉 您的入队申请已成功提交！后台（开发者司机/老板司机/管理司机/派单员司机）将会在 1 个工作日内完成审核批复。',
+        type: 'info'
+      });
+    }, 100);
+  };
+
+  const checkApprovalStatus = () => {
+    // 开发者司机、城市老板司机、城市管理司机、城市派单员司机不用申请加入小队就可以接收到真实订单
+    if (['开发者司机', '城市老板司机', '城市管理司机', '城市派单员司机'].includes(userRole)) {
+      return true;
+    }
+
+    if (isReapplying) return false;
+    const currentPhone = (userPhone || applyPhone || '').trim();
+    if (!currentPhone) return false;
+
+    // 1. Check in localStorage dd_squad_members_v2
+    try {
+      const savedM = localStorage.getItem('dd_squad_members_v2');
+      if (savedM) {
+        const members = JSON.parse(savedM);
+        const myMember = members.find((m: any) => m.phone === currentPhone);
+        if (myMember && ['已通过', 'approved', '通过'].includes(myMember.status)) {
+          return true;
+        }
+      }
+    } catch (_) {}
+
+    // 2. Check in state squadMembers
+    const memberInState = squadMembers.find((m: any) => m.phone === currentPhone);
+    if (memberInState && ['已通过', 'approved', '通过'].includes(memberInState.status)) {
+      return true;
+    }
+
+    // 3. Check in localStorage dd_applicants_v2
+    try {
+      const savedApps = localStorage.getItem('dd_applicants_v2');
+      if (savedApps) {
+        const apps = JSON.parse(savedApps);
+        const myApp = apps.find((a: any) => a.phone === currentPhone);
+        if (myApp && ['已通过', 'approved', '通过'].includes(myApp.status)) {
+          return true;
+        }
+      }
+    } catch (_) {}
+
+    return false;
+  };
+
+  const renderApprovedResultView = (onCloseModal: () => void) => (
+    <div className="flex flex-col h-full bg-[#f9f9f9] text-[#1a1c1c] font-sans overflow-y-auto">
+      {/* Top AppBar */}
+      <header className="sticky top-0 w-full z-50 h-14 bg-[#f9f9f9] border-b border-[#dfc0af]/60 flex items-center justify-between px-5 shrink-0">
+        <button 
+          type="button"
+          onClick={onCloseModal}
+          className="p-1 rounded-full hover:bg-slate-200/60 transition-colors active:scale-95 cursor-pointer text-[#1a1c1c]"
+        >
+          <ArrowLeft className="w-6 h-6" />
+        </button>
+        <h1 className="text-lg font-bold text-[#984800]">审核通过</h1>
+        <div className="w-8"></div>
+      </header>
+
+      {/* Main Content Canvas */}
+      <main className="flex-grow flex flex-col items-center justify-center px-5 py-8 max-w-md mx-auto w-full text-center">
+        {/* Success Icon Badge */}
+        <div className="relative mb-6">
+          <div className="w-24 h-24 rounded-full bg-[#ff7d00]/10 flex items-center justify-center border-4 border-[#ff7d00]/20 shadow-md">
+            <CheckCircle2 className="w-16 h-16 text-[#ff7d00]" />
+          </div>
+        </div>
+
+        {/* Titles */}
+        <h2 className="text-2xl font-bold text-[#1a1c1c] mb-1">恭喜您已成功加入小队</h2>
+        <p className="text-base text-[#5f5e5e] mb-2">您已成功通过审核</p>
+        <div className="text-sm font-semibold text-[#984800] mb-6">祝您订单多多，收入多多！</div>
+
+        {/* Info Card (Styled) */}
+        <div className="w-full bg-white border border-[#dfc0af]/70 rounded-2xl p-4 mb-6 text-left shadow-xs space-y-2">
+          <div className="flex items-center gap-2 text-[#984800]">
+            <Info className="w-5 h-5 text-[#984800]" />
+            <h3 className="text-xs font-bold uppercase tracking-wider">接单范围</h3>
+          </div>
+          <p className="text-sm text-[#1a1c1c] leading-relaxed font-medium">
+            商户代叫订单、司机代叫转单
+          </p>
+        </div>
+
+        {/* Driver Identity Glimpse */}
+        <div className="w-full relative rounded-2xl overflow-hidden h-40 mb-6 shadow-sm border border-[#dfc0af]/70">
+          <div 
+            className="absolute inset-0 bg-cover bg-center" 
+            style={{ backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuBnkjo4Ycdl83VMSaF0VbeVqtlnBkrd2vhoui54P0U-jyvmnxE7JoG3gZCe6E3nqg9eh_qVrmkdkR2i9SygSuxeDQmKwp5T4ApCae8Fbdzr8NTZ3avaP27DfuHJi1SeIjunnSrahO2Kp71MgTQPl7ljplfnWDDgB23k0XoC5AHIj-fOa-L699dy88CKVjgF7CnOU24m3PsdZCmYsR_KdM36DsOlt7zsGDNGRjDKQORR3a2JxAAK9w_Uug')" }}
+          ></div>
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent flex items-end p-4">
+            <div className="text-white text-left">
+              <p className="text-xs opacity-80 font-medium">当前状态</p>
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                <span className="text-lg font-bold">准备就绪</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      {/* Sticky Bottom Actions */}
+      <footer className="sticky bottom-0 bg-[#f9f9f9]/90 backdrop-blur-md px-5 py-4 border-t border-[#dfc0af]/60 flex flex-col gap-2 w-full max-w-md mx-auto">
+        <button 
+          type="button"
+          onClick={onCloseModal}
+          className="w-full h-12 bg-[#ff7d00] hover:bg-[#e67000] text-white font-semibold text-base rounded-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+        >
+          <span>返回首页</span>
+        </button>
+      </footer>
+    </div>
+  );
+
+  const checkRejectionStatus = () => {
+    if (isReapplying) return false;
+    const currentPhone = userPhone || applyPhone || '';
+    if (!currentPhone) return false;
+
+    try {
+      const saved = localStorage.getItem('dd_applicants_v2');
+      if (saved) {
+        const apps = JSON.parse(saved);
+        const myApp = apps.find((a: any) => a.phone === currentPhone);
+        if (myApp && ['已拒绝', '审核未通过', '未通过', '已驳回', 'rejected'].includes(myApp.status)) {
+          return true;
+        }
+      }
+    } catch (_) {}
+
+    const member = squadMembers.find((m: any) => m.phone === currentPhone);
+    if (member && ['已拒绝', '审核未通过', '未通过', '已驳回', 'rejected'].includes(member.status)) {
+      return true;
+    }
+
+    return false;
+  };
+
+  const renderRejectedResultView = (onCloseModal: () => void) => (
+    <div className="flex flex-col h-full bg-[#f9f9f9] text-[#1a1c1c] font-sans overflow-y-auto">
+      {/* Header */}
+      <header className="sticky top-0 w-full z-50 h-14 bg-[#f9f9f9] border-b border-[#dfc0af]/60 flex items-center justify-between px-5 shrink-0">
+        <div className="flex items-center gap-3">
+          <button 
+            type="button"
+            onClick={onCloseModal}
+            className="p-1 rounded-full hover:bg-slate-200/60 transition-colors active:scale-95 cursor-pointer text-[#1a1c1c]"
+          >
+            <ArrowLeft className="w-6 h-6" />
+          </button>
+          <h1 className="text-lg font-bold text-[#1a1c1c]">审核结果</h1>
+        </div>
+        <div className="w-8"></div>
+      </header>
+
+      {/* Main Container */}
+      <main className="flex-grow flex flex-col items-center justify-center px-5 py-8 max-w-md mx-auto w-full text-center">
+        {/* Icon & Pulse */}
+        <div className="relative mb-6">
+          <div className="w-24 h-24 rounded-full bg-red-100/60 flex items-center justify-center relative animate-pulse">
+            <div className="w-16 h-16 rounded-full bg-[#ba1a1a] flex items-center justify-center shadow-lg">
+              <X className="w-10 h-10 text-white stroke-[2.5]" />
+            </div>
+          </div>
+        </div>
+
+        {/* Title & Desc */}
+        <h2 className="text-2xl font-bold text-[#1a1c1c] mb-3">审核未通过</h2>
+        <p className="text-base text-[#5f5e5e] leading-relaxed px-2 mb-6">
+          您提交的申请已受理，经综合评估，您暂时不符合我司的加入准则。
+        </p>
+
+        {/* Detail Card */}
+        <div className="w-full bg-white border border-[#dfc0af]/70 rounded-2xl p-4 mb-8 text-left shadow-xs flex items-start gap-3">
+          <div className="bg-slate-100 p-2.5 rounded-xl text-[#5f5e5e] shrink-0 mt-0.5">
+            <FileX className="w-6 h-6 text-[#5f5e5e]" />
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs font-bold text-[#5f5e5e] tracking-wider uppercase">详情说明</p>
+            <p className="text-sm text-[#1a1c1c] leading-normal font-medium">
+              请联系管理人员了解具体不符合项及整改建议。
+            </p>
+          </div>
+        </div>
+
+        {/* Illustration Mock */}
+        <div className="mt-auto w-full max-w-xs opacity-40 select-none pointer-events-none py-2">
+          <svg viewBox="0 0 200 120" xmlns="http://www.w3.org/2000/svg" className="w-full h-auto mx-auto">
+            <rect x="20" y="20" width="160" height="80" rx="8" fill="#eeeeee"></rect>
+            <rect x="40" y="45" width="80" height="8" rx="4" fill="#dddddd"></rect>
+            <rect x="40" y="65" width="120" height="8" rx="4" fill="#dddddd"></rect>
+            <circle cx="160" cy="50" r="15" fill="#f3f3f3"></circle>
+            <path d="M155 45 L165 55 M165 45 L155 55" stroke="#ba1a1a" strokeWidth="3" strokeLinecap="round"></path>
+          </svg>
+        </div>
+      </main>
+
+      {/* Sticky Footer */}
+      <footer className="sticky bottom-0 bg-[#f9f9f9]/90 backdrop-blur-md px-5 py-4 border-t border-[#dfc0af]/60 flex flex-col gap-3 w-full max-w-md mx-auto">
+        <button 
+          type="button"
+          onClick={() => setLocalAlert({
+            title: '联系小队管理团队',
+            message: '如需了解具体审核评估标准或补充个人资质，请微信联系本地小队管理人员、老板或开发者人员。',
+            type: 'info'
+          })}
+          className="w-full h-12 bg-[#ff7d00] hover:bg-[#e67000] text-white font-semibold text-base rounded-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+        >
+          <Headset className="w-5 h-5" />
+          <span>请联系管理团队人员</span>
+        </button>
+
+        <button 
+          type="button"
+          onClick={() => setIsReapplying(true)}
+          className="w-full h-12 bg-transparent border border-[#ff7d00] text-[#ff7d00] font-semibold text-base rounded-xl active:scale-[0.98] transition-all hover:bg-[#ff7d00]/5 cursor-pointer"
+        >
+          重新申请
+        </button>
+
+        <button 
+          type="button"
+          onClick={onCloseModal}
+          className="w-full py-2 text-[#5f5e5e] font-semibold text-xs text-center active:opacity-60 transition-opacity hover:text-[#1a1c1c] cursor-pointer"
+        >
+          返回首页
+        </button>
+      </footer>
+    </div>
+  );
+
   // Master switches configuration (one-click close)
   const [masterSwitches, setMasterSwitches] = useState<{
     online_app_enabled?: boolean;
@@ -255,6 +730,88 @@ export default function HomeView({
     return () => unsubscribe();
   }, []);
 
+  // City configs map state for per-city feature toggles and squad names
+  const [cityConfigsMap, setCityConfigsMap] = useState<Record<string, {
+    online_app_enabled?: boolean;
+    merchant_dispatch_enabled?: boolean;
+    squad_management_enabled?: boolean;
+    squadNames?: string[];
+  }>>(() => {
+    const saved = localStorage.getItem('dd_city_configs_v2');
+    if (saved) {
+      try { return JSON.parse(saved); } catch(e){}
+    }
+    return {};
+  });
+
+  useEffect(() => {
+    let unsubscribe = () => {};
+    if (db) {
+      const docRef = doc(db, 'config', 'city_configs');
+      unsubscribe = onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists() && docSnap.data().configs) {
+          const newConfigs = docSnap.data().configs;
+          setCityConfigsMap(newConfigs);
+          localStorage.setItem('dd_city_configs_v2', JSON.stringify(newConfigs));
+        }
+      }, (err) => {
+        const saved = localStorage.getItem('dd_city_configs_v2');
+        if (saved) {
+          try { setCityConfigsMap(JSON.parse(saved)); } catch(e){}
+        }
+      });
+    }
+
+    // Cross-tab / storage event listener for offline & local servers (e.g., Baota panel)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'dd_city_configs_v2' && e.newValue) {
+        try { setCityConfigsMap(JSON.parse(e.newValue)); } catch(err){}
+      }
+    };
+
+    // Custom event listener for same-window state updates
+    const handleCustomEvent = (e: any) => {
+      if (e.detail) {
+        setCityConfigsMap(e.detail);
+      } else {
+        const saved = localStorage.getItem('dd_city_configs_v2');
+        if (saved) {
+          try { setCityConfigsMap(JSON.parse(saved)); } catch(err){}
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('cityConfigsUpdated', handleCustomEvent);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('cityConfigsUpdated', handleCustomEvent);
+    };
+  }, []);
+
+  const getDriverCityConfig = () => {
+    const rawCity = (effectiveCity || applicantCity || settings?.city || '银川市').trim();
+    const norm = rawCity.replace(/市$/, '').trim();
+    const cfg = cityConfigsMap[norm] || cityConfigsMap[`${norm}市`] || cityConfigsMap[rawCity];
+
+    if (cfg) {
+      return {
+        online_app_enabled: cfg.online_app_enabled === true,
+        merchant_dispatch_enabled: cfg.merchant_dispatch_enabled === true,
+        squad_management_enabled: cfg.squad_management_enabled === true,
+        squadNames: Array.isArray(cfg.squadNames) && cfg.squadNames.length > 0 ? cfg.squadNames : [`${norm}代驾小队`]
+      };
+    }
+    return {
+      online_app_enabled: false,
+      merchant_dispatch_enabled: false,
+      squad_management_enabled: false,
+      squadNames: [`${norm}代驾小队`]
+    };
+  };
+
   // Real-time synchronization for squad members
   useEffect(() => {
     const q = collection(db, 'squad_members');
@@ -270,19 +827,49 @@ export default function HomeView({
 
   // Real-time synchronization for team config (squad name)
   useEffect(() => {
-    const docRef = doc(db, 'config', 'team_config');
-    const unsubscribe = onSnapshot(docRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setTeamConfig(data as any);
-        setTempSquadName(data.teamName || '默认小队');
-      } else {
-        setTeamConfig({ teamName: '默认小队' });
-        setTempSquadName('默认小队');
+    const localName = localStorage.getItem('dd_dispatch_team_name') || localStorage.getItem('dd_team_config_name');
+    if (localName) {
+      setTeamConfig({ teamName: localName });
+      setTempSquadName(localName);
+    } else {
+      const defaultName = `${effectiveCity || '银川'}代驾小队`;
+      setTeamConfig({ teamName: defaultName });
+      setTempSquadName(defaultName);
+    }
+
+    let unsubscribe = () => {};
+    if (db) {
+      const docRef = doc(db, 'config', 'team_config');
+      unsubscribe = onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data && data.teamName) {
+            setTeamConfig(data as any);
+            setTempSquadName(data.teamName);
+            localStorage.setItem('dd_dispatch_team_name', data.teamName);
+            localStorage.setItem('dd_team_config_name', data.teamName);
+          }
+        }
+      }, () => {});
+    }
+
+    const handleStorage = () => {
+      const updated = localStorage.getItem('dd_dispatch_team_name') || localStorage.getItem('dd_team_config_name');
+      if (updated) {
+        setTeamConfig({ teamName: updated });
+        setTempSquadName(updated);
       }
-    });
-    return () => unsubscribe();
-  }, []);
+    };
+
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('teamNameUpdated', handleStorage);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('teamNameUpdated', handleStorage);
+    };
+  }, [effectiveCity]);
 
   // Ensure Gaode Map is fully initialized with security credentials
   const [aMapReady, setAMapReady] = useState<boolean>(() => {
@@ -610,13 +1197,13 @@ export default function HomeView({
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        setIsCityDispatchEnabled(!!data.enabled);
+        setIsCityDispatchEnabled(data.enabled !== false);
       } else {
-        setIsCityDispatchEnabled(false);
+        setIsCityDispatchEnabled(true);
       }
     }, (error) => {
       console.warn("Failed to subscribe city dispatch config:", error);
-      setIsCityDispatchEnabled(false);
+      setIsCityDispatchEnabled(true);
     });
     return () => unsubscribe();
   }, [settings?.city, onlineApp?.city]);
@@ -869,7 +1456,7 @@ export default function HomeView({
           if (isManagement || isApprovedAndInSquad) {
             activeDrivers.push({
               phone: doc.id,
-              name: data.driverName || data.customAppName || '特约代驾司机',
+              name: data.driverName || '代驾司机',
               lat: Number(data.lat) || finalCoords!.lat,
               lng: Number(data.lng) || finalCoords!.lng,
               onlineOrdersEnabled: !!data.onlineOrdersEnabled || !!data.isOnline
@@ -880,7 +1467,7 @@ export default function HomeView({
 
       // Ensure the current driver themselves is always included as an active candidate to guarantee successful dispatch simulation
       const fallbackPhone = userPhone || '18609518888';
-      const fallbackName = settings.customAppName || '张大帅';
+      const fallbackName = (settings as any).driverName || (settings as any).name || '司机';
       if (!activeDrivers.some(d => d.phone === fallbackPhone)) {
         activeDrivers.push({
           phone: fallbackPhone,
@@ -907,7 +1494,7 @@ export default function HomeView({
       if (!closestDriver) {
         closestDriver = {
           phone: targetPhone,
-          name: settings.customAppName || '张大帅',
+          name: (settings as any).driverName || (settings as any).name || '司机',
           lat: (driverCoords as any)?.lat || finalCoords.lat,
           lng: (driverCoords as any)?.lng || finalCoords.lng,
           onlineOrdersEnabled: true
@@ -977,7 +1564,7 @@ export default function HomeView({
       if (squadData) {
         setSquadDriverName(squadData.name || '');
       } else if (driverData) {
-        setSquadDriverName(driverData.driverName || driverData.customAppName || '');
+        setSquadDriverName(driverData.driverName || '');
       } else {
         setSquadDriverName('');
       }
@@ -1004,7 +1591,7 @@ export default function HomeView({
         phone,
         name,
         addedByPhone: userPhone || '未知管理员',
-        addedByName: settings.customAppName || '管理员',
+        addedByName: (settings as any).driverName || (settings as any).name || '管理员',
         addedAt: new Date().toISOString().replace('T', ' ').substring(0, 19)
       });
       
@@ -1015,7 +1602,7 @@ export default function HomeView({
           phone,
           name,
           addedByPhone: userPhone || '未知管理员',
-          addedByName: settings.customAppName || '管理员',
+          addedByName: (settings as any).driverName || (settings as any).name || '管理员',
           addedAt: new Date().toISOString().replace('T', ' ').substring(0, 19)
         }
       } : null);
@@ -1032,6 +1619,22 @@ export default function HomeView({
     
     try {
       await deleteDoc(doc(db, 'squad_members', phone));
+
+      // Clean local storage
+      try {
+        const savedM = localStorage.getItem('dd_squad_members_v2');
+        if (savedM) {
+          const listM = JSON.parse(savedM);
+          const filteredM = listM.filter((m: any) => m.phone !== phone && m.id !== phone);
+          localStorage.setItem('dd_squad_members_v2', JSON.stringify(filteredM));
+        }
+        const savedA = localStorage.getItem('dd_applicants_v2');
+        if (savedA) {
+          const listA = JSON.parse(savedA);
+          const filteredA = listA.filter((a: any) => a.phone !== phone && a.id !== phone);
+          localStorage.setItem('dd_applicants_v2', JSON.stringify(filteredA));
+        }
+      } catch (_) {}
       
       if (!phoneToKick || phoneToKick === searchSquadPhone.trim()) {
         setSearchSquadResult(prev => prev ? {
@@ -1062,11 +1665,18 @@ export default function HomeView({
       return;
     }
     try {
-      await setDoc(doc(db, 'config', 'team_config'), {
-        teamName: newName,
-        updatedAt: new Date().toISOString(),
-        setBy: userPhone || '开发者'
-      }, { merge: true });
+      localStorage.setItem('dd_dispatch_team_name', newName);
+      localStorage.setItem('dd_team_config_name', newName);
+      setTeamConfig({ teamName: newName });
+      window.dispatchEvent(new Event('teamNameUpdated'));
+
+      if (db) {
+        await setDoc(doc(db, 'config', 'team_config'), {
+          teamName: newName,
+          updatedAt: new Date().toISOString(),
+          setBy: userPhone || '开发者'
+        }, { merge: true }).catch(() => {});
+      }
       setIsEditingSquadName(false);
       alert('✓ 小队名称已成功保存，并在所有端实时生效！');
     } catch (err: any) {
@@ -1538,7 +2148,7 @@ export default function HomeView({
   const vipInfo = getVipCountdown();
 
   return (
-    <div className="flex-1 flex flex-col justify-between h-full select-none bg-slate-100">
+    <div className="flex-1 flex flex-col justify-between h-full select-none bg-slate-100 relative overflow-hidden">
       
       {/* Toast Alert */}
       {toastMsg && (
@@ -1730,17 +2340,20 @@ export default function HomeView({
 
           <button 
             onClick={() => {
-              if (masterSwitches.online_app_enabled === false) {
-                alert('测试阶段，未开放');
+              const cfg = getDriverCityConfig();
+              if (!cfg.online_app_enabled) {
+                setLocalAlert({
+                  title: '提示',
+                  message: '您所在的城市暂未开通服务，请联系客服',
+                  type: 'info'
+                });
                 return;
               }
-              // If they are already approved/active, check if dispatch is disabled for their city.
-              // If they are NOT approved yet (e.g. resigned or applying), allow them to open the modal to apply/re-apply.
               if (settings.onlineOrdersEnabled && isCityDispatchEnabled === false) {
                 setLocalAlert({
-                  title: '服务未开通',
-                  message: '您所在的城市未开通服务',
-                  type: 'warning'
+                  title: '提示',
+                  message: '您所在的城市暂未开通服务，请联系客服',
+                  type: 'info'
                 });
                 return;
               }
@@ -1768,8 +2381,13 @@ export default function HomeView({
 
           <button 
             onClick={() => {
-              if (masterSwitches.merchant_dispatch_enabled === false) {
-                alert('测试阶段，未开放');
+              const cfg = getDriverCityConfig();
+              if (!cfg.merchant_dispatch_enabled) {
+                setLocalAlert({
+                  title: '提示',
+                  message: '您所在的城市暂未开通服务，请联系客服',
+                  type: 'info'
+                });
                 return;
               }
               setShowMerchantDispatchModal(true);
@@ -1785,18 +2403,18 @@ export default function HomeView({
 
           <button 
             onClick={() => {
-              if (masterSwitches.squad_management_enabled === false) {
-                alert('测试阶段，未开放');
-                return;
-              }
-              const isManagementTeam = userRole === '开发者司机' || userRole === '城市老板司机' || userRole === '城市管理司机' || userRole === '城市派单员司机';
-              if (!isManagementTeam) {
-                alert('您不是管理，无权限。');
+              const cfg = getDriverCityConfig();
+              if (!cfg.squad_management_enabled) {
+                setLocalAlert({
+                  title: '提示',
+                  message: '您所在的城市暂未有可加入的小队',
+                  type: 'info'
+                });
                 return;
               }
               setShowDispatchModal(true);
             }}
-            className="flex flex-col items-center justify-center relative transition-all duration-200 group"
+            className="flex flex-col items-center justify-center relative transition-all duration-200 group cursor-pointer"
             id="menu-btn-dispatch"
           >
             <div className="w-10 h-10 rounded-full flex items-center justify-center mb-1.5 transition-all duration-200 bg-teal-50 text-teal-600 group-active:scale-95 border border-teal-100">
@@ -1832,50 +2450,107 @@ export default function HomeView({
         </div>
       )}
 
-      {/* 3. Central Working Board / Simulated Dispatch Map Area */}
+      {/* 3. Order Selection Hall (选单大厅) Component */}
       <div className="flex-1 px-4 pb-4 overflow-hidden flex flex-col justify-center">
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex flex-col items-center justify-center flex-1 min-h-[220px] relative overflow-hidden transition-all">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3.5 flex flex-col flex-1 min-h-[220px] max-h-[300px] relative overflow-hidden transition-all text-left">
           
-          {isOnline ? (
-            /* --- ONLINE STATE (Radar Matching, Screenshot 4 style layout) --- */
-            <div className="flex flex-col items-center justify-center text-center w-full h-full relative">
-              {/* Pulsing Radar Ring Effects */}
-              <div className="relative w-36 h-36 flex items-center justify-center mb-4">
-                <div className="absolute inset-0 rounded-full bg-teal-500/10 ping-slow"></div>
-                <div className="absolute inset-2 rounded-full bg-teal-500/15 ping-slow" style={{ animationDelay: '0.6s' }}></div>
-                <div className="absolute inset-6 rounded-full bg-teal-500/20 ping-slow" style={{ animationDelay: '1.2s' }}></div>
-                <div className="w-16 h-16 rounded-full bg-teal-500/25 flex items-center justify-center border border-teal-500/30 text-teal-600">
-                  <Bell className="w-7 h-7" />
-                </div>
-              </div>
+          {/* Header at Top-Left */}
+          <div className="flex items-center justify-between border-b border-gray-100 pb-2 mb-2 shrink-0">
+            <div className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#ff7d00] animate-pulse"></span>
+              <span className="text-[11px] font-extrabold text-slate-600 tracking-tight">选单大厅</span>
+            </div>
+            <span className="text-[9.5px] text-slate-400 font-medium">实时派单大厅</span>
+          </div>
 
-              <div className="text-sm font-semibold text-gray-800 mb-1.5 tracking-wide">
-                代驾系统已上线，请进行自助开单，报单/二维码报单
+          {/* Hall Orders List depending on squad approval */}
+          {(() => {
+            const isApproved = checkApprovalStatus();
+            const visibleHallOrders = hallOrders.filter((ord: any) => {
+              if (isApproved) {
+                return !ord.isSimulated; // 成功加入小队，获得审批通过的司机显示真实订单
+              } else {
+                return Boolean(ord.isSimulated); // 未成功加入获得审批通过小队的司机显示模拟订单
+              }
+            });
+
+            if (visibleHallOrders.length === 0) {
+              return (
+                <div className="flex-1 flex flex-col items-center justify-center text-center p-3 text-slate-400">
+                  <Bell className="w-7 h-7 text-slate-300 mb-1.5 animate-pulse" />
+                  <p className="text-xs font-bold text-slate-500">选单大厅暂无等待接单的订单</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">商户代叫系统触发后，未派出的订单将在此出现</p>
+                </div>
+              );
+            }
+
+            return (
+              <div className="flex-1 overflow-y-auto space-y-2 pr-0.5">
+                {visibleHallOrders.map((ord: any) => {
+                  const driverLat = driverCoords?.lat || 38.4878;
+                  const driverLng = driverCoords?.lng || 106.2309;
+                  const ordLat = ord.passengerLat || 38.4878;
+                  const ordLng = ord.passengerLng || 106.2309;
+
+                  // Haversine straight line distance
+                  const R = 6371;
+                  const dLat = (ordLat - driverLat) * Math.PI / 180;
+                  const dLng = (ordLng - driverLng) * Math.PI / 180;
+                  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                            Math.cos(driverLat * Math.PI / 180) * Math.cos(ordLat * Math.PI / 180) *
+                            Math.sin(dLng / 2) * Math.sin(dLng / 2);
+                  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                  const calculatedDist = Math.round(R * c * 1000);
+
+                  // Deterministic hash so fallback distance is computed strictly ONCE per order without random recalculations on re-renders
+                  const getStableFallbackDist = (idStr: string) => {
+                    let hash = 0;
+                    for (let i = 0; i < idStr.length; i++) {
+                      hash = ((hash << 5) - hash) + idStr.charCodeAt(i);
+                      hash |= 0;
+                    }
+                    return 400 + (Math.abs(hash) % 2100);
+                  };
+
+                  const finalDistInMeters = ord.mockDistanceMeters || 
+                    (calculatedDist > 0 ? calculatedDist : getStableFallbackDist(String(ord.id || ord.orderNumber || 'ord')));
+
+                  return (
+                    <div 
+                      key={ord.id}
+                      className="bg-slate-50/90 border border-slate-200/90 hover:border-amber-400 rounded-xl p-2.5 flex items-center justify-between gap-2 shadow-2xs transition-all"
+                    >
+                      {/* Horizontal details */}
+                      <div className="flex-1 min-w-0 flex flex-col gap-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="px-1.5 py-0.5 rounded-md bg-orange-100 text-[#ff7d00] text-[10px] font-black border border-orange-200 shrink-0">
+                            【商户代叫】
+                          </span>
+                          <span className="text-xs font-black text-slate-800 tracking-wider">
+                            起点：****
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-[10.5px] text-slate-600 font-medium flex-wrap">
+                          <span>代步车: <strong className={ord.needScooter ? 'text-teal-600' : 'text-slate-500'}>{ord.needScooter ? '需要' : '不需要'}</strong></span>
+                          <span>出发时间: <strong className="text-slate-800">{ord.scheduledTime || '即刻出发'}</strong></span>
+                          <span>距离: <strong className="text-[#ff7d00] font-mono font-bold">{finalDistInMeters}米</strong></span>
+                        </div>
+                      </div>
+
+                      {/* Confirm Claim Button */}
+                      <button
+                        onClick={() => handleClaimHallOrder(ord)}
+                        className="px-3 py-1.5 bg-gradient-to-r from-[#ff7d00] to-amber-500 hover:from-[#e06e00] hover:to-amber-600 text-white font-extrabold text-[11px] rounded-xl shadow-xs active:scale-95 transition-all shrink-0 cursor-pointer whitespace-nowrap"
+                      >
+                        确认接单
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
-              
-              <div className="text-xs text-slate-500 font-sans tracking-wide max-w-[290px] leading-relaxed">
-                请点击右下角 <span className="text-teal-600 font-semibold">「报单」</span> 按钮，或乘客微信扫描司机端二维码安全开单计费
-              </div>
-              
-              {/* Simulator Action Helper Trigger */}
-              <div className="absolute bottom-1 right-1 text-[9px] text-gray-300 font-mono italic opacity-40">
-                等待自主报单中...
-              </div>
-            </div>
-          ) : (
-            /* --- OFFLINE STATE (Cute Chauffeur mascot waving) --- */
-            <div className="text-center flex flex-col items-center justify-center">
-              <DriverIllustration size={160} className="mb-4" />
-              <h3 className="text-base font-semibold text-gray-800 mb-1">
-                {settings.isBanned ? '您当前处于封禁状态' : '您当前处于离线休息中'}
-              </h3>
-              <p className="text-xs text-gray-400 max-w-[240px] leading-relaxed">
-                {settings.isBanned 
-                  ? '温馨提示：账号封禁状态无法上线，请联系管理！' 
-                  : '温馨提示：只有上线状态才能使用报单功能'}
-              </p>
-            </div>
-          )}
+            );
+          })()}
         </div>
       </div>
 
@@ -2194,315 +2869,401 @@ export default function HomeView({
         </div>
       )}
 
-      {/* 8.5 Squad Management Overlay Screen Page */}
+      {/* 8.5 Squad Management / Apply Overlay Screen Page */}
       {showDispatchModal && (
-        <div className="absolute inset-0 bg-slate-50 z-50 flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300">
-          {/* Page Toolbar Header */}
-          <div className="bg-slate-900 text-white header-safe-pt pb-3.5 px-4 flex items-center justify-between shrink-0 border-b border-slate-800">
-            <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 rounded-full bg-teal-500/10 flex items-center justify-center border border-teal-500/20 text-teal-400">
-                <Users className="w-4 h-4" />
-              </div>
-              <div className="text-left">
-                <h3 className="font-extrabold text-xs text-white">小队安全管理战队中心</h3>
-                <span className="text-[9px] text-slate-400 font-normal">设置接收商户代叫新派单资格与配置</span>
-              </div>
-            </div>
-            <button 
-              onClick={() => {
-                setShowDispatchModal(false);
-                setSearchSquadPhone('');
-                setSearchSquadResult(null);
-                setSquadDriverName('');
-              }}
-              className="p-1.5 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition-all active:scale-90"
-            >
-              <X className="w-4.5 h-4.5" />
-            </button>
-          </div>
-
-          {/* Page Content */}
-          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-            
-            {squadNotification && (
-              <div className={`p-3 rounded-xl text-xs font-bold border animate-in slide-in-from-top duration-200 text-left flex items-start space-x-2.5 ${
-                squadNotification.type === 'success' 
-                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
-                  : 'bg-rose-50 border-rose-200 text-rose-800'
-              }`}>
-                <span className="text-sm">
-                  {squadNotification.type === 'success' ? '✓' : '❌'}
-                </span>
-                <span className="leading-normal">{squadNotification.text}</span>
-              </div>
-            )}
-            
-            {/* Squad Name Settings */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-200/85 text-left shadow-3xs space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <div className="w-8 h-8 rounded-full bg-teal-550/10 text-teal-600 flex items-center justify-center font-bold">
-                    ⚔️
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">小队名称</span>
-                    <span className="text-xs font-black text-slate-800">
-                      {teamConfig?.teamName || '默认小队'}
-                    </span>
-                  </div>
+        ['开发者司机', '城市老板司机', '城市管理司机', '城市派单员司机'].includes(userRole) && showAdminDispatchView ? (
+          <div className="absolute inset-0 bg-[#0a0c16] z-50 flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300">
+            {/* Page Toolbar Header */}
+            <div className="bg-slate-900 text-white header-safe-pt pb-3.5 px-4 flex items-center justify-between shrink-0 border-b border-slate-800">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-full bg-teal-500/10 flex items-center justify-center border border-teal-500/20 text-teal-400">
+                  <Users className="w-4 h-4" />
                 </div>
-                {userRole === '开发者司机' ? (
-                  <button
-                    onClick={() => {
-                      if (isEditingSquadName) {
-                        handleSaveSquadName();
-                      } else {
-                        setIsEditingSquadName(true);
-                      }
-                    }}
-                    className="px-2.5 py-1 text-[10px] font-black bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-all border border-slate-200"
-                  >
-                    {isEditingSquadName ? '保存名称' : '设置名称'}
-                  </button>
-                ) : (
-                  <span className="text-[9px] text-slate-400 font-bold bg-slate-50 px-2 py-1 rounded">
-                    仅开发者司机可设
-                  </span>
-                )}
-              </div>
-
-              {isEditingSquadName && userRole === '开发者司机' && (
-                <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 animate-in slide-in-from-top duration-200">
-                  <input
-                    type="text"
-                    value={tempSquadName}
-                    onChange={(e) => setTempSquadName(e.target.value)}
-                    placeholder="请输入新小队名称..."
-                    className="flex-1 px-3 py-1.5 text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500"
-                  />
-                  <button
-                    onClick={() => setIsEditingSquadName(false)}
-                    className="px-2 py-1.5 text-xs font-bold text-slate-450 hover:text-slate-600"
-                  >
-                    取消
-                  </button>
+                <div className="text-left">
+                  <h3 className="font-extrabold text-xs text-white">小队管理与商户代叫派单中心</h3>
+                  <span className="text-[9px] text-slate-400 font-normal">管理小队成员、审批准入与商户派单</span>
                 </div>
-              )}
-            </div>
-
-            {/* Squad Total Size Display */}
-            <div className="grid grid-cols-2 gap-3 text-left">
-              <div className="bg-gradient-to-br from-teal-500 to-emerald-600 text-white rounded-2xl p-4 shadow-sm border border-emerald-500/10">
-                <span className="text-[9px] text-teal-100 font-extrabold uppercase tracking-wide block">小队总人数</span>
-                <span className="text-2xl font-black block mt-1 font-mono">
-                  {squadMembers.length} <span className="text-xs font-bold">人</span>
-                </span>
-                <span className="text-[8.5px] text-teal-150 block mt-1">无需搜索，直接展示总人数</span>
               </div>
-              <div className="bg-white border border-slate-200 rounded-2xl p-4 text-left shadow-3xs flex flex-col justify-between">
-                <div>
-                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wide block">我的当前身份</span>
-                  <span className="text-xs font-black block mt-1 text-slate-800 truncate">
-                    {squadMembers.find(m => m.id === userPhone)?.name || settings.customAppName || '未设置名字'}
-                  </span>
-                </div>
-                <span className={`inline-block mt-1 text-[8.5px] px-1.5 py-0.5 rounded font-black max-w-fit ${
-                  userRole === '开发者司机' ? 'bg-indigo-100 text-indigo-700' :
-                  ['城市老板司机', '城市管理司机', '城市派单员司机'].includes(userRole) ? 'bg-amber-100 text-amber-700' :
-                  'bg-slate-100 text-slate-600'
-                }`}>
-                  {userRole}
-                </span>
-              </div>
-            </div>
-
-            {/* Driver Search & Squad Add/Kick */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-200/85 text-left shadow-3xs space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                <div className="flex items-center space-x-1.5 text-slate-700">
-                  <Search className="w-3.5 h-3.5 text-teal-600" />
-                  <span className="text-[11px] font-extrabold">搜索/管理小队人员</span>
-                </div>
-                <span className="text-[9px] text-slate-400 font-bold">支持手机号一键加/踢</span>
-              </div>
-
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <input
-                    type="tel"
-                    maxLength={11}
-                    value={searchSquadPhone}
-                    onChange={(e) => setSearchSquadPhone(e.target.value.replace(/\D/g, ''))}
-                    placeholder="输入平台登录手机号..."
-                    className="block w-full pl-3 pr-3 py-2 text-[11px] font-bold text-slate-800 placeholder-slate-400 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500 transition-all font-mono animate-none"
-                  />
-                </div>
-                <button
-                  onClick={handleSearchSquadMember}
-                  disabled={isSearchingSquad}
-                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-[11px] rounded-xl transition-all flex items-center space-x-1 shadow-xs active:scale-97 disabled:bg-slate-300"
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setShowAdminDispatchView(false)}
+                  className="px-2.5 py-1 text-[10px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30 rounded-lg hover:bg-teal-500/30 transition-all cursor-pointer"
                 >
-                  {isSearchingSquad ? (
-                    <>
-                      <Loader2 className="w-3 h-3 animate-spin text-white" />
-                      <span>搜索中</span>
-                    </>
-                  ) : (
-                    <span>搜索手机号</span>
-                  )}
+                  返回申请页
+                </button>
+                <button 
+                  onClick={() => setShowDispatchModal(false)}
+                  className="p-1.5 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition-all active:scale-90"
+                >
+                  <X className="w-4.5 h-4.5" />
                 </button>
               </div>
-
-              {/* Search Result display */}
-              {searchSquadResult?.checked && (
-                <div className="bg-slate-50 border border-slate-150 rounded-xl p-3 space-y-3 animate-in fade-in duration-200 text-left">
-                  {searchSquadResult.squadMember ? (
-                    <div className="space-y-3">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <span className="inline-flex items-center space-x-1 text-[9px] font-black bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-md">
-                            <span>已加入小队</span>
-                          </span>
-                          <div className="text-xs font-black text-slate-800 mt-1.5">
-                            司机姓名: <span className="text-emerald-700">{searchSquadResult.squadMember.name}</span>
-                          </div>
-                          <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                            手机号码: {searchSquadResult.squadMember.phone}
-                          </div>
-                        </div>
-                        <div className="text-right text-[10px] text-slate-400 max-w-[50%]">
-                          <span className="block font-bold">归属管理员信息:</span>
-                          <span className="font-black text-slate-700 mt-0.5 block truncate">
-                            {searchSquadResult.squadMember.addedByName || '系统'} ({searchSquadResult.squadMember.addedByPhone || '无'})
-                          </span>
-                          <span className="text-[8.5px] text-slate-400 mt-0.5 block">
-                            添加时间: {searchSquadResult.squadMember.addedAt}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="pt-2 border-t border-slate-200/55 flex justify-end">
-                        <button
-                          onClick={() => setSquadKickConfirm({ 
-                            phone: searchSquadResult.squadMember?.phone || searchSquadPhone.trim(), 
-                            name: searchSquadResult.squadMember?.name 
-                          })}
-                          className="px-3.5 py-1.5 bg-rose-500 hover:bg-rose-600 active:scale-97 text-white text-[10.5px] font-black rounded-lg shadow-sm cursor-pointer transition-all"
-                        >
-                          一键踢出小队
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="bg-amber-50 border border-amber-150 rounded-lg p-2.5">
-                        <p className="text-[10.5px] text-amber-800 font-bold leading-normal">
-                          该手机号司机当前【不在】小队中。请输入他的真实姓名，为其添加进入小队。
-                        </p>
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-black text-slate-400 block uppercase">添加司机姓名</label>
-                        <input
-                          type="text"
-                          value={squadDriverName}
-                          onChange={(e) => setSquadDriverName(e.target.value)}
-                          placeholder="请输入司机真实姓名..."
-                          className="block w-full px-3 py-2 text-xs font-bold text-slate-800 placeholder-slate-400 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500"
-                        />
-                      </div>
-
-                      <div className="pt-1 flex justify-end">
-                        <button
-                          onClick={handleAddToSquad}
-                          className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 active:scale-97 text-white text-[10.5px] font-black rounded-lg shadow-sm cursor-pointer transition-all"
-                        >
-                          一键添加进入小队
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
 
-            {/* Roster list */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-200/85 text-left shadow-3xs space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                <span className="text-[11px] font-extrabold text-slate-700">小队成员全员名单 ({squadMembers.length})</span>
-                <span className="text-[9px] font-bold text-slate-400">所有加入成员实时列表</span>
+            {/* Page Body Content */}
+            <div className="flex-1 overflow-y-auto relative">
+              <DispatchValetOrder 
+                onShowToast={(msg) => {
+                  setLocalAlert({
+                    title: '提示',
+                    message: msg,
+                    type: 'info'
+                  });
+                }}
+                userPhone={userPhone}
+                userRole={userRole}
+                userTeamCity={effectiveCity}
+                onClose={() => setShowDispatchModal(false)}
+              />
+            </div>
+          </div>
+        ) : checkApprovalStatus() ? (
+          <div className="absolute inset-0 bg-[#f9f9f9] z-50 flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300 font-sans">
+            {renderApprovedResultView(() => setShowDispatchModal(false))}
+          </div>
+        ) : checkRejectionStatus() ? (
+          <div className="absolute inset-0 bg-[#f9f9f9] z-50 flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300 font-sans">
+            {renderRejectedResultView(() => setShowDispatchModal(false))}
+          </div>
+        ) : (
+          <div className="absolute inset-0 bg-[#f9f9f9] z-50 flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300 font-sans">
+            {/* TopAppBar Header */}
+            <header className="sticky top-0 w-full z-50 h-16 flex items-center justify-between px-5 bg-[#f9f9f9] border-b border-[#dfc0af] shrink-0">
+              <div className="flex items-center gap-4">
+                <button 
+                  type="button"
+                  onClick={() => setShowDispatchModal(false)}
+                  className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-[#eeeeee] transition-colors active:scale-95 cursor-pointer text-[#984800]"
+                >
+                  <ArrowLeft className="w-6 h-6" />
+                </button>
+                <h1 className="text-xl font-bold text-[#984800]">申请加入小队</h1>
+              </div>
+              <div className="flex items-center gap-2">
+                <button 
+                  type="button"
+                  onClick={() => setShowDispatchModal(false)}
+                  className="p-2 rounded-full hover:bg-[#eeeeee] text-[#584235] transition-colors active:scale-95 cursor-pointer"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </header>
+
+            {/* Main Content Canvas */}
+            <main className="mt-4 px-5 flex-grow max-w-lg mx-auto w-full overflow-y-auto pb-24">
+              {/* Team Identity Hero Card */}
+              <div className="bg-white/95 backdrop-blur-md rounded-xl p-6 mb-6 shadow-xs overflow-hidden relative group border border-[#E0E0E0]">
+                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
+                  <Users className="w-24 h-24 text-[#1a1c1c]" />
+                </div>
+                <div className="relative z-10">
+                  <label className="text-xs font-semibold text-[#8b7263] uppercase tracking-wider block mb-1">当前申请小队</label>
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-lg bg-[#ffdbc8] flex items-center justify-center shrink-0">
+                      <ShieldCheck className="w-7 h-7 text-[#733500]" />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold text-[#1a1c1c]">{teamConfig?.teamName || `${effectiveCity || '银川'}代驾小队`}</h2>
+                      <p className="text-sm text-[#5f5e5e]">点击查看当前城市可加入的小队名称</p>
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              {squadMembers.length === 0 ? (
-                <div className="py-8 text-center text-slate-400 text-xs">
-                  <span>📭 暂无小队成员，请在上方搜索手机号添加</span>
-                </div>
-              ) : (
-                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                  {squadMembers.map((member) => (
-                    <div key={member.id} className="flex justify-between items-center bg-slate-50/65 border border-slate-150 p-2.5 rounded-xl hover:bg-slate-50 transition-all">
-                      <div className="text-left min-w-0 flex-1 pr-2">
-                        <div className="flex items-center space-x-1.5">
-                          <span className="font-extrabold text-xs text-slate-800 truncate">{member.name}</span>
-                          <span className="text-[9.5px] font-mono text-slate-500 font-bold bg-slate-100 px-1 py-0.2 rounded">{member.phone}</span>
-                        </div>
-                        <div className="text-[8.5px] text-slate-400 mt-1 leading-normal">
-                          管理员: <span className="text-slate-600 font-bold">{member.addedByName || '系统'}</span> 
-                          <span className="font-mono ml-1">({member.addedByPhone || '无'})</span>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => setSquadKickConfirm({ 
-                          phone: member.phone, 
-                          name: member.name 
-                        })}
-                        className="p-1 text-rose-500 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition-all active:scale-90 shrink-0"
-                        title="踢出小队"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {squadKickConfirm && (
-              <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-xs z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
-                <div className="bg-white rounded-3xl p-5 max-w-sm w-full border border-slate-100 shadow-2xl text-center space-y-4 animate-in zoom-in-95 duration-200">
-                  <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center mx-auto text-xl border border-rose-100">
-                    ⚠️
+              {/* Application Form */}
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  processApplicationSubmission(() => setShowDispatchModal(false));
+                }}
+                className="flex flex-col gap-3"
+              >
+                {/* Applicant Name */}
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs font-semibold text-[#584235] px-1" htmlFor="apply-name-modal">
+                    申请人真实姓名 <span className="text-[#ba1a1a]">*</span>
+                  </label>
+                  <div className="relative">
+                    <User className="absolute left-4 top-1/2 -translate-y-1/2 text-[#584235] w-5 h-5" />
+                    <input 
+                      id="apply-name-modal"
+                      type="text"
+                      maxLength={8}
+                      required
+                      value={applyName}
+                      onChange={(e) => setApplyName(e.target.value.slice(0, 8))}
+                      placeholder="请输入真实姓名申请"
+                      className="w-full h-14 pl-12 pr-4 bg-white border border-[#dfc0af] rounded-xl text-base text-[#1a1c1c] placeholder:text-[#c8c6c5] focus:outline-none focus:border-[#ff7d00] focus:ring-2 focus:ring-[#ff7d00]/10 transition-all"
+                    />
                   </div>
-                  <div className="space-y-1.5 text-center">
-                    <h4 className="text-xs font-black text-slate-800">确认将该司机踢出小队吗？</h4>
-                    <p className="text-[11px] text-slate-500 leading-normal">
-                      您正在将司机 <span className="font-extrabold text-slate-700">{squadKickConfirm.name || squadKickConfirm.phone}</span> 踢出本小队。<br />
-                      踢出后，该司机将 <span className="text-rose-600 font-extrabold">无法接收</span> 任何商户代叫新派单！
+                  <p className="text-[10px] text-[#5f5e5e] px-1 flex justify-between">
+                    <span>支持最多8个汉字</span>
+                    <span className={applyName.length >= 8 ? 'text-[#ba1a1a] font-bold' : ''}>
+                      {applyName.length}/8
+                    </span>
+                  </p>
+                </div>
+
+                {/* Phone Number */}
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between px-1">
+                    <label className="text-xs font-semibold text-[#584235]" htmlFor="apply-phone-modal">
+                      申请人手机号码 <span className="text-[#ba1a1a]">*</span>
+                    </label>
+                    <span className="text-[10px] text-[#733500] font-bold bg-[#ffdbc8]/60 px-2 py-0.5 rounded flex items-center gap-1">
+                      <Lock className="w-3 h-3 text-[#733500]" /> 绑定APP账号 (不可修改)
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 text-[#584235] w-5 h-5" />
+                    <input 
+                      id="apply-phone-modal"
+                      type="tel"
+                      required
+                      readOnly
+                      pattern="^1[3-9]\d{9}$"
+                      value={userPhone || applyPhone}
+                      placeholder="当前登录账号手机号"
+                      className="w-full h-14 pl-12 pr-4 bg-slate-100/90 border border-[#dfc0af] rounded-xl text-base text-[#1a1c1c] font-mono cursor-not-allowed select-none transition-all"
+                    />
+                  </div>
+                </div>
+
+                {/* Notes/Remarks */}
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs font-semibold text-[#584235] px-1" htmlFor="apply-remarks-modal">
+                    申请备注
+                  </label>
+                  <div className="relative">
+                    <textarea 
+                      id="apply-remarks-modal"
+                      rows={4}
+                      value={applyRemarks}
+                      onChange={(e) => setApplyRemarks(e.target.value)}
+                      placeholder="例如：尊敬的审核人员你好：我是XXX，手机后四尾尾号（0000），本人身份信息确认填写正确，审核如遇问题！可微信或群消息联系确认本人真实身份"
+                      className="w-full p-4 bg-white border border-[#dfc0af] rounded-xl text-base text-[#1a1c1c] placeholder:text-[#c8c6c5] focus:outline-none focus:border-[#ff7d00] focus:ring-2 focus:ring-[#ff7d00]/10 transition-all resize-none"
+                    />
+                  </div>
+                  <div className="flex gap-2 items-start bg-[#ffdbc8]/30 p-3 rounded-lg border border-[#ffdbc8]">
+                    <Info className="w-5 h-5 text-[#984800] shrink-0 mt-0.5" />
+                    <p className="text-xs text-[#733500] leading-relaxed">
+                      填写越详细，越增加审核成功几率，最好当面审核！
                     </p>
                   </div>
-                  <div className="grid grid-cols-2 gap-2.5 pt-1">
-                    <button
-                      onClick={() => setSquadKickConfirm(null)}
-                      className="py-2 bg-slate-100 hover:bg-slate-150 active:scale-97 text-slate-600 text-[11px] font-black rounded-xl transition-all cursor-pointer"
-                    >
-                      取消
-                    </button>
-                    <button
-                      onClick={async () => {
-                        const phone = squadKickConfirm.phone;
-                        setSquadKickConfirm(null);
-                        await handleKickFromSquad(phone);
-                      }}
-                      className="py-2 bg-rose-500 hover:bg-rose-600 active:scale-97 text-white text-[11px] font-black rounded-xl shadow-xs transition-all cursor-pointer"
-                    >
-                      确认踢出
-                    </button>
-                  </div>
+                </div>
+
+                {/* Submit Button Area */}
+                <div className="mt-6">
+                  <button 
+                    type="submit"
+                    disabled={isSubmittingApply}
+                    className="w-full h-14 bg-[#ff7d00] hover:bg-[#E67000] active:scale-95 text-white font-semibold text-base rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    {isSubmittingApply ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <span>正在提交审核...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>确认填写信息正确发起审核</span>
+                        <Send className="w-5 h-5" />
+                      </>
+                    )}
+                  </button>
+                  <p className="text-center mt-4 text-[#5f5e5e] text-sm">
+                    申请后预计在 1个工作日内完成审核
+                  </p>
+                </div>
+              </form>
+
+              {/* Illustration / Mood Decor */}
+              <div className="mt-8 opacity-50 flex justify-center pb-8">
+                <div className="w-full max-w-[200px] aspect-video rounded-2xl overflow-hidden grayscale border border-slate-200">
+                  <img 
+                    className="w-full h-full object-cover" 
+                    alt="Driver Onboarding"
+                    src="https://lh3.googleusercontent.com/aida-public/AB6AXuDf-zhNex-S9MvgS1rZPBTNunpkdBBMfphxonE0HYOUgW45YBBVqTil1uv2gFe-gerlxI6Ug7nleI5SEWk6OPnbqHVtDQCTx-Rp0imbysi-CXBT9yythmNMcZ7LuLHmXipP4wdBmeHEXi9fe1zXlBcfBF0M4wiyvuZY6bLg0upbJ4l34ruQl5y1A_rx_ry2sEHBncYnxaeprOzM6-afVViwZJ8WtK1AqUJst0mOA8XOlmkrpdZ6bFmEfA"
+                  />
                 </div>
               </div>
-            )}
-
+            </main>
           </div>
+        )
+      )}
+
+      {/* 8.6 Apply to Join Squad Overlay Screen Page */}
+      {showApplySquadModal && (
+        <div className="absolute inset-0 bg-[#f9f9f9] z-50 flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300 font-sans">
+          {checkApprovalStatus() ? (
+            renderApprovedResultView(() => setShowApplySquadModal(false))
+          ) : checkRejectionStatus() ? (
+            renderRejectedResultView(() => setShowApplySquadModal(false))
+          ) : (
+            <>
+              {/* TopAppBar Header */}
+              <header className="sticky top-0 w-full z-50 h-16 flex items-center justify-between px-5 bg-[#f9f9f9] border-b border-[#dfc0af] shrink-0">
+                <div className="flex items-center gap-4">
+                  <button 
+                    type="button"
+                    onClick={() => setShowApplySquadModal(false)}
+                    className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-[#eeeeee] transition-colors active:scale-95 cursor-pointer text-[#984800]"
+                  >
+                    <ArrowLeft className="w-6 h-6" />
+                  </button>
+                  <h1 className="text-xl font-bold text-[#984800]">申请加入小队</h1>
+                </div>
+                <button 
+                  type="button"
+                  onClick={() => setShowApplySquadModal(false)}
+                  className="p-2 rounded-full hover:bg-[#eeeeee] text-[#584235] transition-colors active:scale-95 cursor-pointer"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </header>
+
+              {/* Main Content Canvas */}
+              <main className="mt-4 px-5 flex-grow max-w-lg mx-auto w-full overflow-y-auto pb-24">
+                {/* Team Identity Hero Card */}
+                <div className="bg-white/95 backdrop-blur-md rounded-xl p-6 mb-6 shadow-xs overflow-hidden relative group border border-[#E0E0E0]">
+                  <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
+                    <Users className="w-24 h-24 text-[#1a1c1c]" />
+                  </div>
+                  <div className="relative z-10">
+                    <label className="text-xs font-semibold text-[#8b7263] uppercase tracking-wider block mb-1">当前申请小队</label>
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-lg bg-[#ffdbc8] flex items-center justify-center shrink-0">
+                        <ShieldCheck className="w-7 h-7 text-[#733500]" />
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-bold text-[#1a1c1c]">{teamConfig?.teamName || `${effectiveCity || '银川'}代驾小队`}</h2>
+                        <p className="text-sm text-[#5f5e5e]">点击查看当前城市可加入的小队名称</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Application Form */}
+                <form 
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    processApplicationSubmission(() => setShowApplySquadModal(false));
+                  }}
+                  className="flex flex-col gap-3"
+                >
+                  {/* Applicant Name */}
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs font-semibold text-[#584235] px-1" htmlFor="apply-name">
+                      申请人真实姓名 <span className="text-[#ba1a1a]">*</span>
+                    </label>
+                    <div className="relative">
+                      <User className="absolute left-4 top-1/2 -translate-y-1/2 text-[#584235] w-5 h-5" />
+                      <input 
+                        id="apply-name"
+                        type="text"
+                        maxLength={8}
+                        required
+                        value={applyName}
+                        onChange={(e) => setApplyName(e.target.value.slice(0, 8))}
+                        placeholder="请输入真实姓名申请"
+                        className="w-full h-14 pl-12 pr-4 bg-white border border-[#dfc0af] rounded-xl text-base text-[#1a1c1c] placeholder:text-[#c8c6c5] focus:outline-none focus:border-[#ff7d00] focus:ring-2 focus:ring-[#ff7d00]/10 transition-all"
+                      />
+                    </div>
+                    <p className="text-[10px] text-[#5f5e5e] px-1 flex justify-between">
+                      <span>支持最多8个汉字</span>
+                      <span className={applyName.length >= 8 ? 'text-[#ba1a1a] font-bold' : ''}>
+                        {applyName.length}/8
+                      </span>
+                    </p>
+                  </div>
+
+                  {/* Phone Number */}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between px-1">
+                      <label className="text-xs font-semibold text-[#584235]" htmlFor="apply-phone">
+                        申请人手机号码 <span className="text-[#ba1a1a]">*</span>
+                      </label>
+                      <span className="text-[10px] text-[#733500] font-bold bg-[#ffdbc8]/60 px-2 py-0.5 rounded flex items-center gap-1">
+                        <Lock className="w-3 h-3 text-[#733500]" /> 绑定APP账号 (不可修改)
+                      </span>
+                    </div>
+                    <div className="relative">
+                      <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 text-[#584235] w-5 h-5" />
+                      <input 
+                        id="apply-phone"
+                        type="tel"
+                        required
+                        readOnly
+                        pattern="^1[3-9]\d{9}$"
+                        value={userPhone || applyPhone}
+                        placeholder="当前登录账号手机号"
+                        className="w-full h-14 pl-12 pr-4 bg-slate-100/90 border border-[#dfc0af] rounded-xl text-base text-[#1a1c1c] font-mono cursor-not-allowed select-none transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Notes/Remarks */}
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs font-semibold text-[#584235] px-1" htmlFor="apply-remarks">
+                      申请备注
+                    </label>
+                    <div className="relative">
+                      <textarea 
+                        id="apply-remarks"
+                        rows={4}
+                        value={applyRemarks}
+                        onChange={(e) => setApplyRemarks(e.target.value)}
+                        placeholder="例如：尊敬的审核人员你好：我是XXX，手机后四尾尾号（0000），本人身份信息确认填写正确，审核如遇问题！可微信或群消息联系确认本人真实身份"
+                        className="w-full p-4 bg-white border border-[#dfc0af] rounded-xl text-base text-[#1a1c1c] placeholder:text-[#c8c6c5] focus:outline-none focus:border-[#ff7d00] focus:ring-2 focus:ring-[#ff7d00]/10 transition-all resize-none"
+                      />
+                    </div>
+                    <div className="flex gap-2 items-start bg-[#ffdbc8]/30 p-3 rounded-lg border border-[#ffdbc8]">
+                      <Info className="w-5 h-5 text-[#984800] shrink-0 mt-0.5" />
+                      <p className="text-xs text-[#733500] leading-relaxed">
+                        填写越详细，越增加审核成功几率，最好当面审核！
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Submit Button Area */}
+                  <div className="mt-6">
+                    <button 
+                      type="submit"
+                      disabled={isSubmittingApply}
+                      className="w-full h-14 bg-[#ff7d00] hover:bg-[#E67000] active:scale-95 text-white font-semibold text-base rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      {isSubmittingApply ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          <span>正在提交审核...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>确认填写信息正确发起审核</span>
+                          <Send className="w-5 h-5" />
+                        </>
+                      )}
+                    </button>
+                    <p className="text-center mt-4 text-[#5f5e5e] text-sm">
+                      申请后预计在 1个工作日内完成审核
+                    </p>
+                  </div>
+                </form>
+
+                {/* Illustration / Mood Decor */}
+                <div className="mt-8 opacity-50 flex justify-center pb-8">
+                  <div className="w-full max-w-[200px] aspect-video rounded-2xl overflow-hidden grayscale border border-slate-200">
+                    <img 
+                      className="w-full h-full object-cover" 
+                      alt="Driver Onboarding"
+                      src="https://lh3.googleusercontent.com/aida-public/AB6AXuDf-zhNex-S9MvgS1rZPBTNunpkdBBMfphxonE0HYOUgW45YBBVqTil1uv2gFe-gerlxI6Ug7nleI5SEWk6OPnbqHVtDQCTx-Rp0imbysi-CXBT9yythmNMcZ7LuLHmXipP4wdBmeHEXi9fe1zXlBcfBF0M4wiyvuZY6bLg0upbJ4l34ruQl5y1A_rx_ry2sEHBncYnxaeprOzM6-afVViwZJ8WtK1AqUJst0mOA8XOlmkrpdZ6bFmEfA"
+                    />
+                  </div>
+                </div>
+              </main>
+            </>
+          )}
         </div>
       )}
 
@@ -2530,7 +3291,7 @@ export default function HomeView({
           </div>
 
           {/* Page Body Content */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto relative">
             <DispatchValetOrder 
               onShowToast={(msg) => {
                 setLocalAlert({

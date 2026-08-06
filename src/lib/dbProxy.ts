@@ -391,3 +391,34 @@ export function onSnapshot(
     }
   };
 }
+
+export async function clearCollection(colName: string) {
+  const baseUrl = getBaseApiUrl();
+  const url = `${baseUrl}/api/db/clear-collection`;
+
+  // Clean up local storage caches for this collection
+  try {
+    const prefix = `mock_db_${colName}_`;
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(prefix)) {
+        localStorage.removeItem(key);
+      }
+    }
+  } catch (_) {}
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ col: colName })
+    });
+    if (!res.ok) {
+      throw new Error(`DB Clear Collection failed: ${res.statusText}`);
+    }
+    return true;
+  } catch (err) {
+    console.warn("Proxy DB Clear Collection fell back to local storage:", err);
+    return true;
+  }
+}
